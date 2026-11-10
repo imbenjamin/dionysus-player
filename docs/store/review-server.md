@@ -102,8 +102,8 @@ Set through the API on 2026-11-10; rebuild them by hand from this list.
     device control and Live TV are off. Its password is lowercase letters
     only, so it's easier to type on an Apple TV.
   - **No lockout** for `reviewer`. The username is public (the sign-in
-    screen lists it), and so is the hostname, once its certificate appears
-    in Certificate Transparency logs. Anyone could make five bad guesses
+    screen lists it), and the hostname can be guessed or seen in the
+    review notes' path through Apple. Anyone could make five bad guesses
     and lock the account in the middle of a review. A 20-letter random
     password is safe from guessing anyway.
 - **Quick Connect:** on (the Apple TV notes use it).
@@ -130,8 +130,7 @@ Set through the API on 2026-11-10; rebuild them by hand from this list.
 
 ## Checks
 
-`Scripts/review-server/check.sh <base-url>`, with the reviewer password in
-`REVIEW_PASSWORD`, signs in as the reviewer and checks:
+`Scripts/review-server/check.sh <base-url>` signs in as the reviewer and checks:
 
 - the server is set up, and `reviewer` is its only public user;
 - the reviewer's policy, and that admin-only endpoints refuse it;
@@ -140,11 +139,65 @@ Set through the API on 2026-11-10; rebuild them by hand from this list.
   online image or a community rating;
 - deleting an item is refused.
 
-It exits non-zero at the first failure. (Any signed-in user may *read*
+It exits non-zero at the first failure. It takes the reviewer password from
+`REVIEW_PASSWORD`, or else from this Mac's login keychain (service
+`dionysus-review`, account `reviewer`; add it with
+`security add-generic-password -s dionysus-review -a reviewer -w`). (Any signed-in user may *read*
 `/System/Configuration` in Jellyfin, so the script doesn't probe that.)
 
 A forced "replace all metadata and images" refresh of both libraries
 (2026-11-10) left every title, overview and poster unchanged, and each
 served poster matched the `poster.jpg` on disk byte for byte.
 
-<!-- Tunnel: added in Task 4. -->
+## Publishing: the tunnel
+
+The server's public HTTPS address reaches the container through a
+Cloudflare named tunnel, `dionysus-review`, made on 2026-11-10. There's no
+port forwarding, and Caddy isn't involved. **The hostname and its domain
+are kept out of this repo**: they're in this Mac's
+`~/.cloudflared/config.yml`, in App Store Connect's review notes, and in the
+maintainer's local notes. Pass the address to `check.sh` as `<base-url>`.
+
+- **Config:** `~/.cloudflared/config.yml` has one ingress rule, the
+  hostname to `http://127.0.0.1:8097`, and a 404 for anything else. The
+  tunnel credentials are beside it, also outside the repo.
+- **Startup:** a LaunchAgent in `~/Library/LaunchAgents/` (its file name
+  ends `dionysus-review-tunnel.plist`) runs `cloudflared --config ~/.cloudflared/config.yml tunnel run` at login
+  and restarts it if it stops. It logs to
+  `~/Library/Logs/dionysus-review-tunnel.log`. It runs at login, not at
+  boot, because the container needs OrbStack, which starts at login; the
+  Mac logs in automatically.
+- **The other tunnel:** this Mac also runs the account's `flix` tunnel, a
+  system LaunchDaemon (`com.cloudflare.cloudflared`) from a token, with its
+  routes set in the dashboard. Don't run `sudo cloudflared service install`:
+  it would take that daemon's name.
+- **Certificate:** Cloudflare's wildcard certificate for the domain, so the
+  hostname never appears in Certificate Transparency logs. It's still
+  guessable, though, so the reviewer's lockout stays off.
+- **Caching:** a Cloudflare Cache Rule bypasses the cache for this
+  hostname. Without one, Cloudflare would cache video URLs ending `.mp4`.
+
+**Checked on 2026-11-10 through the tunnel:**
+
+- The certificate validates, and `/Users/Public` lists only `reviewer`.
+- The paths of the Mac's other services (`/flix/`, `/qbittorrent/`,
+  `/prowlarr/`, `/sonarr/`, `/radarr/`, `/reboot`) all return 404.
+- A user without remote access is refused when signing in through the
+  tunnel. Jellyfin logs "remote access disabled and user not in local
+  network" with the Mac's public address, and the same sign-in works over
+  loopback.
+- A visitor can't pass as local by sending their own
+  `X-Forwarded-For: 192.168.…`.
+- From an iPhone on cellular, `/web/` shows Jellyfin's sign-in, and the
+  other paths give Jellyfin's empty 404. Safari offers that as an empty
+  download.
+- The router forwards no ports to this Mac. It had a port 53 forward,
+  with nothing listening there, and that was removed on 2026-11-10.
+- After a restart, with nothing started by hand, the Mac logged in, OrbStack
+  brought the container back, the tunnel came up, and `check.sh` over the
+  public URL passed.
+
+One gap: Jellyfin's admin-only endpoints skip the remote-access test for a
+token issued earlier. An admin token minted on this Mac still works through
+the tunnel. Since the admin can't sign in remotely, no such token can be
+issued from outside.

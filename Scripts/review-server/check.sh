@@ -3,15 +3,20 @@
 # to a reviewer: set up, one visible user who can't administer or delete, and
 # a library of only the Creative Commons titles, with no online metadata.
 #
-#   REVIEW_PASSWORD=… Scripts/review-server/check.sh <base-url>
+#   Scripts/review-server/check.sh <base-url>   (REVIEW_PASSWORD optional; see below)
 #
 # Read-only apart from signing in (and the DELETE it expects to be refused).
 # Exits 0 when every check passes, 1 at the first that fails.
 set -euo pipefail
 
-BASE="${1:?usage: REVIEW_PASSWORD=… $0 <base-url>}"
+BASE="${1:?usage: $0 <base-url>}"
 BASE="${BASE%/}"
-: "${REVIEW_PASSWORD:?set REVIEW_PASSWORD to the reviewer password}"
+# The password comes from REVIEW_PASSWORD or, failing that, the login keychain
+# (security add-generic-password -s dionysus-review -a reviewer -w).
+if [[ -z "${REVIEW_PASSWORD:-}" ]]; then
+  REVIEW_PASSWORD="$(security find-generic-password -s dionysus-review -a "${REVIEW_USER:-reviewer}" -w 2>/dev/null)" \
+    || { echo "set REVIEW_PASSWORD, or add the reviewer password to the keychain (service dionysus-review)" >&2; exit 2; }
+fi
 REVIEW_USER="${REVIEW_USER:-reviewer}"
 EXPECTED_TITLES=9   # 7 films + 2 Caminandes episodes
 
