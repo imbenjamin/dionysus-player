@@ -117,7 +117,10 @@ Set through the API on 2026-11-10; rebuild them by hand from this list.
 - **Libraries:** Movies (`/media/Movies`) and Shows (`/media/Shows`). For
   every item type: no metadata fetchers, no image fetchers and no metadata
   savers, with the NFO reader on. Real-time monitoring and automatic refresh
-  are off.
+  are off. Chapter image extraction is on, during scans too (2026-11-10), so
+  Sintel's eight chapters, the only chapters in the library, have
+  thumbnails made locally by FFmpeg. Without them the chapter rows showed
+  placeholders in the store screenshots.
 - **Server-wide metadata options** (these cover people and studios, which
   the library options don't): TheMovieDb, The Open Movie Database,
   TheAudioDB, MusicBrainz and Studio Images are off for every item type.
