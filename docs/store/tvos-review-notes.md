@@ -10,7 +10,10 @@ this repo.
 
 ---
 
-Dionysus Player for Apple TV is a client for Jellyfin, the free, open-source media server that people install on their own hardware. The app has no content, catalogue or service of its own.
+ABOUT THE 5.2.3 REJECTION (9 NOVEMBER 2026)
+This submission answers it. Reviewers now use a server run by the developer, holding only Creative Commons films, in place of the third-party demo server. The attached PDF holds a signed statement from the developer, Jellyfin's licence and API documentation, and the licence for each film.
+
+Dionysus Player plays the user's own video library. It contains no content and offers none: no catalogue, store, channels or recommendations of its own. It plays only files the user already keeps on their own Jellyfin server (the free, open-source media server people install on their own hardware), as VLC and Infuse play files from a user's own network share, or as the Files app opens one.
 
 HOW TO SIGN IN (about a minute with the Siri Remote)
 1. Choose Get Started.
@@ -28,7 +31,7 @@ ACCOUNTS
 The app creates no accounts. People sign in with an account that their own server's administrator made, so there is nothing to register or delete in the app. Sign Out removes the account from the Apple TV.
 
 CONTENT
-On first launch the app asks for the address of the user's own Jellyfin server and their credentials for it. Every request goes to that one address over the Jellyfin REST API. The app connects to no other media service, ships no default server, and offers no way to find or acquire content. The app contacts no metadata, catalogue or discovery service: titles, artwork and ratings come only from the user's server. Responsibility for the content on a server rests with the person who runs it, as for any personal media player. The Apple TV app has no downloads.
+The app ships with no content, no default server and no account. On first launch it asks for the address of the user's own Jellyfin server and their credentials for it, and every request goes to that one address over the Jellyfin REST API. It contacts no other media, metadata, catalogue or discovery service: titles, artwork and descriptions come only from the user's server, and it offers no way to find, buy, rent or acquire content. What a server holds is up to the person who runs it, as with any personal media player. The Apple TV app has no downloads.
 
 NETWORK SECURITY (ATS)
 NSAllowsArbitraryLoads is enabled because the app connects to whatever server address the user enters, commonly a device on their home network reachable only over plain HTTP, or over HTTPS with a self-signed certificate its owner made. Neither is under our control, so an exception-domain list isn't possible. The app talks to nothing but that server.

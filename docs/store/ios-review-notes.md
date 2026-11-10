@@ -10,7 +10,7 @@ this repo.
 
 ---
 
-Dionysus Player is a client for Jellyfin, the free, open-source media server that people install on their own hardware. The app has no content, catalogue or service of its own.
+Dionysus Player plays the user's own video library. It contains no content and offers none: no catalogue, store, channels or recommendations of its own. It plays only files the user already keeps on their own Jellyfin server (the free, open-source media server people install on their own hardware), as VLC and Infuse play files from a user's own network share, or as the Files app opens one.
 
 HOW TO SIGN IN (about a minute)
 1. Choose Get Started.
@@ -34,7 +34,7 @@ ACCOUNTS
 The app creates no accounts. People sign in with an account that their own server's administrator made, so there is nothing to register or delete in the app. Sign Out removes the account from the device.
 
 CONTENT
-On first launch the app asks for the address of the user's own Jellyfin server and their credentials for it. Every request goes to that one address over the Jellyfin REST API. The app connects to no other media service, ships no default server, and offers no way to find or acquire content. The app contacts no metadata, catalogue or discovery service: titles, artwork and ratings come only from the user's server. Responsibility for the content on a server rests with the person who runs it, as for any personal media player.
+The app ships with no content, no default server and no account. On first launch it asks for the address of the user's own Jellyfin server and their credentials for it, and every request goes to that one address over the Jellyfin REST API. It contacts no other media, metadata, catalogue or discovery service: titles, artwork and descriptions come only from the user's server, and it offers no way to find, buy, rent or acquire content. What a server holds is up to the person who runs it, as with any personal media player.
 
 DOWNLOADS
 A download is an offline copy of a file already on the user's own server, made by that server as a device-sized transcode over the same signed-in session used for streaming, so nobody can download anything they couldn't already play. Downloads stay in the app's private storage: there is no file sharing, Files access, share sheet or export, and they are removed with the app. They are an offline playback cache, not files to extract or redistribute.
