@@ -772,8 +772,12 @@ for the PR plans too (a later decision, not made).
   numbers with `python3 Scripts/ci/flake-report.py --since YYYY-MM-DD [--until
   YYYY-MM-DD] [--workflow pr-checks.yml]` (needs `gh`; `--no-logs` skips the
   log downloads): runs green first time and rerun, failed jobs, failing tests
-  and infrastructure signatures. The "Flake report" workflow runs it weekly
-  (see "Flaky tests").
+  and infrastructure signatures, then the tests that passed only on a retry
+  or were rerun after the Simulator shut down, read from the `Flaky test` and
+  `Rerun after a crash` warnings in every test job's log, green ones
+  included, with how many each job had. A
+  retry keeps its job green, so a night of absorbed failures shows only
+  there. The "Flake report" workflow runs it weekly (see "Flaky tests").
 - **No test diagnostics** (`-collect-test-diagnostics never`, for the plan and
   the warm-up): after a failure xcodebuild collected a sysdiagnose from the
   Simulator, and in 18 of those 84 jobs gave up after 10 minutes ("Failure
@@ -858,8 +862,9 @@ fails every attempt is broken, not flaky.
   comment.
 - **The weekly report.** "Flake report" (`flake-report.yml`, Mondays 06:00
   UTC, or dispatched with a number of `days`) writes
-  `Scripts/ci/flake-report.py`'s table to its run summary and posts nothing
-  elsewhere.
+  `Scripts/ci/flake-report.py`'s tables to its run summary and posts nothing
+  elsewhere. Read "Passed only on a retry" as well as the failures: a test
+  near the top of it every week is flaky, however green its jobs.
 
 ### Quarantined
 
