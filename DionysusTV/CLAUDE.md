@@ -578,14 +578,14 @@ source that fails is left out and the rest shown.
   (`DateLastMediaAdded`), not its own `DateCreated`. Unscoped,
   `/Items/Latest` draws on every library, music and books included, and on
   the demo server it once answered four music albums.
-- **Its actions are deep links** (`TVDeepLink`, `TVDeepLinkRouter`,
-  `TVMainView.apply(_:)`): the display action (Select, More Info) opens the
+- **Its actions are deep links** (the shared `DeepLink` and `DeepLinkRouter`
+  in `Core/DeepLinks/`, applied by `TVMainView.apply(_:)`): the display action (Select, More Info) opens the
   title's page (`dionysus://item/<id>?server=<id>`), the play action (Play,
   Play/Pause) plays over that page (`dionysus://play/…`), so Menu lands on
   the page. A link waits while the session restores and is dropped when
   signed out or for another server. Applying one takes a few awaits, and
   after each it stops unless the same user is still signed in
-  (`TVDeepLinkRouter.canFinish`): returning after a while, tvOS can hand the
+  (`DeepLinkRouter.canFinish`): returning after a while, tvOS can hand the
   app the link before Who's Watching? signs out.
 
 - **The text is drawn into the art.** tvOS 27 draws no text over a

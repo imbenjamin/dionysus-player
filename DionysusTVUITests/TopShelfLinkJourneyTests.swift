@@ -1,13 +1,14 @@
 import XCTest
 
-/// Top Shelf links (M6), opened as tvOS opens them.
+/// Top Shelf links (M6), opened as tvOS opens them, and the same links
+/// typed by hand without a server (#406).
 final class TopShelfLinkJourneyTests: TVUITestCase {
-    private func link(_ action: String, _ itemID: String, server: String = UITestFixtureIdentity.serverAddress) -> URL {
+    private func link(_ action: String, _ itemID: String, server: String? = UITestFixtureIdentity.serverAddress) -> URL {
         var components = URLComponents()
         components.scheme = "dionysus"
         components.host = action
         components.path = "/" + itemID
-        components.queryItems = [URLQueryItem(name: "server", value: server)]
+        components.queryItems = server.map { [URLQueryItem(name: "server", value: $0)] }
         return components.url!
     }
 
@@ -38,6 +39,14 @@ final class TopShelfLinkJourneyTests: TVUITestCase {
         let title = app.descendants(matching: .any)[A11yID.TV.Detail.title]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertFalse(title.label.contains(UITestFixtureIdentity.seriesName), "The page is the movie's, not the episode's show")
+    }
+
+    /// `server=` is optional (#406): a link typed for debugging applies to
+    /// whichever server is signed in.
+    func test_itemLink_withNoServer_opensTheDetailPage() {
+        let app = launchAtHome()
+        app.open(link("item", UITestFixtureIdentity.primaryMovieID, server: nil))
+        XCTAssertTrue(app.buttons[A11yID.TV.Detail.play].waitForExistence(timeout: 10))
     }
 
     func test_linkForAnotherServer_isIgnored() {

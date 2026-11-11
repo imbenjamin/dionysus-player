@@ -86,8 +86,8 @@ final class TopShelfCarouselTests: XCTestCase {
         XCTAssertTrue(art.isFileURL, "The composited art, not the plain backdrop: \(art)")
         XCTAssertTrue(art.path.hasPrefix(directory.path))
         XCTAssertNil(item.imageURL(for: .screenScale1x), "2x only: setting both doubles the system's fetches")
-        XCTAssertEqual(item.displayAction.flatMap { TVDeepLink(url: $0.url) }, TVDeepLink(action: .item, itemID: "m1", serverID: "http://jf.local"))
-        XCTAssertEqual(item.playAction.flatMap { TVDeepLink(url: $0.url) }, TVDeepLink(action: .play, itemID: "m1", serverID: "http://jf.local"))
+        XCTAssertEqual(item.displayAction.flatMap { DeepLink(url: $0.url) }, DeepLink(.item(id: "m1", options: .init()), serverID: "http://jf.local"))
+        XCTAssertEqual(item.playAction.flatMap { DeepLink(url: $0.url) }, DeepLink(.play(id: "m1", options: .init()), serverID: "http://jf.local"))
     }
 
     /// Art that can't be drawn leaves the plain backdrop, never an empty frame.

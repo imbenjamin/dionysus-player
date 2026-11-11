@@ -998,6 +998,8 @@ the detail.
 | File | Pins |
 | --- | --- |
 | `App/AppStateTests` | The phase machine, sign-in and silent sign-in, sign-out, offline launch, and tvOS's Who's Watching? launches |
+| `Core/DeepLinks/DeepLinkTests` | `dionysus://` links (#406): every destination and parameter, start-time formats, what a malformed link or unreadable parameter does, DEBUG-only overrides, and that a built link parses back to itself (the Top Shelf's links unchanged) |
+| `Core/DeepLinks/DeepLinkRouterTests` | Whether a link applies now: waiting on a restoring session, refusing when signed out or for another server or user, stopping once the user changes mid-apply |
 | `Core/Downloads/DownloadFileStoreTests` | Download file paths, sidecars and cleanup |
 | `Core/Downloads/DownloadManagerTests` | Delete (cancelling the task), the queue, one background session, retry budget and error classification |
 | `Core/Downloads/DownloadManagerBackgroundTests` | Adopting in-flight transfers after a relaunch, answering a background relaunch's completion handler, trickplay sheets, a retry that succeeds |
