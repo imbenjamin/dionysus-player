@@ -636,6 +636,10 @@ source that fails is left out and the rest shown.
   `loadTopShelfContent()` override doesn't compile under Swift 6, so the
   provider uses the completion-handler one. Art is set at `.screenScale2x`
   only, the scale Apple TV renders (Sodalite).
+- **The provider only carries the reply**: the load and the carousel are
+  `TopShelfCarousel`'s, in `DionysusTV/TopShelf` so the app's unit tests run
+  it over the stub server (`TopShelfCarouselTests`, TQ-25). Put new shelf
+  logic there, not in `ContentProvider`, which no test reaches.
 - **Each target has its own privacy manifest** (root `CLAUDE.md`): the app's
   declares UserDefaults and system boot time (the player's `systemUptime`
   clocks), the extension's UserDefaults.
