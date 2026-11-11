@@ -64,6 +64,55 @@ class ParseLogTests(unittest.TestCase):
         self.assertIsNone(signature)
 
 
+# The warnings xcresult_summary.py wrote in a tvOS shard on 2026-11-11 (job
+# 130243545987), as the runner logged them.
+RETRY_WARNINGS = (
+    "##[warning]AccessibilityAuditTests/test_fullDetails() passed on attempt 2 of 2\n"
+    "##[warning]AccessibilityAuditTests/test_playerAccessibleTransportPanel() passed on attempt 2 of 2\n"
+    "##[warning]AccessibilityAuditTests/test_libraryGridOpenList() was killed by the Simulator "
+    "shutting down, and passed when run again\n"
+)
+
+
+class ParseRetriesTests(unittest.TestCase):
+    def test_realWarnings_splitIntoRetriedAndRerun(self):
+        retried, rerun = report.parse_retries(stamped(RETRY_WARNINGS))
+        self.assertEqual(retried, [
+            "AccessibilityAuditTests/test_fullDetails()",
+            "AccessibilityAuditTests/test_playerAccessibleTransportPanel()",
+        ])
+        self.assertEqual(rerun, ["AccessibilityAuditTests/test_libraryGridOpenList()"])
+
+    def test_theRawWorkflowCommand_countsToo(self):
+        log = "::warning title=Flaky test::A/b() passed on attempt 3 of 3\n"
+        self.assertEqual(report.parse_retries(log), (["A/b()"], []))
+
+    def test_aTestWarnedTwice_countsOncePerLog(self):
+        log = "##[warning]A/b() passed on attempt 2 of 2\n" * 2
+        self.assertEqual(report.parse_retries(log)[0], ["A/b()"])
+
+    def test_otherWarnings_andTheScriptsOwnSource_dontCount(self):
+        log = stamped(
+            "##[warning]'value' was deprecated in iOS 16.0\n"
+            'echo "::warning::Couldn\'t read $crash_rerun with xcresulttool"\n'
+            "  passed on attempt 2 of 2\n"
+        )
+        self.assertEqual(report.parse_retries(log), ([], []))
+
+
+class RanTestsTests(unittest.TestCase):
+    def test_aJobRanTests_whenItsTestStepRan(self):
+        def job(*steps):
+            return {"steps": [{"name": n, "conclusion": c} for n, c in steps]}
+
+        self.assertTrue(report.ran_tests(job(("Check out", "success"), ("Build and test", "failure"))))
+        self.assertTrue(report.ran_tests(job(("Build and test", "success"))))
+        self.assertFalse(report.ran_tests(job(("Build and test", "skipped"))))
+        self.assertFalse(report.ran_tests(job(("Build and test", None))))
+        self.assertFalse(report.ran_tests(job(("Split the test classes", "success"))))
+        self.assertFalse(report.ran_tests({"steps": None}))
+
+
 def run(workflow, conclusion, attempt):
     return {"workflowName": workflow, "conclusion": conclusion, "attempt": attempt,
             "databaseId": 1, "createdAt": "2026-10-20T00:00:00Z"}
@@ -103,6 +152,28 @@ class RenderTests(unittest.TestCase):
         self.assertLess(text.index("job b"), text.index("job a"))
         self.assertIn("| T.x() | 2 |", text)
         self.assertIn("### Infrastructure signatures\n\nNone.", text)
+
+    def test_retries_listTheTestsAndTheJobsWithTheMostFirst(self):
+        retries = report.Retries()
+        retries.add("TV part 1", stamped(RETRY_WARNINGS))
+        retries.add("TV part 2", "##[warning]AccessibilityAuditTests/test_fullDetails() passed on attempt 2 of 2")
+        retries.add("iPhone", "Build succeeded")
+        text = report.render("w", {}, collections.Counter(), collections.Counter(),
+                             collections.Counter(), retries)
+        self.assertIn("### Passed only on a retry", text)
+        self.assertIn("| AccessibilityAuditTests/test_fullDetails() | 2 |", text)
+        self.assertIn("### Rerun after the Simulator shut down", text)
+        self.assertIn("| AccessibilityAuditTests/test_libraryGridOpenList() | 1 |", text)
+        self.assertIn("| TV part 1 | 2 | 1 |", text)
+        self.assertIn("| TV part 2 | 1 | 0 |", text)
+        self.assertLess(text.index("| TV part 1 |"), text.index("| TV part 2 |"))
+        self.assertNotIn("iPhone", text)
+
+    def test_noRetries_saysNone(self):
+        text = report.render("w", {}, collections.Counter(), collections.Counter(),
+                             collections.Counter(), report.Retries())
+        self.assertIn("### Passed only on a retry\n\nNone.", text)
+        self.assertIn("### Retries by job\n\nNone.", text)
 
     def test_noLogs_saysWhatIsMissing(self):
         text = report.render("w", {}, collections.Counter(), None, None)
