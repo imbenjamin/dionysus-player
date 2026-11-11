@@ -16,6 +16,10 @@ private enum MainTab: Hashable {
 /// each with its own navigation stack.
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.pendingDeepLink) private var pendingLink
+    @Environment(\.deepLinkApplied) private var deepLinkApplied
+    /// The query the last `dionysus://search` link asked for (#406).
+    @State private var linkedSearch: LinkedSearchQuery?
     @State private var profileTabIcon: UIImage?
     /// Bound (rather than the plain declarative `NavigationLink(value:)` the
     /// other two tabs use) so `SearchView` can push a result from inside a
@@ -96,7 +100,7 @@ struct MainTabView: View {
             .tag(MainTab.home)
 
             NavigationStack(path: $searchPath) {
-                SearchView(path: $searchPath, resetToken: searchResetToken)
+                SearchView(path: $searchPath, resetToken: searchResetToken, linkedQuery: linkedSearch)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
             }
             .environment(\.popNavigationToRoot) { searchPath.removeAll() }
@@ -181,6 +185,9 @@ struct MainTabView: View {
         // 2026-10-26).
         .tint(TabBarTintModel.shared.tint)
         .task(id: appState.currentUser?.id) { await loadProfileTabIcon() }
+        .onChange(of: pendingLink, initial: true) { _, link in
+            if let link { apply(link) }
+        }
         // Cold launch can reach `.main` with `currentUser` still `nil` —
         // resumed from a cached session because the server was
         // unreachable at launch (see `AppState.start()`). The Profile tab
@@ -193,6 +200,34 @@ struct MainTabView: View {
             guard wasOffline, !isOffline, appState.currentUser == nil,
                   let credentials = appState.sessionStore.credentials else { return }
             Task { try? await appState.signIn(username: credentials.username, password: credentials.password ?? "") }
+        }
+    }
+
+    /// A `dionysus://` link (#406), already cleared for this session by
+    /// `RootView`: whatever is presented closes first (the player reporting
+    /// its stop), then the tabs move as `DeepLinkNavigation` plans.
+    private func apply(_ link: DeepLink) {
+        deepLinkApplied()
+        guard let plan = DeepLinkNavigation.plan(for: link.destination) else {
+            ToastCenter.shared.post(.notice(DeepLink.cantOpenMessage))
+            return
+        }
+        DeepLinkPlaybackCue.shared.clear()
+        let userID = appState.signedInUserID
+        Task { @MainActor in
+            await DeepLinkPresentations.clear()
+            guard let userID, DeepLinkRouter.canFinish(
+                appliedFor: userID, isSignedIn: appState.phase == .main, signedInUserID: appState.signedInUserID
+            ) else { return }
+            switch plan.tab {
+            case .home: selectedTab = .home
+            case .search: selectedTab = .search
+            case .downloads: selectedTab = .downloads
+            case .profile: selectedTab = .profile
+            }
+            if let path = plan.homePath { homePath = path }
+            if let query = plan.searchQuery { linkedSearch = LinkedSearchQuery(query: query) }
+            if let itemID = plan.playsItemID { DeepLinkPlaybackCue.shared.post(itemID: itemID) }
         }
     }
 

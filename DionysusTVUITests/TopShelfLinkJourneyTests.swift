@@ -49,6 +49,20 @@ final class TopShelfLinkJourneyTests: TVUITestCase {
         XCTAssertTrue(app.buttons[A11yID.TV.Detail.play].waitForExistence(timeout: 10))
     }
 
+    /// Signed out, a link waits through sign-in and then opens (#406;
+    /// before, it was dropped).
+    func test_itemLink_whileSignedOut_opensAfterSignIn() {
+        let app = launch()
+        app.open(link("item", UITestFixtureIdentity.primaryMovieID, server: nil))
+        connectToDiscoveredServer(app)
+        let user = app.buttons[A11yID.TV.Onboarding.user(UITestFixtureIdentity.passwordlessUserID)]
+        XCTAssertTrue(user.waitForExistence(timeout: 5))
+        press(.right)
+        XCTAssertTrue(waitForFocus(user))
+        press(.select)
+        XCTAssertTrue(app.buttons[A11yID.TV.Detail.play].waitForExistence(timeout: 10), "The linked title, once signed in")
+    }
+
     func test_linkForAnotherServer_isIgnored() {
         let app = launchAtHome()
         app.open(link("item", UITestFixtureIdentity.primaryMovieID, server: "http://elsewhere.invalid"))

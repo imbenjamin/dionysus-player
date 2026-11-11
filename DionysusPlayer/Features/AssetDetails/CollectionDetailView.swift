@@ -100,6 +100,8 @@ struct CollectionDetailView: View {
             }
             .duoVerticalPreferred()
         }
+        // A `dionysus://play` link (#406) plays what this page's Play would.
+        .playsDeepLinkCue(viewModel) { playbackRequest = $0 }
         .fullScreenCover(
             item: $playbackRequest,
             // Registered via `viewModel.track(_:)` — see its doc comment —

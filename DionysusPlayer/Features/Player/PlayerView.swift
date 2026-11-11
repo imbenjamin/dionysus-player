@@ -439,6 +439,11 @@ struct PlayerView: View {
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height }
             action: { isLandscapeWindow = $0 }
         .task { await setUpIfNeeded() }
+        // A link arriving mid-playback (#406) closes the player as its close
+        // button does, so the stop is reported (`PlayerCloseRequest`).
+        .onAppear { PlayerCloseRequest.shared.playerAppeared() }
+        .onDisappear { PlayerCloseRequest.shared.playerDisappeared() }
+        .onChange(of: PlayerCloseRequest.shared.token) { Task { await close() } }
         // Controls fade only while `.playing`; every other state cancels a
         // pending fade and forces them back on screen. That covers a mid-scrub
         // `.seeking` spell landing as a stale timer was about to fire, and

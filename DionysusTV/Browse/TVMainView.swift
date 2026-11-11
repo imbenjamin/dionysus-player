@@ -253,8 +253,8 @@ struct TVMainView: View {
     /// A link to a title (the Top Shelf's, M6): Home with its path dropped,
     /// the title's page pushed over it, and for Play the player over that
     /// page, as the hero's Play does, so Menu lands on the page. A player
-    /// already up closes first, reporting its stop. Other destinations are
-    /// dropped for now (#406 adds them).
+    /// already up closes first, reporting its stop. Other destinations
+    /// aren't opened here yet (#406 adds them), and say so.
     private func apply(_ link: DeepLink) {
         deepLinkApplied()
         let itemID: String
@@ -262,7 +262,9 @@ struct TVMainView: View {
         switch link.destination {
         case .item(let id, _): (itemID, plays) = (id, false)
         case .play(let id, _): (itemID, plays) = (id, true)
-        case .home, .search, .downloads, .profile, .quickConnectApproval, .library, .downloaded, .serverSetup: return
+        case .home, .search, .downloads, .profile, .quickConnectApproval, .library, .downloaded, .serverSetup:
+            ToastCenter.shared.post(.notice(DeepLink.cantOpenMessage))
+            return
         }
         TVPlayerPresenter.dismissPlayer()
         if nav.destination != .home || !nav.path.isEmpty { select(.home) }

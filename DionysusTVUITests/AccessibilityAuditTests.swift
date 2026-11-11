@@ -408,13 +408,6 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
-    private func connectToDiscoveredServer(_ app: XCUIApplication) {
-        let server = app.buttons[A11yID.TV.Onboarding.serverRow(UITestFixtureIdentity.discoveredServerID)]
-        XCTAssertTrue(waitForFocus(server, timeout: 10))
-        press(.select)
-        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
-    }
-
     private func audit(_ app: XCUIApplication) throws {
         try app.performAccessibilityAudit(for: Self.auditedTypes) { Self.isKnownAcceptable($0) }
     }

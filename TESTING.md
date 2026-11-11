@@ -519,6 +519,14 @@ it; everything in the modal is still audited.
    the field focused, and the pad comes back with the next dialog, eating
    that dialog's tap too: a button that opens a dialog over a field drops
    its focus first (`DownloadsQualityLadderView`'s Reset All).
+8. **A `dionysus://` link (#406) reaches a running app through
+   `XCUIDevice.shared.system.open`.** `XCUIApplication.open` relaunches the
+   app with the link (seen in its log), so the link lands during a cold
+   launch's restore: right for a cold-launch journey, wrong for anything
+   about the app already running (`DeepLinkJourneyTests.openLink`). A
+   toast can be gone before either returns, so read what it announced
+   under `-UITestSimulateVoiceOver` (`HomeScreen.lastAnnouncement`) rather
+   than the capsule.
 
 **An intermittent failure may be a crash, not flake.** The tell is an empty
 `app.debugDescription` (`Query chain: Find: Target Application`) with
@@ -999,7 +1007,7 @@ the detail.
 | --- | --- |
 | `App/AppStateTests` | The phase machine, sign-in and silent sign-in, sign-out, offline launch, and tvOS's Who's Watching? launches |
 | `Core/DeepLinks/DeepLinkTests` | `dionysus://` links (#406): every destination and parameter, start-time formats, what a malformed link or unreadable parameter does, DEBUG-only overrides, and that a built link parses back to itself (the Top Shelf's links unchanged) |
-| `Core/DeepLinks/DeepLinkRouterTests` | Whether a link applies now: waiting on a restoring session, refusing when signed out or for another server or user, stopping once the user changes mid-apply |
+| `Core/DeepLinks/DeepLinkRouterTests` | Whether a link applies now: waiting on a restoring session, holding it through sign-in (10 minutes at most, not across a server change), refusing it for another server or user, stopping once the user changes mid-apply |
 | `Core/Downloads/DownloadFileStoreTests` | Download file paths, sidecars and cleanup |
 | `Core/Downloads/DownloadManagerTests` | Delete (cancelling the task), the queue, one background session, retry budget and error classification |
 | `Core/Downloads/DownloadManagerBackgroundTests` | Adopting in-flight transfers after a relaunch, answering a background relaunch's completion handler, trickplay sheets, a retry that succeeds |
@@ -1045,7 +1053,7 @@ the detail.
 | `Core/Playback/StreamFormatDescriptionTests` | Stream format labels for Playback Stats |
 | `Features/AssetDetails/AssetActionTargetsTests` | What Add to Playlist and Delete offer on a detail page, and their words (iOS and the Apple TV) |
 | `Features/AssetDetails/AddToPlaylistViewModelTests` | The Add to Playlist picker: editable destinations, adds, creating one |
-| `Features/AssetDetails/AssetDetailViewModelTests` | Detail pages by kind: loading, play targets, seasons, watched and favourite, deletion, playlists |
+| `Features/AssetDetails/AssetDetailViewModelTests` | Detail pages by kind: loading, play targets (a play link's too), seasons, watched and favourite, deletion, playlists |
 | `Features/Collection/CollectionGridViewModelTests` | Grid queries, sorting and the cascading filters |
 | `Features/Downloads/DownloadsRowCaptionTests` | A download row's caption |
 | `Features/Downloads/DownloadsViewModelTests` | Grouping and bulk actions on the Downloads tab |
@@ -1072,6 +1080,7 @@ the detail.
 | `Shared/Components/OnboardingLayoutTests` | Onboarding's composition per measured device size |
 | `Shared/Components/ToastCenterTests` | Toasts |
 | `Shared/DeviceTiltObserverTests` | Tilt smoothing and the sensor's reference counting |
+| `Shared/Navigation/DeepLinkNavigationTests` | Where each `dionysus://` destination lands on iPhone and iPad: tab, Home's stack, Search's query, the play cue |
 | `Shared/Navigation/TabBarTintTests` | Which tab bar placements let Home's hero pick the tab tint (iPad's top bar, not a Duo's) |
 
 ### Apple TV unit tests (`DionysusTVTests/`)
@@ -1140,6 +1149,7 @@ the detail.
 | `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), the Cast & Crew and Details tabs, deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
+| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a title's page, playing over it (a show, the player closing first), a missing or unplayable title, another server, an unreadable link, a cold launch, a link held through sign-in |
 | `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
 | `DownloadsJourneyTests` | Downloading to completion (an item, or a season at once), the row updating while open, bulk delete, cancelling a selection, and offline after a relaunch with `offline`: a downloaded movie and episode, and a show's page (one season flat, two as seasons) and a season's, each opened and played |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
@@ -1182,3 +1192,4 @@ the detail.
 | `ShowDetailJourneyTests` | A show's page: Play, season tabs, episodes, badges |
 | `SidebarJourneyTests` | The sidebar: open, close, choose, fold, retry |
 | `TileShapeJourneyTests` | Tile shapes on screen |
+| `TopShelfLinkJourneyTests` | `dionysus://item` and `play` links, as the Top Shelf opens them and typed without a server: over Home, over a playing title, a missing title, another server, and held through sign-in |
