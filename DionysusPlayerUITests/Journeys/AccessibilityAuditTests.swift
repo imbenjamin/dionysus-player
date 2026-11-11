@@ -202,6 +202,37 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    /// A box set's page: no Play, and a grid of its titles in place of a
+    /// season picker or a playlist's rows (TQ-23).
+    func testBoxSetDetailHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openLibrary(UITestFixtureIdentity.boxSetsLibraryID)
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.boxSetID)
+        collection.card(UITestFixtureIdentity.boxSetID).tap()
+        AssetDetailScreen(app: app).favoriteButton.awaitExistence("the box set's favourite button")
+
+        try auditCurrentScreen()
+    }
+
+    /// A playlist's page, with its rows (TQ-23).
+    func testPlaylistDetailHasNoAccessibilityIssues() throws {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openLibrary(UITestFixtureIdentity.playlistsLibraryID)
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.playlistID)
+        collection.card(UITestFixtureIdentity.playlistID).tap()
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.playlistRow("playlist-entry-1").awaitExistence("the playlist's first row")
+
+        try auditCurrentScreen()
+    }
+
     /// The "Add to Playlist" picker, audited as its own screen because it is
     /// one — a presented sheet with its own navigation stack, toolbar and
     /// list, none of which the detail-page audits above can see.
@@ -317,7 +348,94 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    /// The track picker's first page: a row each for Audio and Subtitles
+    /// (TQ-23).
+    func testTrackPickerHasNoAccessibilityIssues() throws {
+        let player = openPlayer()
+        player.tracksButton.tap()
+        player.trackNavigationRow("subtitle").awaitExistence("the Subtitles row")
+
+        try auditCurrentScreen()
+    }
+
+    /// The Audio page: a row per track and the Audio Offset row. The
+    /// Subtitles page is the same view, with an Off row in place of the
+    /// offset's (TQ-23).
+    func testAudioTrackPageHasNoAccessibilityIssues() throws {
+        let player = openPlayer()
+        player.tracksButton.tap()
+        player.trackNavigationRow("audio").tap()
+        player.trackOption("audio", 1).awaitExistence("the second audio track")
+
+        try auditCurrentScreen()
+    }
+
+    /// The fixture movie has four chapters (TQ-23).
+    func testChapterPickerHasNoAccessibilityIssues() throws {
+        let player = openPlayer()
+        player.chaptersButton.tap()
+        player.chapterOption(1).awaitExistence("the second chapter")
+
+        try auditCurrentScreen()
+    }
+
+    /// Stats for Nerds on its first page (TQ-23).
+    func testPlaybackStatsHaveNoAccessibilityIssues() throws {
+        let player = openPlayer()
+        player.statsButton.tap()
+        player.statsPageIndicator.awaitExistence("the stats panel's page counter")
+
+        try auditCurrentScreen()
+    }
+
     // MARK: - Downloads and Profile
+
+    /// A movie and a show, so both kinds of row are audited (TQ-23).
+    func testDownloadsListHasNoAccessibilityIssues() throws {
+        launch()
+        download(UITestFixtureIdentity.primaryMovieID)
+        launch(resetsState: false)
+        downloadSeasons(["season-1"])
+        TabBar(app: app).downloads.tap()
+        let downloads = DownloadsScreen(app: app)
+        downloads.standaloneRow(itemID: UITestFixtureIdentity.primaryMovieID).awaitExistence("the movie's row")
+        downloads.showRow(seriesID: UITestFixtureIdentity.seriesID).awaitExistence("the show's row")
+
+        try auditCurrentScreen()
+    }
+
+    /// A downloaded movie's page, offline, where it's used (TQ-23). An
+    /// episode's downloaded page is the same view.
+    func testDownloadedMoviePageHasNoAccessibilityIssues() throws {
+        launch()
+        download(UITestFixtureIdentity.primaryMovieID)
+        relaunchOffline().standaloneRow(itemID: UITestFixtureIdentity.primaryMovieID)
+            .awaitExistence("the movie's row, offline").tap()
+        app.buttons[A11yID.Downloads.playButton].awaitExistence("the downloaded page's Play")
+
+        try auditCurrentScreen()
+    }
+
+    /// A downloaded show's page with two seasons, then a season's page,
+    /// offline (TQ-23). One test for both: downloading two seasons is the
+    /// slow part, and each page is reached only through the other.
+    func testDownloadedShowAndSeasonPagesHaveNoAccessibilityIssues() throws {
+        launch()
+        downloadSeasons(["season-1", "season-2"])
+        let downloads = relaunchOffline()
+        downloads.showRow(seriesID: UITestFixtureIdentity.seriesID)
+            .awaitExistence("the show's row, offline").tap()
+        let season = downloads.seasonRow(seasonID: "season-2")
+        season.awaitExistence("Season 2 on the show's page")
+
+        try auditCurrentScreen()
+
+        season.tap()
+        downloads.episodeRow(itemID: UITestFixtureIdentity.episodeID(season: 2, episode: 1))
+            .awaitExistence("Season 2's first episode on the season's page")
+
+        try auditCurrentScreen()
+    }
 
     func testDownloadsEmptyStateHasNoAccessibilityIssues() throws {
         launch()
@@ -352,6 +470,19 @@ final class AccessibilityAuditTests: UITestCase {
         // Below iOS 26 there's no Spatial Audio section, so the list is short
         // enough that the Audio Offset stepper is still on screen here.
         try auditCurrentScreen(besideStepper: true)
+    }
+
+    /// A sheet on iPhone, which on a closed iPhone Duo stops short of the
+    /// top; a pane beside the list on iPad (TQ-23).
+    func testAccountDetailsHaveNoAccessibilityIssues() throws {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openAccountDetails()
+        app.buttons[A11yID.Profile.signOutButton].awaitExistence("the Sign Out row")
+        ProfileScreen(app: app).quickConnectRow.awaitExistence("the Quick Connect row")
+
+        try auditCurrentScreen(underModal: true)
     }
 
     func testDownloadsSettingsHaveNoAccessibilityIssues() throws {
@@ -508,6 +639,18 @@ final class AccessibilityAuditTests: UITestCase {
 
 @MainActor
 private extension AccessibilityAuditTests {
+    /// The fixture movie playing, its controls pinned on screen.
+    func openPlayer() -> PlayerScreen {
+        launch()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        AssetDetailScreen(app: app).play()
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        return player
+    }
+
     /// Runs the full audit against whatever is currently on screen,
     /// suppressing only the documented exceptions below.
     /// `underModal`: something modal is up that leaves the screen behind it

@@ -142,28 +142,6 @@ final class DownloadsJourneyTests: UITestCase {
 
     // MARK: - Offline (TQ-05)
 
-    /// Downloads `itemID` from its detail page, opened from Home, answering
-    /// the audio-track prompt when the item has more than one track.
-    private func download(_ itemID: String) {
-        let home = HomeScreen(app: app)
-        home.awaitLoaded()
-        home.openItem(itemID)
-        let detail = AssetDetailScreen(app: app)
-        detail.awaitLoaded()
-        detail.downloadButton.tap()
-        let audioChoice = app.buttons["ENG EAC3"]
-        if audioChoice.waitForExistence(timeout: 3) { audioChoice.tap() }
-        detail.awaitDownloadCompletion()
-    }
-
-    /// Relaunches with the server unreachable, keeping the download, and
-    /// opens the Downloads tab.
-    private func relaunchOffline() -> DownloadsScreen {
-        launch(scenario: "offline", resetsState: false)
-        TabBar(app: app).downloads.awaitExistence("the Downloads tab, offline").tap()
-        return DownloadsScreen(app: app)
-    }
-
     /// The point of a download: with no server, the movie's downloaded page
     /// opens from the Downloads tab and plays.
     func testADownloadedMovieOpensAndPlaysOffline() {
@@ -196,25 +174,6 @@ final class DownloadsJourneyTests: UITestCase {
         app.buttons[A11yID.Downloads.playButton].awaitExistence("the downloaded episode's Play").tap()
 
         PlayerScreen(app: app).awaitControls()
-    }
-
-    /// Opens the show's page from the Shows library and downloads every
-    /// season in `seasonIDs` through the season download button, which never
-    /// prompts. The first season is the one the page opens on.
-    private func downloadSeasons(_ seasonIDs: [String]) {
-        let home = HomeScreen(app: app)
-        home.awaitLoaded()
-        home.openItem(UITestFixtureIdentity.showsLibraryID)
-        let collection = CollectionScreen(app: app)
-        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
-        collection.card(UITestFixtureIdentity.seriesID).tap()
-
-        let detail = AssetDetailScreen(app: app)
-        detail.awaitLoaded()
-        for (index, seasonID) in seasonIDs.enumerated() {
-            if index > 0 { detail.selectSeason(seasonID) }
-            detail.downloadSeasonAndWait()
-        }
     }
 
     /// One season downloaded: the Downloads tab lists the show, whose page
