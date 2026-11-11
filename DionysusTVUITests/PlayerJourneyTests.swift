@@ -78,13 +78,15 @@ final class PlayerJourneyTests: TVUITestCase {
     /// Play/Pause pauses, and the transport stays up while paused, past the
     /// point it would otherwise have faded.
     func test_playPause_pauses_andTheTransportStaysUp() {
-        let app = openPlayer(extraArguments: [])
+        let app = openPlayer(extraArguments: ["-UITestShortPlayerTimers", "YES"])
         let elapsed = app.staticTexts[A11yID.TV.Player.elapsed]
-        XCTAssertTrue(elapsed.waitForExistence(timeout: 10))
+        // Up or already faded, Play/Pause pauses and brings it up.
         press(.playPause)
+        XCTAssertTrue(elapsed.waitForExistence(timeout: 3))
         let pausedAt = steadyLabel(of: elapsed)
-        // Proves the transport stays up: past `TVTransportChrome.visibleDuration` (4s).
-        Thread.sleep(forTimeInterval: 6)
+        // Proves the transport stays up: past `TVPlayerTiming.chromeFade`
+        // (1.5 s under `-UITestShortPlayerTimers`), with a second to spare.
+        Thread.sleep(forTimeInterval: 2.5)
         XCTAssertTrue(elapsed.exists, "The transport should stay up while paused")
         XCTAssertEqual(elapsed.label, pausedAt, "Nothing should play while paused")
     }

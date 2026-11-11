@@ -245,7 +245,14 @@ struct TVPlayerInputState: Equatable {
 /// The spec's timings (Benjamin, 2026-10-06), tuned against Infuse on the
 /// Bedroom Apple TV (2026-10-08).
 enum TVPlayerTiming {
-    static let chromeFade: TimeInterval = 4
+    /// The transport fades this long after the last press (1.5 s under
+    /// `-UITestShortPlayerTimers`, for journeys proving it doesn't fade).
+    static var chromeFade: TimeInterval {
+        #if DEBUG
+        if UITestConfiguration.shortensPlayerTimers { return 1.5 }
+        #endif
+        return 4
+    }
     static let holdThreshold: TimeInterval = 0.4
     static let skipInterval: TimeInterval = 10
     /// The panel closes after this long without a press.

@@ -102,6 +102,15 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  retried:
+    description: >-
+      "true" when a test passed only on a retry, or was run again after the
+      Simulator shut down under it: the job passes, so a caller uploads the
+      result bundle on this as well as on failure, or the flake leaves
+      nothing to read but its name.
+    value: ${{ steps.summarize.outputs.retried }}
+
 runs:
   using: composite
   steps:
@@ -265,6 +274,7 @@ runs:
       run: Scripts/ci/run-test-plan.sh
 
     - name: Summarize results
+      id: summarize
       # Lists the tests that failed and the ones that passed only on a retry
       # on the job's summary, with a ::warning per flaky test, so a retry never
       # hides a flake. Never fails the job: every problem becomes a warning.
@@ -332,7 +342,12 @@ runs:
               echo "::warning::Couldn't read $crash_rerun with xcresulttool, so the summary lists the crashed tests as failed."
             fi
           fi
-          python3 "$here/xcresult_summary.py" "$json" "${rerun_args[@]}" >> "$summary" || true
+          warnings=$(mktemp "${RUNNER_TEMP:-/tmp}/test-warnings.XXXXXX")
+          python3 "$here/xcresult_summary.py" "$json" "${rerun_args[@]}" >> "$summary" 2> "$warnings" || true
+          cat "$warnings" >&2
+          if grep -qE 'title=(Flaky test|Rerun after a crash)::' "$warnings"; then
+            echo "retried=true" >> "$GITHUB_OUTPUT"
+          fi
         else
           echo "::warning::Couldn't read $bundle with xcresulttool, so the test summary is missing."
         fi

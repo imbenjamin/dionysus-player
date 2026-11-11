@@ -278,8 +278,14 @@ final class PlayerViewModel {
 
     /// Cap on the end-credits countdown, which replaces the configured
     /// preference entirely once such a segment exists (see
-    /// `nextUpSecondsRemaining`).
-    private static let endCreditsCountdownSeconds = 10
+    /// `nextUpSecondsRemaining`). 5 s under `-UITestShortPlayerTimers`, for
+    /// journeys that wait the countdown out.
+    private static var endCreditsCountdownSeconds: Int {
+        #if DEBUG
+        if UITestConfiguration.shortensPlayerTimers { return 5 }
+        #endif
+        return 10
+    }
 
     /// The last `.outro` segment chronologically. Jellyfin has no separate
     /// opening- versus closing-credits type, so an item with a mid-content

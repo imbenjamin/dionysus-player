@@ -306,6 +306,14 @@ enum UITestConfiguration {
     /// views that change under it: XCUITest can't turn VoiceOver on.
     static var simulatesVoiceOver: Bool { flag("UITestSimulateVoiceOver") }
 
+    /// Shortens the player timers a journey sits through to prove something
+    /// does *not* happen: the Apple TV transport's fade
+    /// (`TVPlayerTiming.chromeFade`, 4 s → 1.5 s) and the end-credits Next Up
+    /// countdown (`PlayerViewModel.endCreditsCountdownSeconds`, 10 s → 5 s).
+    /// Opt-in per journey, since a shorter fade or countdown races any
+    /// journey that presses its way around the transport or the card.
+    static var shortensPlayerTimers: Bool { isActive && flag("UITestShortPlayerTimers") }
+
     /// The tvOS player's accessible transport, which otherwise needs
     /// VoiceOver or Switch Control running; XCUITest can run neither.
     static var forcesAccessibleTransport: Bool { flag("UITestAccessibleTransport") }

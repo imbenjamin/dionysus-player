@@ -1,6 +1,10 @@
 import XCTest
 
 final class PlayerSegmentJourneyTests: TVUITestCase {
+    /// A 1.5 s fade and a 5 s end-credits countdown, for the journeys that
+    /// wait them out (`UITestConfiguration.shortensPlayerTimers`).
+    private let shortTimers = ["-UITestShortPlayerTimers", "YES"]
+
     func test_skipIntro_isAStopAboveTheIcons_andSelectSkipsToTheIntrosEnd() {
         let app = openPlayer(scenario: "skipIntro", extraArguments: ["-UITestDisableControlAutoHide", "YES"])
         let skip = app.descendants(matching: .any)[A11yID.TV.Player.skipButton]
@@ -89,23 +93,32 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
         let app = openEpisodeOne(scenario: "earlyCredits")
         let card = app.descendants(matching: .any)[A11yID.TV.Player.nextUpCard]
         XCTAssertTrue(card.waitForExistence(timeout: 10))
+        let shownAt = Date()
         XCTAssertTrue(waitForPlayerFocus(app, "nextUp.playNow", timeout: 8))
         press(.right)
         XCTAssertTrue(waitForPlayerFocus(app, "nextUp.close"))
         press(.select)
         XCTAssertTrue(poll(timeout: 3) { !card.exists })
-        // Proves nothing advances: the 10 s countdown would have ended by now.
-        Thread.sleep(forTimeInterval: 12)
+        // Proves nothing advances: past where the card's countdown (10 s,
+        // then its final second) would have ended, with a second to spare,
+        // timed from when it showed rather than from the close.
+        Thread.sleep(until: shownAt.addingTimeInterval(10 + 1 + 1))
         XCTAssertFalse(card.exists, "Past where the countdown would have ended, nothing advanced")
+        // A card gone could also be one that advanced: Up raises the
+        // transport, still on the first episode's last minutes, not near
+        // the next one's start.
+        press(.up)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].waitForExistence(timeout: 3))
+        XCTAssertGreaterThan(elapsedSeconds(app) ?? 0, 700, "Still the first episode")
     }
 
     func test_nextUp_countdownReachingZero_advancesByItself() {
-        let app = openEpisodeOne(scenario: "earlyCredits")
+        let app = openEpisodeOne(scenario: "earlyCredits", extraArguments: shortTimers)
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.nextUpCard].waitForExistence(timeout: 10))
         // The transport fades before the countdown ends, and comes back up as
         // the next item loads, so read the time only while it shows.
         let elapsed = app.staticTexts[A11yID.TV.Player.elapsed]
-        XCTAssertTrue(poll(timeout: 16) { elapsed.exists && (self.elapsedSeconds(app) ?? 999) < 20 },
+        XCTAssertTrue(poll(timeout: 10) { elapsed.exists && (self.elapsedSeconds(app) ?? 999) < 20 },
                       "The next episode starts when the countdown ends")
     }
 
@@ -113,12 +126,15 @@ final class PlayerSegmentJourneyTests: TVUITestCase {
     /// (Benjamin, 2026-10-16: the transport could no longer be brought up,
     /// and Play/Pause did nothing).
     func test_nextUp_afterTheCountdownAdvances_theRemoteStillWorks() {
-        let app = openEpisodeOne(scenario: "earlyCredits")
+        let app = openEpisodeOne(scenario: "earlyCredits", extraArguments: shortTimers)
         XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.nextUpCard].waitForExistence(timeout: 10))
         let elapsed = app.staticTexts[A11yID.TV.Player.elapsed]
-        XCTAssertTrue(poll(timeout: 16) { elapsed.exists && (self.elapsedSeconds(app) ?? 999) < 20 })
-        // Past `TVTransportChrome.visibleDuration` (4s), so the transport fades.
-        XCTAssertTrue(poll(timeout: 10) { !elapsed.exists }, "The transport fades on the next episode")
+        // Its clock running, so the next episode has loaded: read at 0:00
+        // the hand-over may still be under way.
+        XCTAssertTrue(poll(timeout: 12) { elapsed.exists && (1..<20).contains(self.elapsedSeconds(app) ?? 999) },
+                      "The next episode plays")
+        // Past `TVPlayerTiming.chromeFade`, so the transport fades.
+        XCTAssertTrue(poll(timeout: 6) { !elapsed.exists }, "The transport fades on the next episode")
         press(.playPause)
         XCTAssertTrue(elapsed.waitForExistence(timeout: 3), "Play/Pause brings the transport up")
         let pausedAt = steadyLabel(of: elapsed)
