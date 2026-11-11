@@ -648,13 +648,16 @@ resolve cold until the next nightly. Every `xcodebuild` call passes
 `-test-execution-ordering` flag, so the order comes from `UnitTests-Random`
 and `TVUnitTests-Random`: copies of the unit plans with
 `"testExecutionOrdering": "random"` in `defaultOptions`, listed in `project.yml`
-and used nowhere else. It is **allowed to fail** (`continue-on-error`, no
+and used nowhere else. The hunt is **allowed to fail** (`continue-on-error`, no
 ruleset requires it) and never retries, which would hide what it hunts. When it
 reports a failure, open the job's summary: a test that fails in some orders
 but not the PR plans' is order-dependent, shared state to isolate; one that
 fails on a later iteration is flaky. Fix it, or file it with the log, rather
 than waiting. Once it has been green 14 nights running, consider random order
-for the PR plans too (a later decision, not made).
+for the PR plans too (a later decision, not made). **Change a unit plan and its copy
+together**: `Scripts/ci/test_random_plans.py`, in the PR's "CI scripts" job,
+fails when a pair differs in anything but the order and the configuration's id
+(TQ-26).
 
 - **Not tvOS 26.5, and not `macos-26`** (#319): on tvOS 26.x in CI the
   accessibility tree never shows a page the shell opens after launch. The
