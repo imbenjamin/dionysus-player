@@ -195,6 +195,12 @@ Keychain as it's made.
   timing races; the first also freezes ambient motion
   (`UITestHarness.freezesAmbientMotion`), which otherwise keeps the tree
   moving.
+- `-UITestShortPlayerTimers` shortens the Apple TV transport's fade (4 s to
+  1.5 s) and the end-credits Next Up countdown (10 s to 5 s), for journeys
+  that wait one out to prove something doesn't happen
+  (`UITestConfiguration.shortensPlayerTimers`). Opt-in per journey: a
+  journey that presses its way around the transport or the card races the
+  shorter timers.
 - `-UITestScenario <name>` picks the stub's behaviour (below).
 - `-UITestSeedLongSearchHistory` fills Search's history to its cap (#244).
 - `-UITestSeedMissingSearchHistory` seeds one recent search for an item the
@@ -495,7 +501,12 @@ it; everything in the modal is still audited.
    to hold still after a pause). A sleep stays only to prove something does
    *not* happen (a fade that shouldn't come, a repeat that should have
    stopped, the shell's three-second sidebar fallback): then it is a named
-   constant or has a comment that says what the duration proves. Polling
+   constant or has a comment that says what the duration proves, and a
+   player timer it waits out is shortened with `-UITestShortPlayerTimers`.
+   A wait for something to go is `poll { !element.exists }`, never
+   `XCTAssertFalse(element.waitForExistence(…))`, which returns at once
+   while the element is still on its way out and otherwise always takes
+   its whole timeout. Polling
    loops (`poll`, `awaitStillAfterTyping`) are not sleeps.
 7. **A tap straight after `typeText` goes through
    `awaitStillAfterTyping(keyboard:)`.** On the iPad, from iPadOS 27, the
@@ -559,11 +570,14 @@ same on both versions (the 16, since the 17 can't run iOS 18), so a failure on
 one OS isn't a screen-size difference. Locally, Apple offers an iOS 18.2 runtime (`xcrun
 simctl runtime add <dmg>`); iPad (A16) needs 18.3, so use iPad (10th
 generation), the same 820×1180pt screen. Each environment runs with
-`fail-fast: false` and uploads a failed `.xcresult` as
+`fail-fast: false` and uploads its `.xcresult` as
 `ui-test-results-<plan>-<device>-iOS-<version>` (the Duo's,
-`ui-test-results-<plan>-iPhone-Duo-<pose>`), with a second bundle,
-`UITestResults-attempt-2.xcresult`, when the plan was run again after the
-test runner crashed (below).
+`ui-test-results-<plan>-iPhone-Duo-<pose>`; the Apple TV's,
+`tv-ui-test-results-<plan>-tvOS-<version>-part-<n>`) when it failed **or when
+a test passed only on a retry** (`build-and-test`'s `retried` output): a
+green job's bundle is the one place to see what the first attempt met. A
+second bundle, `UITestResults-attempt-2.xcresult`, comes with it when the
+plan was run again after the test runner crashed (below).
 
 **The iPhone Duo** runs on iOS 27.1, its only runtime; the image carries it
 and the `iPhone Duo` device type. One job per pose (`duo-poses`) boots it,

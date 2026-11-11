@@ -283,6 +283,7 @@ jobs:
           echo "minutes=$minutes" >> "$GITHUB_OUTPUT"
 
       - name: Build and test
+        id: test
         uses: ./.github/actions/build-and-test
         timeout-minutes: ${{ fromJSON(steps.budget.outputs.minutes) }}
         with:
@@ -293,7 +294,9 @@ jobs:
           result-bundle-path: .build/UITestResults.xcresult
 
       - name: Upload UI test results
-        if: failure()
+        # And when a test passed only on a retry: the job is green, and the
+        # bundle is the one place to see what the first attempt met.
+        if: failure() || steps.test.outputs.retried == 'true'
         uses: actions/upload-artifact@v7
         with:
           # A failed UI test's .xcresult carries the screenshots and the
@@ -396,6 +399,7 @@ jobs:
           echo "minutes=$minutes" >> "$GITHUB_OUTPUT"
 
       - name: Build and test
+        id: test
         uses: ./.github/actions/build-and-test
         timeout-minutes: ${{ fromJSON(steps.budget.outputs.minutes) }}
         env:
@@ -412,7 +416,9 @@ jobs:
           result-bundle-path: .build/UITestResults.xcresult
 
       - name: Upload UI test results
-        if: failure()
+        # And when a test passed only on a retry: the job is green, and the
+        # bundle is the one place to see what the first attempt met.
+        if: failure() || steps.test.outputs.retried == 'true'
         uses: actions/upload-artifact@v7
         with:
           # See `ui-tests` for the second bundle.
