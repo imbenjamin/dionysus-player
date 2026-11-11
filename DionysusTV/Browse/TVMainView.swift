@@ -250,18 +250,26 @@ struct TVMainView: View {
         }
     }
 
-    /// A Top Shelf link (M6): Home with its path dropped, the title's page
-    /// pushed over it, and for Play the player over that page, as the hero's
-    /// Play does, so Menu lands on the page. A player already up closes
-    /// first, reporting its stop.
-    private func apply(_ link: TVDeepLink) {
+    /// A link to a title (the Top Shelf's, M6): Home with its path dropped,
+    /// the title's page pushed over it, and for Play the player over that
+    /// page, as the hero's Play does, so Menu lands on the page. A player
+    /// already up closes first, reporting its stop. Other destinations are
+    /// dropped for now (#406 adds them).
+    private func apply(_ link: DeepLink) {
         deepLinkApplied()
+        let itemID: String
+        let plays: Bool
+        switch link.destination {
+        case .item(let id, _): (itemID, plays) = (id, false)
+        case .play(let id, _): (itemID, plays) = (id, true)
+        case .home, .search, .downloads, .profile, .quickConnectApproval, .library, .downloaded, .serverSetup: return
+        }
         TVPlayerPresenter.dismissPlayer()
         if nav.destination != .home || !nav.path.isEmpty { select(.home) }
         Task { @MainActor in
-            // Asked after every await (`TVDeepLinkRouter.canFinish`).
+            // Asked after every await (`DeepLinkRouter.canFinish`).
             @MainActor func canFinish() -> Bool {
-                TVDeepLinkRouter.canFinish(appliedFor: userID, isSignedIn: appState.phase == .main, signedInUserID: appState.signedInUserID)
+                DeepLinkRouter.canFinish(appliedFor: userID, isSignedIn: appState.phase == .main, signedInUserID: appState.signedInUserID)
             }
             // The closing player has to leave the presented chain before
             // another can be presented, and Home has to rebuild before the push.
@@ -270,15 +278,15 @@ struct TVMainView: View {
             }
             try? await Task.sleep(for: .milliseconds(300))
             guard canFinish() else { return }
-            let dto = try? await client.item(userID: userID, itemID: link.itemID)
+            let dto = try? await client.item(userID: userID, itemID: itemID)
             guard canFinish() else { return }
             guard let dto else {
                 // Gone or not this user's: the page shows its own error and Retry.
-                open(.assetDetail(itemID: link.itemID, preloadedItem: nil))
+                open(.assetDetail(itemID: itemID, preloadedItem: nil))
                 return
             }
             let item = MediaItem(dto: dto, images: await client.makeImageURLBuilder())
-            let target = link.action == .play ? await TVHeroPlayTarget.resolve(item, client: client, userID: userID) : nil
+            let target = plays ? await TVHeroPlayTarget.resolve(item, client: client, userID: userID) : nil
             guard canFinish() else { return }
             guard let target else {
                 open(.assetDetail(itemID: item.id, preloadedItem: item))

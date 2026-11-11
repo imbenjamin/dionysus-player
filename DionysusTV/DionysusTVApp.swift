@@ -38,8 +38,9 @@ struct DionysusTVApp: App {
 struct TVRootView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.scenePhase) private var scenePhase
-    /// A Top Shelf link (M6), held until the session can take it.
-    @State private var pendingLink: TVDeepLink?
+    /// A `dionysus://` link (the Top Shelf's, M6), held until the session
+    /// can take it.
+    @State private var pendingLink: DeepLink?
 
     var body: some View {
         Group {
@@ -66,7 +67,7 @@ struct TVRootView: View {
         // The splash crossfades into what follows it, as on iOS (`RootView`).
         .animation(.default, value: appState.isRestoringSession)
         .buttonStyle(TVOpaqueAtRestButtonStyle())
-        .onOpenURL { url in pendingLink = TVDeepLink(url: url) }
+        .onOpenURL { url in pendingLink = DeepLink(url: url) }
         .environment(\.tvPendingDeepLink, appliedLink)
         .environment(\.tvDeepLinkApplied, { pendingLink = nil })
         // The Top Shelf follows whoever last used Dionysus (M6).
@@ -101,19 +102,20 @@ struct TVRootView: View {
 
     /// The pending link once the router says it can go; a dropped one is
     /// cleared here, a waiting one is kept until the session has restored.
-    private var appliedLink: TVDeepLink? {
+    private var appliedLink: DeepLink? {
         guard let pendingLink else { return nil }
-        switch TVDeepLinkRouter.decide(
+        switch DeepLinkRouter.decide(
             pendingLink,
             isRestoringSession: appState.isRestoringSession,
             isSignedIn: appState.phase == .main,
-            serverID: appState.sessionStore.serverConfiguration?.id
+            serverID: appState.sessionStore.serverConfiguration?.id,
+            userID: appState.signedInUserID
         ) {
         case .wait: return nil
-        case .ignore:
+        case .refuse:
             Task { @MainActor in self.pendingLink = nil }
             return nil
-        case .openDetail, .play: return pendingLink
+        case .apply: return pendingLink
         }
     }
 }
