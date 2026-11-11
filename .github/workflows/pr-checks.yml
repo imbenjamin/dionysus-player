@@ -179,9 +179,10 @@ jobs:
     # The unit tests of the CI's own scripts (Scripts/ci/): the classifier
     # that decides whether a failed UI-test run earns one rerun on a
     # rebooted Simulator, and the script that does the rerun, run against
-    # fake xcodebuild, xcrun and xcbeautify. On Linux: they need only bash
-    # and python3. Not a required check (adding one means editing both
-    # rulesets).
+    # fake xcodebuild, xcrun and xcbeautify; and the check that the
+    # random-order unit plans still match their plans (test_random_plans.py,
+    # TQ-26). On Linux: they need only bash and python3. Not a required
+    # check (adding one means editing both rulesets).
     name: CI scripts
     runs-on: ubuntu-latest
     timeout-minutes: 5
