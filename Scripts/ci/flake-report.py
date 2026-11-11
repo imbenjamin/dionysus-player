@@ -2,7 +2,7 @@
 """Reports how often CI needed a rerun and what failed, as Markdown.
 
     python3 Scripts/ci/flake-report.py --since 2026-10-12 [--until 2026-11-02]
-        [--workflow pr-checks.yml ...] [--repo owner/name] [--no-logs]
+        [--workflow pr-checks.yml ...] [--repo owner/name] [--no-logs] [--jobs 8]
 
 The analysis behind the CI flake-reduction plan's Findings, kept so it can be
 repeated after a change to see whether it helped. Per workflow it counts the
@@ -12,6 +12,14 @@ then, for every attempt that failed (all attempts of a failed run, all but
 the last of a successful one), lists the failed jobs by name, the failing
 tests by count (the lines after `Failing tests:` in the job log) and the
 infrastructure signature by count (`xcodebuild_failure.classify`).
+
+A test that failed and then passed doesn't fail its job, so it shows in none
+of those. From every attempt's test jobs, failed or not (a job with a
+"Build and test" step that ran), it also counts the tests that passed only on
+a retry and those rerun after the Simulator shut down, from the warnings
+`xcresult_summary.py` writes to the log (`<id> passed on attempt N of M`,
+`<id> was killed by the Simulator shutting down, and passed when run again`),
+and how many of each every job had.
 
 `--until` is inclusive, so a window is reproducible. `--no-logs` stops after
 the table and the failed jobs, which needs no log downloads. Logs are cached
@@ -25,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import concurrent.futures
 import importlib.util
 import json
 import os
@@ -42,6 +51,14 @@ DEFAULT_REPO = "imbenjamin/dionysus-player"
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 _FAILING_TESTS_HEADER = re.compile(r"^Failing tests:\s*$")
+# xcresult_summary.warnings(), as the runner logs them (`##[warning]...`; the
+# `::warning title=...::` form in case a log ever keeps the raw command).
+_WARNING = r"^(?:##\[warning\]|::warning[^:]*::)"
+_PASSED_ON_RETRY = re.compile(_WARNING + r"(\S+) passed on attempt \d+ of \d+\s*$")
+_RERUN_AFTER_CRASH = re.compile(
+    _WARNING + r"(\S+) was killed by the Simulator shutting down, and passed when run again\s*$"
+)
+TEST_STEP = "Build and test"
 
 
 def _classify(text: str) -> tuple[str, str | None]:
@@ -79,6 +96,27 @@ def parse_log(raw: str) -> tuple[list[str], str | None]:
             in_list = False
     kind, signature = _classify(text)
     return tests, signature if kind == "infrastructure" else None
+
+
+def parse_retries(raw: str) -> tuple[list[str], list[str]]:
+    """`(passed only on a retry, rerun after the Simulator shut down)` of one
+    job log, each test once per log."""
+    retried: list[str] = []
+    rerun: list[str] = []
+    for line in clean_log(raw).splitlines():
+        for pattern, found in ((_PASSED_ON_RETRY, retried), (_RERUN_AFTER_CRASH, rerun)):
+            match = pattern.match(line)
+            if match and match.group(1) not in found:
+                found.append(match.group(1))
+    return retried, rerun
+
+
+def ran_tests(job: dict) -> bool:
+    """Whether a job's test step ran (its log can hold retried tests)."""
+    return any(
+        step.get("name") == TEST_STEP and step.get("conclusion") not in (None, "skipped")
+        for step in job.get("steps") or []
+    )
 
 
 def failed_attempts(run: dict) -> list[int]:
@@ -120,12 +158,27 @@ def _counts_table(title: str, heading: str, counter: collections.Counter) -> lis
     return lines + [""]
 
 
+def _retries_by_job(
+    retried_by_job: collections.Counter, rerun_by_job: collections.Counter
+) -> list[str]:
+    lines = ["### Retries by job", ""]
+    jobs = set(retried_by_job) | set(rerun_by_job)
+    if not jobs:
+        return lines + ["None.", ""]
+    lines += ["| Job | Passed on a retry | Rerun after the shutdown |", "| --- | ---: | ---: |"]
+    for job in sorted(jobs, key=lambda j: (-(retried_by_job[j] + rerun_by_job[j]), j)):
+        escaped = job.replace("|", "\\|")
+        lines.append(f"| {escaped} | {retried_by_job[job]} | {rerun_by_job[job]} |")
+    return lines + [""]
+
+
 def render(
     window: str,
     table: dict[str, dict[str, int]],
     failed_jobs: collections.Counter,
     failing_tests: collections.Counter | None,
     signatures: collections.Counter | None,
+    retries: "Retries | None" = None,
 ) -> str:
     lines = [
         f"## CI flake report, {window}",
@@ -144,7 +197,32 @@ def render(
     else:
         lines += _counts_table("Failing tests", "Test", failing_tests)
         lines += _counts_table("Infrastructure signatures", "Signature", signatures)
+    if retries is not None:
+        lines += _counts_table("Passed only on a retry", "Test", retries.retried)
+        lines += _counts_table(
+            "Rerun after the Simulator shut down", "Test", retries.rerun
+        )
+        lines += _retries_by_job(retries.retried_by_job, retries.rerun_by_job)
     return "\n".join(lines)
+
+
+class Retries:
+    """Tests that failed and then passed, counted once per job log."""
+
+    def __init__(self) -> None:
+        self.retried: collections.Counter = collections.Counter()
+        self.rerun: collections.Counter = collections.Counter()
+        self.retried_by_job: collections.Counter = collections.Counter()
+        self.rerun_by_job: collections.Counter = collections.Counter()
+
+    def add(self, job_name: str, raw_log: str) -> None:
+        retried, rerun = parse_retries(raw_log)
+        self.retried.update(retried)
+        self.rerun.update(rerun)
+        if retried:
+            self.retried_by_job[job_name] += len(retried)
+        if rerun:
+            self.rerun_by_job[job_name] += len(rerun)
 
 
 # ---- the thin gh layer (untested) ----
@@ -178,11 +256,13 @@ def list_runs(workflow: str, since: str, until: str | None) -> list[dict]:
     return runs
 
 
-def failed_jobs_of(repo: str, run_id: int, attempt: int) -> list[dict]:
+def jobs_of(repo: str, run_id: int, attempt: int) -> list[dict]:
     out = gh("api", f"repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
-    return [
-        j for j in json.loads(out)["jobs"] if j["conclusion"] in ("failure", "timed_out")
-    ]
+    return json.loads(out)["jobs"]
+
+
+def is_failed(job: dict) -> bool:
+    return job["conclusion"] in ("failure", "timed_out")
 
 
 def job_log(repo: str, job_id: int, cache_dir: str) -> str:
@@ -209,6 +289,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo", default=default_repo(os.environ),
                         help="owner/name; default $GH_REPO, then $GITHUB_REPOSITORY")
     parser.add_argument("--no-logs", action="store_true")
+    parser.add_argument("--jobs", type=int, default=8, help="logs fetched at once (default 8)")
     parser.add_argument("--cache-dir", default=os.path.join(tempfile.gettempdir(), "flake-report-logs"))
     args = parser.parse_args(argv[1:])
     os.makedirs(args.cache_dir, exist_ok=True)
@@ -220,22 +301,38 @@ def main(argv: list[str]) -> int:
     failed_jobs: collections.Counter = collections.Counter()
     tests: collections.Counter = collections.Counter()
     signatures: collections.Counter = collections.Counter()
+    retries = Retries()
+    to_read: list[tuple[dict, bool]] = []  # (job, whether it failed)
     for run in runs:
         if run["conclusion"] not in ("success", "failure"):
             continue
-        for attempt in failed_attempts(run):
-            for job in failed_jobs_of(args.repo, run["databaseId"], attempt):
-                failed_jobs[job["name"]] += 1
-                if args.no_logs:
-                    continue
-                names, signature = parse_log(job_log(args.repo, job["id"], args.cache_dir))
+        failed = set(failed_attempts(run))
+        # Without logs only the failed attempts' jobs are needed.
+        attempts = sorted(failed) if args.no_logs else range(1, run["attempt"] + 1)
+        for attempt in attempts:
+            for job in jobs_of(args.repo, run["databaseId"], attempt):
+                job_failed = attempt in failed and is_failed(job)
+                if job_failed:
+                    failed_jobs[job["name"]] += 1
+                if not args.no_logs and (job_failed or ran_tests(job)):
+                    to_read.append((job, job_failed))
+
+    # A week is a few hundred logs, about 2 s each to fetch: in parallel, so
+    # the weekly job finishes well inside its 20 minutes.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        logs = pool.map(lambda pair: job_log(args.repo, pair[0]["id"], args.cache_dir), to_read)
+        for (job, job_failed), log in zip(to_read, logs):
+            if job_failed:
+                names, signature = parse_log(log)
                 tests.update(names)
                 if signature:
                     signatures[signature] += 1
+            retries.add(job["name"], log)
 
     window = f"{args.since} to {args.until}" if args.until else f"since {args.since}"
     print(render(window, tally(runs), failed_jobs,
-                 None if args.no_logs else tests, None if args.no_logs else signatures))
+                 None if args.no_logs else tests, None if args.no_logs else signatures,
+                 None if args.no_logs else retries))
     return 0
 
 
