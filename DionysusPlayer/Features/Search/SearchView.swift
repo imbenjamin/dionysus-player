@@ -18,6 +18,10 @@ struct SearchView: View {
     /// already on it, observed below via `.onChange` to reset to the landing
     /// page. A plain `let`, since this view only reads it.
     let resetToken: Int
+    /// A query a `dionysus://search?q=` link asked for (#406), filled in and
+    /// run once, whenever a new one arrives.
+    var linkedQuery: LinkedSearchQuery? = nil
+    @State private var appliedLinkedQueryID: UUID?
     /// True once the search field is focused, even before any text is typed; set
     /// by SwiftUI as a descendant of `.searchable`. Distinguishes the landing
     /// page (`false`: show history) from "tapped in, still empty" (`true`: show
@@ -50,6 +54,17 @@ struct SearchView: View {
             .searchable(text: searchTextBinding, placement: searchPlacement, prompt: "Movies, shows, episodes\u{2026}")
             .task { await setUpIfNeeded() }
             .onChange(of: resetToken) { _, _ in reset() }
+            .onChange(of: linkedQuery, initial: true) { applyLinkedQuery() }
+    }
+
+    /// Fills in and runs a linked query, once the view model exists (a link
+    /// can arrive before Search has ever been shown).
+    private func applyLinkedQuery() {
+        guard let linkedQuery, linkedQuery.id != appliedLinkedQueryID, let viewModel else { return }
+        appliedLinkedQueryID = linkedQuery.id
+        path = []
+        viewModel.query = linkedQuery.query
+        viewModel.queryChanged()
     }
 
     /// Clears the query and results and pops back to the landing page; see
@@ -286,6 +301,7 @@ struct SearchView: View {
               let userID = appState.currentUser?.id ?? appState.sessionStore.credentials?.userID else { return }
         let newViewModel = SearchViewModel(client: client, userID: userID)
         viewModel = newViewModel
+        applyLinkedQuery()
         await newViewModel.loadImagesIfNeeded()
     }
 }

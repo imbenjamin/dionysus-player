@@ -582,6 +582,35 @@ display held tall gets the one list). A new destination is a case in
 `AppRoute` and a branch in `AppRouteDestinationView`, not a per-feature
 navigation type.
 
+### Deep links (`Core/DeepLinks/`, #406)
+
+`dionysus://` links open any place, title or playback, on both apps, for
+debugging and UI tests (`xcrun simctl openurl booted 'dionysus://play/<id>'`).
+**They're an API-only capability: nothing in the app makes, copies or shares
+one** (Benjamin, 2026-11-11), and they navigate and play, never change data.
+The grammar, use cases and fallbacks are in
+`docs/superpowers/specs/2026-11-11-deep-linking-design.md`; the Top Shelf's
+links are two of them and must keep parsing.
+
+- `DeepLink` parses and builds (pure, shared with the Top Shelf extension);
+  `DeepLinkRouter` decides against the session. A link arriving signed out is
+  held through sign-in, for 10 minutes at most; one for another server or
+  user is refused with a toast (`Toast.notice`), never switched to.
+- Each app's root holds the pending link (`RootView`, `TVRootView`);
+  `MainTabView` / `TVMainView` apply it. On iOS `DeepLinkNavigation.plan`
+  maps a destination to tabs and stacks; a title's page goes on Home's stack.
+- **A play link pushes the page and cues it** (`DeepLinkPlaybackCue`): the
+  page plays what its own Play would (`AssetDetailViewModel.linkPlaybackTarget`)
+  with its own player, so the queue, Next Up and the refresh on close are the
+  page's usual ones. A playlist queues the rest; a collection plays its first
+  title alone.
+- **A link arriving mid-playback closes the player through
+  `PlayerCloseRequest`**, which runs its close button's teardown and reports
+  the stop; dismissing the cover from outside would skip that.
+- `XCUIApplication.open` relaunches the app with the link (a cold launch), so
+  journeys that need the warm path open links with
+  `XCUIDevice.shared.system.open` (`DeepLinkJourneyTests`).
+
 ### Models (`Core/Models/`)
 
 Jellyfin DTOs (`JellyfinModels.swift`) are mapped into lighter app models

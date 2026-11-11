@@ -42,6 +42,10 @@ struct AssetDetailView: View {
             // `viewModel`'s screen-level owner, not a toolbar item or sub-view
             // whose `.onDisappear` is less predictable.
             .onDisappear { viewModel.cancelBackgroundWork() }
+            // A play link's cue (#406) is taken by the page this shows; when
+            // none shows (not found, failed, audio), it's dropped here, or it
+            // would play the next time someone opens this title.
+            .onChange(of: viewModel.loadState, initial: true) { dropUnplayableCue() }
             // Something was deleted from the server, possibly by the page that
             // was until a moment ago on top of this one. Popping back to a parent
             // doesn't refresh it (see `DeletedItemBroadcaster`), so without this a
@@ -126,6 +130,21 @@ struct AssetDetailView: View {
     }
 
     /// No retry: the item is gone, and asking again gets the same 404.
+    private func dropUnplayableCue() {
+        let cue = DeepLinkPlaybackCue.shared
+        guard cue.itemID == itemID else { return }
+        switch viewModel.loadState {
+        case .idle, .loading:
+            return
+        case .failed, .notFound:
+            cue.clear()
+        case .loaded:
+            guard viewModel.item?.isAudioContent == true else { return }
+            cue.clear()
+            ToastCenter.shared.post(.notice(String(localized: "Nothing to play here.")))
+        }
+    }
+
     private var notFound: some View {
         ContentUnavailableView {
             Label("This Title Can't Be Found", systemImage: "questionmark.square.dashed")

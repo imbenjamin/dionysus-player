@@ -21,6 +21,13 @@ struct Toast: Equatable, Identifiable {
     var systemImage: String = "checkmark.circle.fill"
 
     static func == (lhs: Toast, rhs: Toast) -> Bool { lhs.id == rhs.id }
+
+    /// Something that didn't go as asked, such as a link the app couldn't
+    /// open (#406): the same capsule, without the checkmark that says it
+    /// worked.
+    static func notice(_ message: String) -> Toast {
+        Toast(message: message, systemImage: "exclamationmark.circle.fill")
+    }
 }
 
 /// Where a toast is posted to, and where `ToastHost` reads it from.
@@ -63,8 +70,10 @@ final class ToastCenter {
         // focus reaches it, so the message is announced rather than left to
         // be discovered. `.announcement` deliberately, not
         // `.screenChanged` — nothing about the screen's structure changed,
-        // and a screen-change notification would move focus.
-        AccessibilityNotification.Announcement(toast.message).post()
+        // and a screen-change notification would move focus. Through
+        // `VoiceOverAnnouncement`, so a journey under simulated VoiceOver
+        // can read it after the capsule has gone (#406's link refusals).
+        VoiceOverAnnouncement.post(toast.message)
 
         dismissTask = Task { [weak self] in
             try? await Task.sleep(for: Self.visibleDuration)

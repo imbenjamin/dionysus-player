@@ -188,6 +188,10 @@ targets:
         # it here skips the manual "Does your app use encryption?" prompt
         # on every App Store Connect upload.
         ITSAppUsesNonExemptEncryption: false
+        # `dionysus://` links (DeepLink, #406): debugging and UI tests.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbenjamin.dionysusplayer.deeplink
+            CFBundleURLSchemes: [dionysus]
         # Static approximation of SplashView (App/SplashView.swift) for the
         # brief window before any app code runs — a system snapshot, not a
         # live view, so it can only offer a flat background colour + one

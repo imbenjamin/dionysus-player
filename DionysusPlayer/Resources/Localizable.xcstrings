@@ -1286,6 +1286,9 @@
     "Nothing here yet." : {
 
     },
+    "Nothing to play here." : {
+
+    },
     "OK" : {
 
     },
@@ -1933,6 +1936,15 @@
 
     },
     "This item is no longer available on the server." : {
+
+    },
+    "This link can't be opened." : {
+
+    },
+    "This link is for another server." : {
+
+    },
+    "This link is for another user." : {
 
     },
     "This playlist is empty." : {

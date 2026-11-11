@@ -129,6 +129,24 @@ final class AssetDetailViewModel {
         orderedPlaylistItems.first(where: { !$0.isPlayed }) ?? orderedPlaylistItems.first
     }
 
+    /// What a `dionysus://play/<id>` link plays from this page (#406): what
+    /// the page's own Play would. A show or season plays its Play episode
+    /// (`showPlaybackEpisode`); a playlist its Play target, with the rest
+    /// queued by the page; a collection its first title alone, as its page
+    /// has no Play of its own (Benjamin, 2026-11-11); anything else itself,
+    /// if it's video. Nil where there's nothing to play: audio, a folder or
+    /// library, an empty show, collection or playlist. Read once
+    /// `loadState` is `.loaded`, when each of those has been fetched.
+    var linkPlaybackTarget: MediaItem? {
+        guard let item, !item.isAudioContent else { return nil }
+        switch item.kind {
+        case .series, .season: return showPlaybackEpisode
+        case .playlist: return playlistResumeTarget
+        case .boxSet: return collectionItems.first
+        default: return item.dto.mediaType == "Video" ? item : nil
+        }
+    }
+
     /// The id `refreshItem()` re-fetches to keep `item` current: `itemID` itself
     /// for a Movie, Series or Episode load, but the Series' id for a Season load,
     /// where `item` was swapped to the Series' DTO.
