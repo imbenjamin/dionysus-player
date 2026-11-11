@@ -75,10 +75,13 @@ on:
           54 min on iPad on 2026-09-26; on 2026-10-22 iPad iOS 27.0 took 62
           min, and a slow runner (a Simulator that lost 16 min before testing
           began) ran the v1.2.0-beta.1 release's leg past 90 with no test
-          failed, so 120 leaves room for one.
+          failed, so 120 left room for one. The iPhone Duo is slowest: after
+          the test-quality journeys (#435 to #447) its build and plan took 92
+          to 96 min, and three legs ran past their limit in two nightlies
+          (2026-11-10 and 11, every test passing), so 150.
         required: false
         type: number
-        default: 120
+        default: 150
 
 permissions:
   contents: read
@@ -185,16 +188,9 @@ jobs:
             device: iPad (A16)
 
     steps:
-      - name: Work out the test step's time limit
-        # The job's own timeout cancels the whole job: no log is kept and the
-        # failure-only upload steps never run. Stopping "Build and test" 10
-        # minutes earlier fails just that step, so they still run.
-        # (Expressions have no arithmetic.)
-        id: budget
-        shell: bash
-        env:
-          JOB_MINUTES: ${{ inputs.timeout-minutes }}
-        run: echo "minutes=$(( JOB_MINUTES - 10 ))" >> "$GITHUB_OUTPUT"
+      - name: Note when the job started
+        # For "Work out the test step's time limit".
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Checkout
         # Always the triggering commit. There is deliberately no `ref` input:
@@ -267,6 +263,25 @@ jobs:
         # launching the app. Start from a known-clean state instead.
         run: xcrun simctl shutdown all || true
 
+      - name: Work out the test step's time limit
+        # The job's own timeout cancels the whole job: no log is kept and the
+        # failure-only upload steps never run. Stopping "Build and test" 10
+        # minutes before the job's limit fails just that step, so they still
+        # run. Counted from the job's start, not from this step's: setup,
+        # boot and a Duo pose take 5 to 12 minutes, and a budget of the job's
+        # limit less 10 let a Duo job run into its own timeout (nightly,
+        # 2026-11-11). (Expressions have no arithmetic.)
+        id: budget
+        shell: bash
+        env:
+          JOB_MINUTES: ${{ inputs.timeout-minutes }}
+        run: |
+          used=$(( ($(date +%s) - JOB_STARTED + 59) / 60 ))
+          minutes=$(( JOB_MINUTES - 10 - used ))
+          [ "$minutes" -ge 1 ] || minutes=1
+          echo "Used $used of $JOB_MINUTES min before testing; the test step gets $minutes."
+          echo "minutes=$minutes" >> "$GITHUB_OUTPUT"
+
       - name: Build and test
         uses: ./.github/actions/build-and-test
         timeout-minutes: ${{ fromJSON(steps.budget.outputs.minutes) }}
@@ -313,16 +328,9 @@ jobs:
         pose: ${{ fromJSON(inputs.duo-poses) }}
 
     steps:
-      - name: Work out the test step's time limit
-        # The job's own timeout cancels the whole job: no log is kept and the
-        # failure-only upload steps never run. Stopping "Build and test" 10
-        # minutes earlier fails just that step, so they still run.
-        # (Expressions have no arithmetic.)
-        id: budget
-        shell: bash
-        env:
-          JOB_MINUTES: ${{ inputs.timeout-minutes }}
-        run: echo "minutes=$(( JOB_MINUTES - 10 ))" >> "$GITHUB_OUTPUT"
+      - name: Note when the job started
+        # For "Work out the test step's time limit".
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Checkout
         # Always the triggering commit; see `ui-tests`.
@@ -367,6 +375,25 @@ jobs:
           UDID: ${{ steps.duo.outputs.udid }}
           POSE: ${{ matrix.pose }}
         run: Scripts/duo-pose/set-duo-pose.sh "$UDID" "$POSE"
+
+      - name: Work out the test step's time limit
+        # The job's own timeout cancels the whole job: no log is kept and the
+        # failure-only upload steps never run. Stopping "Build and test" 10
+        # minutes before the job's limit fails just that step, so they still
+        # run. Counted from the job's start, not from this step's: setup,
+        # boot and a Duo pose take 5 to 12 minutes, and a budget of the job's
+        # limit less 10 let a Duo job run into its own timeout (nightly,
+        # 2026-11-11). (Expressions have no arithmetic.)
+        id: budget
+        shell: bash
+        env:
+          JOB_MINUTES: ${{ inputs.timeout-minutes }}
+        run: |
+          used=$(( ($(date +%s) - JOB_STARTED + 59) / 60 ))
+          minutes=$(( JOB_MINUTES - 10 - used ))
+          [ "$minutes" -ge 1 ] || minutes=1
+          echo "Used $used of $JOB_MINUTES min before testing; the test step gets $minutes."
+          echo "minutes=$minutes" >> "$GITHUB_OUTPUT"
 
       - name: Build and test
         uses: ./.github/actions/build-and-test

@@ -526,7 +526,7 @@ as "Iteration 2 of 3" in the log.
 
 ## Where they run in CI
 
-Each UI-test job's "Build and test" step has its own timeout, 10 minutes under the job's, so a hang fails that step and the bundle and logs still upload (the job timeout cancels the job with no log and no upload).
+Each UI-test job's "Build and test" step has its own timeout, ending 10 minutes before the job's (counted from the job's start, so setup, boot and a Duo pose come out of it), so a hang fails that step and the bundle and logs still upload (the job timeout cancels the job with no log and no upload). The full plan's jobs get 150 minutes: the Duo's build and plan take 92 to 96, and at 120 three Duo legs ran out of time in two nightlies with every test passing (2026-11-10 and 11).
 
 **iOS** goes through one reusable workflow, `.github/workflows/ui-tests.yml`,
 which owns the matrix. A PR into `develop` runs the smoke plan; a PR into
@@ -683,7 +683,10 @@ for the PR plans too (a later decision, not made).
   minutes on develop). The action's "Wait for the simulator" step boots the
   device after the build and blocks on `simctl bootstatus -b`, giving up
   after 15 minutes (a poll in the shell: composite steps take no
-  `timeout-minutes`); the job summary gives the seconds it waited. A device
+  `timeout-minutes`); the job summary gives the seconds it waited. A boot
+  that fails outright is tried once more, after listing the runtimes: on
+  image 20261104 a tvOS 27.0 device refused to boot with "cannot determine
+  the runtime bundle" (2026-11-11, #445). A device
   already booted, as the Duo job leaves it after posing, is not touched. The
   `IDETestOperationsObserverDebug ... Testing started completed` figure is
   printed when testing *finishes*, so it is the test run's duration and not

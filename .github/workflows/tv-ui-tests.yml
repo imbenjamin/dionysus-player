@@ -109,16 +109,9 @@ jobs:
         shard: ${{ fromJSON(needs.plan.outputs.shards) }}
 
     steps:
-      - name: Work out the test step's time limit
-        # The job's own timeout cancels the whole job: no log is kept and the
-        # failure-only upload steps never run. Stopping "Build and test" 10
-        # minutes earlier fails just that step, so they still run.
-        # (Expressions have no arithmetic.)
-        id: budget
-        shell: bash
-        env:
-          JOB_MINUTES: ${{ inputs.timeout-minutes }}
-        run: echo "minutes=$(( JOB_MINUTES - 10 ))" >> "$GITHUB_OUTPUT"
+      - name: Note when the job started
+        # For "Work out the test step's time limit".
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Checkout
         # No `ref` input, for the reason ui-tests.yml gives (PR #258).
@@ -146,6 +139,25 @@ jobs:
         # See ui-tests.yml: a simulator left mid-boot is the commonest
         # source of UI-test flake on a shared runner.
         run: xcrun simctl shutdown all || true
+
+      - name: Work out the test step's time limit
+        # The job's own timeout cancels the whole job: no log is kept and the
+        # failure-only upload steps never run. Stopping "Build and test" 10
+        # minutes before the job's limit fails just that step, so they still
+        # run. Counted from the job's start, not from this step's: setup,
+        # boot and a Duo pose take 5 to 12 minutes, and a budget of the job's
+        # limit less 10 let a Duo job run into its own timeout (nightly,
+        # 2026-11-11). (Expressions have no arithmetic.)
+        id: budget
+        shell: bash
+        env:
+          JOB_MINUTES: ${{ inputs.timeout-minutes }}
+        run: |
+          used=$(( ($(date +%s) - JOB_STARTED + 59) / 60 ))
+          minutes=$(( JOB_MINUTES - 10 - used ))
+          [ "$minutes" -ge 1 ] || minutes=1
+          echo "Used $used of $JOB_MINUTES min before testing; the test step gets $minutes."
+          echo "minutes=$minutes" >> "$GITHUB_OUTPUT"
 
       - name: Build and test
         uses: ./.github/actions/build-and-test
