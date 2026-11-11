@@ -660,18 +660,25 @@ and add or update its notices there too, under its own `# <name>` line
 
 ## Store screenshots
 
-`store-screenshots/` holds the App Store Connect screenshot sets, made by
+`store-screenshots/` holds two copies of the screenshot sets, made by
 `Scripts/store-screenshots/{gen.py,shot.swift}` through
 `Scripts/render-store-screenshots.sh`; README.md's "Store screenshots" has the
 capture-then-render workflow. What the scripts don't say:
 
-- **Capture against the Jellyfin demo server** (`demo.jellyfin.org/stable`,
-  user `demo`, no password), **never a personal server**: the screenshots are
-  public, and the demo catalogue is public-domain/Creative Commons.
-- **The demo server has no HDR, multi-track or chaptered content** (all SDR
-  H.264, one audio track, no subtitles, no chapters). A slide about Dolby
-  Vision or chapters either describes the app's real capability or skips the
-  claim; never fake HDR-looking video.
+- **Two copies, two servers, never a personal one** (Benjamin, 2026-11-10):
+  `store-screenshots/apple-app-store/` is captured against the App Review
+  server (user `reviewer`; `docs/store/review-server.md`; **neither its
+  hostname nor its domain ever goes in the repo**, only in App Store Connect
+  and local notes) and is the **only** copy uploaded to App
+  Store Connect. `store-screenshots/demo-jellyfin-org/` is captured against
+  `demo.jellyfin.org/stable` (user `demo`, no password) and is shown only in
+  README.md. The demo server isn't all public domain (Dracula and Sahara got
+  tvOS 1.2.0 rejected under 5.2.3), so its images never go to the store.
+  Each copy keeps its raw captures in its own `raw/`.
+- **Neither server has HDR content** (all SDR). The review server has
+  chapters and Sintel's ten subtitle tracks; the demo server has neither. A
+  slide about Dolby Vision either describes the app's real capability or
+  skips the claim; never fake HDR-looking video.
 - **`xcrun simctl` has no orientation control.** Rotate through the
   Simulator's Device ▸ Orientation menu (`osascript` can drive it). `gen.py`'s
   landscape frame expects an upright image: Xcode 27's Device Hub (one window
@@ -696,7 +703,7 @@ capture-then-render workflow. What the scripts don't say:
 - **Only iOS 27 Simulators take Xcode's MCP taps**, so the iPhone set comes
   from the iPhone 18 Pro Max (1320×2868, the 6.9" size) and the iPad set from
   the iPad Air 13-inch (M4). `orientation landscapeLeft` rotates them (not
-  the Duo). Raw captures for every set are kept in `store-screenshots/raw/`.
+  the Duo). Raw captures for every set are kept in each copy's `raw/`.
 - **Go easy on the demo server's downloads**: ten parallel transcodes across
   two Simulators coincided with it answering 503 (2026-10-31). Download the
   short Caminandes films, one Simulator at a time.
@@ -710,7 +717,7 @@ capture-then-render workflow. What the scripts don't say:
 - **The Apple TV set** (`appstore-appletv`, `gen.py`'s `TV_SLIDES`, no device
   frame) is captured with `xcrun simctl io <udid> screenshot`, which works on
   tvOS with no rotation or status bar to handle; the 4K Simulator saves
-  3840×2160, kept downscaled to 1920×1080 in `store-screenshots/raw/appletv/`
+  3840×2160, kept downscaled to 1920×1080 in each copy's `raw/appletv/`
   so the set can be re-rendered.
 - **On the demo server the Top Shelf can show only Recently Added**: the demo
   user has no Continue Watching or Next Up (progress doesn't stick on the

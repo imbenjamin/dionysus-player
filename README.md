@@ -55,36 +55,36 @@ see [iPhone Duo](#iphone-duo).
 
 ## Screenshots
 
-Captured against the [Jellyfin demo server](https://demo.jellyfin.org/stable),
-whose catalogue is public-domain and Creative Commons. These are the App Store
-sets (see [Store screenshots](#store-screenshots)).
+Captured against the [Jellyfin demo server](https://demo.jellyfin.org/stable).
+The App Store's own sets are captured against a separate server (see
+[Store screenshots](#store-screenshots)).
 
 **iPhone**
 
 <p align="center">
-  <img src="store-screenshots/appstore-iphone-69/01.png" alt="Home" width="19%">
-  <img src="store-screenshots/appstore-iphone-69/03.png" alt="A movie's detail page" width="19%">
-  <img src="store-screenshots/appstore-iphone-69/02.png" alt="The Movies grid with filters" width="19%">
-  <img src="store-screenshots/appstore-iphone-69/05.png" alt="Downloads" width="19%">
-  <img src="store-screenshots/appstore-iphone-69/06.png" alt="Home in light appearance" width="19%">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-iphone-69/01.png" alt="Home" width="19%">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-iphone-69/03.png" alt="A movie's detail page" width="19%">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-iphone-69/02.png" alt="The Movies grid with filters" width="19%">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-iphone-69/05.png" alt="Downloads" width="19%">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-iphone-69/06.png" alt="Home in light appearance" width="19%">
 </p>
 
 **iPhone Duo**
 
 <p align="center">
-  <img src="store-screenshots/appstore-iphone-duo/01.png" alt="A movie's page as a two-page spread on the open phone" height="240">
-  <img src="store-screenshots/appstore-iphone-duo/02.png" alt="The player in tabletop: picture above the fold, controls below" height="240">
-  <img src="store-screenshots/appstore-iphone-duo/03.png" alt="Home in tabletop, its hero ending at the fold" height="240">
-  <img src="store-screenshots/appstore-iphone-duo/06.png" alt="Home on the closed phone's outer display" height="240">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-iphone-duo/01.png" alt="A movie's page as a two-page spread on the open phone" height="240">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-iphone-duo/02.png" alt="The player in tabletop: picture above the fold, controls below" height="240">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-iphone-duo/03.png" alt="Home in tabletop, its hero ending at the fold" height="240">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-iphone-duo/06.png" alt="Home on the closed phone's outer display" height="240">
 </p>
 
 **Apple TV**
 
 <p align="center">
-  <img src="store-screenshots/appstore-appletv/01.png" alt="Home with its hero" width="49%">
-  <img src="store-screenshots/appstore-appletv/03.png" alt="A movie's detail page" width="49%">
-  <img src="store-screenshots/appstore-appletv/05.png" alt="The player with its Info panel" width="49%">
-  <img src="store-screenshots/appstore-appletv/07.png" alt="Who's Watching?" width="49%">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-appletv/01.png" alt="Home with its hero" width="49%">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-appletv/03.png" alt="A movie's detail page" width="49%">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-appletv/05.png" alt="The player with its Info panel" width="49%">
+  <img src="store-screenshots/demo-jellyfin-org/appstore-appletv/07.png" alt="Who's Watching?" width="49%">
 </p>
 
 ## Downloading Dionysus
@@ -508,17 +508,28 @@ changes.
 
 ## Store screenshots
 
-[`store-screenshots/`](store-screenshots) holds the App Store Connect
-screenshot sets — one folder per required size (`appstore-iphone-69`,
-`appstore-iphone-65`, `appstore-ipad-13`, six PNGs each;
-`appstore-iphone-duo`, six at the size of the display each shows; and
-`appstore-appletv`, seven at 1920×1080), at exact store pixel dimensions and
-with no alpha channel, which App Store Connect rejects.
-Every slide is a real screenshot of the running app
-(against the [Jellyfin demo server](https://demo.jellyfin.org/stable), so
-no personal library content or credentials appear in them) framed and
-captioned to match the brand palette in
-[`BrandColors.swift`](DionysusPlayer/Shared/BrandColors.swift).
+[`store-screenshots/`](store-screenshots) holds two copies of the
+screenshot sets, the same slides captured against two servers:
+
+- [`demo-jellyfin-org/`](store-screenshots/demo-jellyfin-org), against the
+  [Jellyfin demo server](https://demo.jellyfin.org/stable). These are the
+  images shown on this page. They are not uploaded to App Store Connect,
+  since not every title on the demo server is free to show in a store
+  listing.
+- [`apple-app-store/`](store-screenshots/apple-app-store), against the
+  developer's App Review server, whose library is only Blender Foundation
+  films under Creative Commons licences
+  ([`docs/store/review-server.md`](docs/store/review-server.md)). These are
+  the ones uploaded to App Store Connect.
+
+Neither shows a personal library or credentials. Each holds one folder per
+required size (`appstore-iphone-69`, `appstore-iphone-65`,
+`appstore-ipad-13`, six PNGs each; `appstore-iphone-duo`, six at the size of
+the display each shows; and `appstore-appletv`, seven at 1920×1080), at
+exact store pixel dimensions and with no alpha channel, which App Store
+Connect rejects, plus the raw captures in `raw/`. Every slide is a real
+screenshot of the running app, framed and captioned to match the brand
+palette in [`BrandColors.swift`](DionysusPlayer/Shared/BrandColors.swift).
 
 Producing a set is two steps:
 
@@ -526,7 +537,7 @@ Producing a set is two steps:
    iPhone and iPad, in both light and dark appearance where the slide calls
    for it: boot a Simulator, `xcrun simctl status_bar <udid> override
    --time "9:41" --batteryLevel 100 ...` for a clean status bar, sign in
-   against the demo server, and capture Home, the Movies grid, an asset
+   against that set's server, and capture Home, the Movies grid, an asset
    detail page, the player (landscape — `xcrun simctl` has no orientation
    flag, so rotate via the Device ▸ Orientation menu and screenshot; with
    Xcode 27's Device Hub the PNG comes out upright, while the older
@@ -549,18 +560,19 @@ Producing a set is two steps:
    phone, then unfold: the app keeps its screen. Launch fresh on the closed
    phone rather than signing in there, or the app stays tall when unfolded.
 
-   For the Apple TV, sign the tvOS Simulator in to the demo server and
+   For the Apple TV, sign the tvOS Simulator in to the set's server and
    capture with `xcrun simctl io <udid> screenshot` (no status bar or
    rotation to deal with): Home's hero, the Movies grid, a movie page, a
    show page, the player paused with its swipe-down panel on Info, Search
    with results, and Who's Watching?. Name them to match `gen.py`'s
-   `TV_SLIDES` into `<raw>/appletv/`. The captures used for the current sets
-   are kept in [`store-screenshots/raw/`](store-screenshots/raw), the Apple
+   `TV_SLIDES` into `<raw>/appletv/`. The captures used for each copy are
+   kept in its `raw/` folder (for example
+   [`store-screenshots/demo-jellyfin-org/raw/`](store-screenshots/demo-jellyfin-org/raw)), the Apple
    TV's downscaled to 1920×1080, so a set can be re-rendered without
    capturing again.
 2. **Render the store PNGs**:
    ```sh
-   ./Scripts/render-store-screenshots.sh <raw-dir> store-screenshots
+   ./Scripts/render-store-screenshots.sh store-screenshots/apple-app-store/raw store-screenshots/apple-app-store
    ```
    This builds `Scripts/store-screenshots/shot.swift` (a headless WKWebView
    snapshot tool — no Chrome/Node dependency) and runs `gen.py` to lay each
