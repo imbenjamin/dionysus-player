@@ -181,25 +181,42 @@ runs:
         # Composite steps can't use `timeout-minutes`, and macOS has no
         # `timeout`, so the 15-minute bound is a poll on bootstatus. Its
         # output is kept, and its tail printed if it fails or runs out.
+        #
+        # A boot that fails outright is tried once more. On runner image
+        # 20261104 a tvOS 27.0 Simulator found at "Select simulator" refused
+        # to boot four minutes later with "Unable to boot device because we
+        # cannot determine the runtime bundle" (nightly, 2026-11-11), the
+        # same image whose tvOS Simulators shut down mid-plan (#445).
+        # Listing the runtimes makes CoreSimulator look for them again.
         limit=900
         start=$SECONDS
         out=$(mktemp "${RUNNER_TEMP:-/tmp}/bootstatus.XXXXXX")
-        xcrun simctl bootstatus "$UDID" -b > "$out" 2>&1 &
-        pid=$!
-        while kill -0 "$pid" 2>/dev/null; do
-          if [ $((SECONDS - start)) -ge "$limit" ]; then
-            kill "$pid" 2>/dev/null || true
-            echo "::error::The '$DEVICE_TYPE' simulator ($PLATFORM $IOS_VERSION, $UDID) wasn't ready after $((SECONDS - start)) s." >&2
+        for attempt in 1 2; do
+          xcrun simctl bootstatus "$UDID" -b > "$out" 2>&1 &
+          pid=$!
+          while kill -0 "$pid" 2>/dev/null; do
+            if [ $((SECONDS - start)) -ge "$limit" ]; then
+              kill "$pid" 2>/dev/null || true
+              echo "::error::The '$DEVICE_TYPE' simulator ($PLATFORM $IOS_VERSION, $UDID) wasn't ready after $((SECONDS - start)) s." >&2
+              tail -n 20 "$out"
+              exit 1
+            fi
+            sleep 2
+          done
+          if wait "$pid"; then
+            break
+          fi
+          if [ "$attempt" = 2 ]; then
+            echo "::error::'simctl bootstatus' failed twice for the '$DEVICE_TYPE' simulator ($PLATFORM $IOS_VERSION, $UDID), after $((SECONDS - start)) s." >&2
             tail -n 20 "$out"
             exit 1
           fi
-          sleep 2
-        done
-        if ! wait "$pid"; then
-          echo "::error::'simctl bootstatus' failed for the '$DEVICE_TYPE' simulator ($PLATFORM $IOS_VERSION, $UDID) after $((SECONDS - start)) s." >&2
+          echo "::warning::'simctl bootstatus' failed for the '$DEVICE_TYPE' simulator ($PLATFORM $IOS_VERSION, $UDID) after $((SECONDS - start)) s; trying once more."
           tail -n 20 "$out"
-          exit 1
-        fi
+          xcrun simctl shutdown "$UDID" 2>/dev/null || true
+          xcrun simctl list runtimes
+          sleep 10
+        done
         echo "The simulator was ready after $((SECONDS - start)) s of waiting"
         # For "Summarize results".
         echo "SIMULATOR_WAIT_SECONDS=$((SECONDS - start))" >> "$GITHUB_ENV"
