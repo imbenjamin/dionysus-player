@@ -145,7 +145,8 @@ struct PlaylistDetailView: View {
                 startSeconds: request.startSeconds,
                 onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) },
                 onRequestNextItem: { pendingNextItemID = $0 },
-                playbackQueue: viewModel.orderedPlaylistItems
+                playbackQueue: viewModel.orderedPlaylistItems,
+                linkOverrides: request.linkOverrides
             )
         }
     }

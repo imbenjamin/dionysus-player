@@ -132,7 +132,7 @@ struct AssetDetailView: View {
     /// No retry: the item is gone, and asking again gets the same 404.
     private func dropUnplayableCue() {
         let cue = DeepLinkPlaybackCue.shared
-        guard cue.itemID == itemID else { return }
+        guard cue.isFor(itemID) else { return }
         switch viewModel.loadState {
         case .idle, .loading:
             return

@@ -118,7 +118,8 @@ struct CollectionDetailView: View {
             PlayerView(
                 itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
                 startSeconds: request.startSeconds,
-                onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) }
+                onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) },
+                linkOverrides: request.linkOverrides
             )
         }
     }

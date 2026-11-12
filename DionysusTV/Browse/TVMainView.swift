@@ -252,16 +252,25 @@ struct TVMainView: View {
 
     /// A link to a title (the Top Shelf's, M6): Home with its path dropped,
     /// the title's page pushed over it, and for Play the player over that
-    /// page, as the hero's Play does, so Menu lands on the page. A player
-    /// already up closes first, reporting its stop. Other destinations
-    /// aren't opened here yet (#406 adds them), and say so.
+    /// page, playing what the page's Play would
+    /// (`AssetDetailViewModel.linkPlaybackRequest`), so Menu lands on the
+    /// page. A playlist member (`?playlist=`) plays over the playlist's page
+    /// with the rest queued. A player already up closes first, reporting its
+    /// stop. Other destinations aren't opened here yet (#406 adds them), and
+    /// say so.
     private func apply(_ link: DeepLink) {
         deepLinkApplied()
         let itemID: String
-        let plays: Bool
+        /// For Play: the playlist member, if any, and what the link asks of
+        /// the session.
+        let playback: (memberID: String?, overrides: PlaybackLinkOverrides)?
         switch link.destination {
-        case .item(let id, _): (itemID, plays) = (id, false)
-        case .play(let id, _): (itemID, plays) = (id, true)
+        case .item(let id, _):
+            (itemID, playback) = (id, nil)
+        case .play(let id, let options):
+            // `offline` asks for a download, which the Apple TV doesn't have.
+            itemID = options.playlistID ?? id
+            playback = (options.playlistID == nil ? nil : id, PlaybackLinkOverrides(options, issues: link.issues))
         case .home, .search, .downloads, .profile, .quickConnectApproval, .library, .downloaded, .serverSetup:
             ToastCenter.shared.post(.notice(DeepLink.cantOpenMessage))
             return
@@ -288,14 +297,24 @@ struct TVMainView: View {
                 return
             }
             let item = MediaItem(dto: dto, images: await client.makeImageURLBuilder())
-            let target = plays ? await TVHeroPlayTarget.resolve(item, client: client, userID: userID) : nil
-            guard canFinish() else { return }
-            guard let target else {
+            guard let playback else {
                 open(.assetDetail(itemID: item.id, preloadedItem: item))
                 return
             }
+            let page = AssetDetailViewModel(client: client, userID: userID, itemID: item.id, preloadedItem: item)
+            await page.load()
+            guard canFinish() else { return }
+            guard page.loadState == .loaded,
+                  let request = page.linkPlaybackRequest(memberID: playback.memberID, overrides: playback.overrides)
+            else {
+                let notices = playback.overrides.notices + [String(localized: "Nothing to play here.")]
+                ToastCenter.shared.post(.notice(PlaybackLinkOverrides.combined(notices) ?? ""))
+                open(.assetDetail(itemID: item.id, preloadedItem: item))
+                return
+            }
+            let queue = item.kind == .playlist ? page.orderedPlaylistItems : []
             var playbackEnded: (@MainActor (PlaybackSessionOutcome) -> Void)?
-            let presented = TVPlayerPresenter.present(PlaybackRequest(itemID: target), client: client, userID: userID) { outcome in
+            let presented = TVPlayerPresenter.present(request, queue: queue, client: client, userID: userID) { outcome in
                 playbackEnded?(outcome)
             }
             if presented {

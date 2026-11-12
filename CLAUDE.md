@@ -600,10 +600,20 @@ links are two of them and must keep parsing.
   `MainTabView` / `TVMainView` apply it. On iOS `DeepLinkNavigation.plan`
   maps a destination to tabs and stacks; a title's page goes on Home's stack.
 - **A play link pushes the page and cues it** (`DeepLinkPlaybackCue`): the
-  page plays what its own Play would (`AssetDetailViewModel.linkPlaybackTarget`)
-  with its own player, so the queue, Next Up and the refresh on close are the
-  page's usual ones. A playlist queues the rest; a collection plays its first
-  title alone.
+  page plays what its own Play would (`AssetDetailViewModel.linkPlaybackRequest`,
+  which the Apple TV uses too) with its own player, so the queue, Next Up and
+  the refresh on close are the page's usual ones. A playlist queues the rest;
+  a collection plays its first title alone; `?playlist=` plays a member from
+  the playlist's page; a downloaded title, with `?offline=1` or while
+  offline, plays from its download's page (a cue says which, as both pages
+  share the item id).
+- **A link's start, version, tracks and Playback Stats apply to its one
+  session** (`PlaybackLinkOverrides`, through `PlaybackRequest` to
+  `PlayerViewModel`): checked once the title has loaded, never written to
+  track memory or the version preference, and whatever the title lacks (or
+  the link couldn't read) is said in one toast while the rest plays as Play
+  would. Tracks are Jellyfin's `MediaStream.Index`, mapped to engine ids as
+  the Atmos hint and the ASS sidecars are.
 - **A link arriving mid-playback closes the player through
   `PlayerCloseRequest`**, which runs its close button's teardown and reports
   the stop; dismissing the cover from outside would skip that.

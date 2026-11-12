@@ -1099,7 +1099,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return [MediaSegmentDto(
                 id: "intro-\(itemID)", itemId: itemID, type: .intro, startTicks: 0, endTicks: 60 * ticksPerSecond
             )]
-        case .earlyCredits where UITestFixtureLibrary.allItems[itemID]?.type == .episode:
+        case .earlyCredits where UITestFixtureLibrary.allItems[itemID]?.type == .episode
+            || UITestFixtureLibrary.playlistMembers.contains(where: { $0.id == itemID }):
             return [MediaSegmentDto(
                 id: "outro-\(itemID)", itemId: itemID, type: .outro,
                 startTicks: 5 * ticksPerSecond, endTicks: 2880 * ticksPerSecond

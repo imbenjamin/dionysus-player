@@ -34,6 +34,9 @@ struct DownloadedAssetDetailView: View {
     /// Play/Restart so a later play doesn't inherit it. See
     /// `PlayerView.startSeconds`.
     @State private var startSeconds: TimeInterval?
+    /// What a `dionysus://play` link asked of the session it opens (#406);
+    /// cleared by every Play this page's own controls start.
+    @State private var linkOverrides: PlaybackLinkOverrides?
     @State private var showDeleteConfirmation = false
     /// Bumped from `fullScreenCover(onDismiss:)` to force `body` to re-run once
     /// the Player closes — the same fix as `MovieDetailView.refreshTrigger`. A
@@ -81,11 +84,13 @@ struct DownloadedAssetDetailView: View {
                                 onPlay: {
                                     startFromBeginning = false
                                     startSeconds = nil
+                                    linkOverrides = nil
                                     isPlayerPresented = true
                                 },
                                 onRestart: {
                                     startFromBeginning = true
                                     startSeconds = nil
+                                    linkOverrides = nil
                                     isPlayerPresented = true
                                 }
                             )
@@ -111,6 +116,7 @@ struct DownloadedAssetDetailView: View {
                             ChapterRailView(chapters: item.chapters.map(Chapter.init(downloaded:))) { chapter in
                                 startFromBeginning = false
                                 startSeconds = chapter.startSeconds
+                                linkOverrides = nil
                                 isPlayerPresented = true
                             }
                         }
@@ -154,14 +160,25 @@ struct DownloadedAssetDetailView: View {
                     }
                     Button("Cancel", role: .cancel) {}
                 }
+                // A `dionysus://play` link (#406) for a downloaded title,
+                // asked for with `offline=1` or opened while offline.
+                .onChange(of: DeepLinkPlaybackCue.shared.itemID, initial: true) {
+                    guard let cue = DeepLinkPlaybackCue.shared.take(for: itemID, download: true) else { return }
+                    startFromBeginning = false
+                    startSeconds = nil
+                    linkOverrides = cue.overrides.isEmpty ? nil : cue.overrides
+                    isPlayerPresented = true
+                }
                 .fullScreenCover(isPresented: $isPlayerPresented, onDismiss: { refreshTrigger = UUID() }) {
                     PlayerView(
                         itemID: item.itemID, startFromBeginning: startFromBeginning,
-                        startSeconds: startSeconds, downloadedItem: item
+                        startSeconds: startSeconds, downloadedItem: item, linkOverrides: linkOverrides
                     )
                 }
             } else {
                 ErrorStateView(message: String(localized: "This download is no longer available."), retry: nil)
+                    // Nothing to play: a link's cue goes with the download.
+                    .onAppear { _ = DeepLinkPlaybackCue.shared.take(for: itemID, download: true) }
             }
         }
     }

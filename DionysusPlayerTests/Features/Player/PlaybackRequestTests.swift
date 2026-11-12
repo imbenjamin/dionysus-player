@@ -42,4 +42,14 @@ final class PlaybackRequestTests: XCTestCase {
     func test_mediaSourceID_defaultsToNil() {
         XCTAssertNil(PlaybackRequest(itemID: "item-1").mediaSourceID)
     }
+
+    /// A second link to the same title with another start presents afresh.
+    func test_id_differsByLinkOverrides() {
+        let plain = PlaybackRequest(itemID: "item-1")
+        let linked = PlaybackRequest(itemID: "item-1", linkOverrides: .init(start: .time(90)))
+        let other = PlaybackRequest(itemID: "item-1", linkOverrides: .init(start: .time(120)))
+        XCTAssertNotEqual(plain.id, linked.id)
+        XCTAssertNotEqual(linked.id, other.id)
+        XCTAssertEqual(linked.id, PlaybackRequest(itemID: "item-1", linkOverrides: .init(start: .time(90))).id)
+    }
 }

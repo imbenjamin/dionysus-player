@@ -147,6 +147,32 @@ final class AssetDetailViewModel {
         }
     }
 
+    /// The session a play link starts from this page (#406), on both apps:
+    /// `memberID` (`?playlist=`) plays that member, with the rest of this
+    /// playlist after it as tapping its row does, or alone, with a notice,
+    /// if it isn't one; otherwise `linkPlaybackTarget`. The link's version,
+    /// else the one remembered for the title. Nil where there's nothing to
+    /// play. Read once `loadState` is `.loaded`.
+    func linkPlaybackRequest(memberID: String? = nil, overrides: PlaybackLinkOverrides) -> PlaybackRequest? {
+        var overrides = overrides
+        let targetID: String
+        if let memberID {
+            if !orderedPlaylistItems.contains(where: { $0.id == memberID }) {
+                overrides.notices.append(String(localized: "That title isn't in this playlist, so it plays alone."))
+            }
+            targetID = memberID
+        } else if let target = linkPlaybackTarget {
+            targetID = target.id
+        } else {
+            return nil
+        }
+        return PlaybackRequest(
+            itemID: targetID,
+            mediaSourceID: overrides.mediaSourceID ?? preferredMediaSourceID(forPlayableItem: targetID),
+            linkOverrides: overrides.isEmpty ? nil : overrides
+        )
+    }
+
     /// The id `refreshItem()` re-fetches to keep `item` current: `itemID` itself
     /// for a Movie, Series or Episode load, but the Series' id for a Season load,
     /// where `item` was swapped to the Series' DTO.

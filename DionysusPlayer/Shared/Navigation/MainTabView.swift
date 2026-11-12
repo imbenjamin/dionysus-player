@@ -208,7 +208,12 @@ struct MainTabView: View {
     /// its stop), then the tabs move as `DeepLinkNavigation` plans.
     private func apply(_ link: DeepLink) {
         deepLinkApplied()
-        guard let plan = DeepLinkNavigation.plan(for: link.destination) else {
+        let store = appState.downloadManager.store
+        guard let plan = DeepLinkNavigation.plan(
+            for: link.destination, issues: link.issues,
+            isDownloaded: { id in store.item(itemID: id).map { $0.status == .completed && !$0.markedForDeletion } ?? false },
+            isOffline: ConnectivityMonitor.shared.isOffline
+        ) else {
             ToastCenter.shared.post(.notice(DeepLink.cantOpenMessage))
             return
         }
@@ -227,7 +232,7 @@ struct MainTabView: View {
             }
             if let path = plan.homePath { homePath = path }
             if let query = plan.searchQuery { linkedSearch = LinkedSearchQuery(query: query) }
-            if let itemID = plan.playsItemID { DeepLinkPlaybackCue.shared.post(itemID: itemID) }
+            if let cue = plan.playback { DeepLinkPlaybackCue.shared.post(cue) }
         }
     }
 

@@ -306,7 +306,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `manyUsers` | Six users, more than Who's Watching? fits in a row |
 | `librariesFailAtFirst` | `/Views` 500s for five seconds, then succeeds |
 | `thinDynamicRails` | Home's dynamic rails nearly all too thin, so it keeps loading |
-| `skipIntro` / `earlyCredits` | An intro from 0:00 to 83:20, listed twice (a copy ending 20s sooner first, as from two segment providers); credits from 0:05 (Next Up at once) |
+| `skipIntro` / `earlyCredits` | An intro from 0:00 to 83:20, listed twice (a copy ending 20s sooner first, as from two segment providers); credits from 0:05 on every episode and playlist member (Next Up at once, where something follows) |
 | `audioOffsetUnavailable` | The fake engine reports the audio offset unavailable (a server transcode's case), so the player hides its offset controls |
 | `rebuffering` | The fake engine stalls 2 s into playback, reporting `.buffering` for 3 s (the Apple TV's stall spinner) |
 | `slowSeek` | The fake engine holds every seek in `.seeking` for 3 s before it lands (the Apple TV's spinner on a long jump) |
@@ -1149,7 +1149,7 @@ the detail.
 | `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), the Cast & Crew and Details tabs, deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
-| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a title's page, playing over it (a show, the player closing first), a missing or unplayable title, another server, an unreadable link, a cold launch, a link held through sign-in |
+| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a title's page, playing over it (a show, the player closing first), a start time or chapter, tracks, Playback Stats, a playlist member with the rest queued, the downloaded copy, a missing or unplayable title, another server, an unreadable link or start time, a missing chapter or download, a cold launch, a link held through sign-in |
 | `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
 | `DownloadsJourneyTests` | Downloading to completion (an item, or a season at once), the row updating while open, bulk delete, cancelling a selection, and offline after a relaunch with `offline`: a downloaded movie and episode, and a show's page (one season flat, two as seasons) and a season's, each opened and played |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
@@ -1173,6 +1173,7 @@ the detail.
 | `AccountSwitchingJourneyTests` | Remembered accounts (a Quick Connect one too; refused, a password account opens its password screen and a Quick Connect one asks for a new code, `revokedSessions`), Forget This Account, Follow Apple TV Users, Select a User Every Relaunch |
 | `CollectionDetailJourneyTests` | Box sets and playlists, empty and loading |
 | `CollectionGridJourneyTests` | A library's grid: pills, sort, filters, Reset, returning from a detail page |
+| `DeepLinkPlaybackJourneyTests` | `dionysus://play` links' parameters (#406): a start time or chapter, Playback Stats with the setting off, a playlist member with the rest queued, a playlist over its page |
 | `DetailJourneyTests` | Detail pages: Menu, the keep-alive cap, rows, Full Details, no backdrop, failures |
 | `HomeJourneyTests` | The hero, See All, rails loading, a failing Home |
 | `LaunchJourneyTests` | First launch to Welcome and Find Your Server |

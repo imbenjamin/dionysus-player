@@ -43,6 +43,9 @@ struct PlayerView: View {
     /// forward wherever it started. `PlayerViewModel.playbackQueue` covers how it
     /// takes over "what's next" resolution.
     var playbackQueue: [MediaItem] = []
+    /// What a `dionysus://play` link asked of this session (#406); see
+    /// `PlaybackLinkOverrides`.
+    var linkOverrides: PlaybackLinkOverrides? = nil
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -611,9 +614,11 @@ struct PlayerView: View {
             // explicitly; `resumeSeconds` alone can't, a first chapter being `0`.
             startFromBeginning: startFromBeginning || startSeconds != nil, mediaSourceID: mediaSourceID,
             downloadedItem: downloadedItem, downloadStore: downloadedItem != nil ? appState.downloadManager.store : nil,
-            playbackQueue: playbackQueue
+            playbackQueue: playbackQueue,
+            linkOverrides: linkOverrides
         )
         viewModel = newViewModel
+        if newViewModel.linkShowsStats { showPlaybackStats = true }
         await newViewModel.start(resumeSeconds: startSeconds)
     }
 

@@ -2394,6 +2394,63 @@ final class AssetDetailViewModelTests: XCTestCase {
         let empty = await loadedForLink(BaseItemDto(id: "collection-2", name: "Nothing Yet", type: .boxSet))
         XCTAssertNil(empty.linkPlaybackTarget)
     }
+
+    // MARK: - The session a play link starts (#406)
+
+    private func playlistForLink() async -> AssetDetailViewModel {
+        let first = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, userData: UserItemDataDto(played: false), mediaType: "Video")
+        let second = BaseItemDto(id: "movie-2", name: "Cars", type: .movie, userData: UserItemDataDto(played: false), mediaType: "Video")
+        return await loadedForLink(
+            BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video"),
+            answers: ["/Playlists/playlist-1/Items": [first, second]]
+        )
+    }
+
+    /// No overrides: the request is exactly what Play would make, with the
+    /// version remembered for the title.
+    func test_linkPlaybackRequest_plainLink_isWhatPlayWouldStart() async {
+        MediaVersionPreferenceStore(defaults: defaults).setPreferredMediaSourceID("v-remembered", forItem: "movie-1", userID: "user-1")
+        let movie = await loadedForLink(BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaType: "Video"))
+        XCTAssertEqual(
+            movie.linkPlaybackRequest(overrides: .init()),
+            PlaybackRequest(itemID: "movie-1", mediaSourceID: "v-remembered")
+        )
+    }
+
+    /// The link's version beats the remembered one, and its overrides ride along.
+    func test_linkPlaybackRequest_carriesTheLinksVersionAndOverrides() async {
+        MediaVersionPreferenceStore(defaults: defaults).setPreferredMediaSourceID("v-remembered", forItem: "movie-1", userID: "user-1")
+        let movie = await loadedForLink(BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaType: "Video"))
+        let overrides = PlaybackLinkOverrides(start: .time(90), mediaSourceID: "v-linked", audioStreamIndex: 2, showsStats: true)
+        let request = movie.linkPlaybackRequest(overrides: overrides)
+        XCTAssertEqual(request?.mediaSourceID, "v-linked")
+        XCTAssertEqual(request?.linkOverrides, overrides)
+    }
+
+    /// `?playlist=` plays that member from the playlist's page, which queues
+    /// the rest after it.
+    func test_linkPlaybackRequest_playsTheNamedMember() async {
+        let playlist = await playlistForLink()
+        let request = playlist.linkPlaybackRequest(memberID: "movie-2", overrides: .init())
+        XCTAssertEqual(request?.itemID, "movie-2")
+        XCTAssertNil(request?.linkOverrides)
+        XCTAssertEqual(playlist.orderedPlaylistItems.map(\.id), ["movie-1", "movie-2"])
+    }
+
+    /// A title that isn't in the playlist plays alone, and the link says so.
+    func test_linkPlaybackRequest_aNonMemberPlaysAlone_withANotice() async {
+        let playlist = await playlistForLink()
+        let request = playlist.linkPlaybackRequest(memberID: "movie-9", overrides: .init(notices: ["Couldn't read the start time."]))
+        XCTAssertEqual(request?.itemID, "movie-9")
+        XCTAssertEqual(request?.linkOverrides?.notices, [
+            "Couldn't read the start time.", "That title isn't in this playlist, so it plays alone.",
+        ])
+    }
+
+    func test_linkPlaybackRequest_nothingToPlay_isNil() async {
+        let folder = await loadedForLink(BaseItemDto(id: "folder-1", name: "Movies", type: .collectionFolder))
+        XCTAssertNil(folder.linkPlaybackRequest(overrides: .init(start: .time(5))))
+    }
 }
 
 /// `DELETE` paths in the order they were sent. `MockURLProtocol.requestHandler`

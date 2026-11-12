@@ -68,6 +68,11 @@ final class TVPlayerInput {
         ticker = nil
     }
 
+    /// Playback Stats on from the start, for a link that asked (#406).
+    func showStats() {
+        state.isStatsOn = true
+    }
+
     /// A new item in the same player: everything starts over but Stats,
     /// which stays as the person left it (Review Focus 4).
     func reset() {

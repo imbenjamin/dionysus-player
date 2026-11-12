@@ -28,7 +28,7 @@ enum TVPlayerPresenter {
         let viewModel = PlayerViewModel(
             client: client, userID: userID, itemID: request.itemID, engine: engine,
             startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
-            playbackQueue: queue
+            playbackQueue: queue, linkOverrides: request.linkOverrides
         )
         let host = TVPlayerHostController(viewModel: viewModel)
         host.onClose = onClose
