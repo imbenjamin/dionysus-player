@@ -220,6 +220,7 @@ struct MainTabView: View {
             return
         }
         DeepLinkPlaybackCue.shared.clear()
+        DeepLinkPageCue.shared.clear()
         let userID = appState.signedInUserID
         let client = appState.apiClient
         Task { @MainActor in
@@ -253,6 +254,7 @@ struct MainTabView: View {
             if let query = plan.searchQuery { linkedSearch = LinkedSearchQuery(query: query) }
             if let page = plan.profilePage { linkedProfilePage = LinkedProfilePage(page: page) }
             if let cue = plan.playback { DeepLinkPlaybackCue.shared.post(cue) }
+            if let cue = plan.page { DeepLinkPageCue.shared.post(cue) }
             if let notice = plan.notice { ToastCenter.shared.post(.notice(notice)) }
         }
     }

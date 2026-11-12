@@ -57,6 +57,29 @@ final class DeepLinkNavigationTests: XCTestCase {
         )
     }
 
+    /// A season or section rides on a cue the page takes once it has loaded.
+    func test_item_withASeasonOrSection_cuesThePage() {
+        let options = DeepLink.ItemOptions(season: "2", section: .cast)
+        XCTAssertEqual(
+            DeepLinkNavigation.plan(for: .item(id: "s1", options: options)),
+            .init(tab: .home, homePath: [.assetDetail(itemID: "s1")], page: .init(pageID: "s1", options: options))
+        )
+    }
+
+    func test_item_withAnUnreadableSection_cuesThePage_toSaySo() {
+        let plan = DeepLinkNavigation.plan(for: .item(id: "m1", options: .init()), issues: [.unknownSection])
+        XCTAssertEqual(plan?.page, .init(pageID: "m1", options: .init(), notices: ["Couldn't read the section."]))
+    }
+
+    /// Offline, a downloaded title opens its download's page, which has
+    /// neither seasons nor sections.
+    func test_item_offlineDownload_dropsTheOptions() {
+        let plan = DeepLinkNavigation.plan(
+            for: .item(id: "m1", options: .init(section: .cast)), isDownloaded: { _ in true }, isOffline: true
+        )
+        XCTAssertEqual(plan, .init(tab: .home, homePath: [.downloadedAsset(itemID: "m1")]))
+    }
+
     func test_play_pushesThePage_andCuesItToPlay() {
         XCTAssertEqual(
             DeepLinkNavigation.plan(for: .play(id: "m1", options: .init())),

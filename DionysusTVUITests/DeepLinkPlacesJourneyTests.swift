@@ -65,6 +65,35 @@ final class DeepLinkPlacesJourneyTests: TVUITestCase {
         XCTAssertTrue(app.buttons[A11yID.TV.Library.resetFilters].exists, "Reset, for the link's filters")
     }
 
+    // MARK: - A title's season and section
+
+    /// The show's page opens on the linked season, its tab focused.
+    func test_itemLink_opensAShowOnTheLinkedSeason() {
+        let app = launchAtHome()
+        app.open(link("item/\(UITestFixtureIdentity.seriesID)?season=2"))
+        let tab = app.buttons[A11yID.TV.Detail.season("season-2")]
+        XCTAssertTrue(tab.waitForExistence(timeout: 10))
+        let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+        XCTAssertTrue(poll(timeout: 5) { tab.hasFocus },
+                      "Focus on Season 2's tab; was \(focused.exists ? focused.identifier : "nothing"), selected \(tab.isSelected)")
+        XCTAssertTrue(tab.isSelected, "Season 2 chosen")
+    }
+
+    /// Focus goes to the section's first item, which scrolls it into view.
+    func test_itemLink_focusesTheCast() {
+        let app = launchAtHome()
+        app.open(link("item/\(UITestFixtureIdentity.primaryMovieID)?section=cast"))
+        let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+        XCTAssertTrue(poll(timeout: 10) { focused.exists && focused.identifier.hasPrefix("tv.detail.cast") },
+                      "Focus on the cast; was \(focused.exists ? focused.identifier : "nothing")")
+    }
+
+    func test_itemLink_forChapters_saysTheyArentShownHere() {
+        let app = launchAtHome()
+        app.open(link("item/\(UITestFixtureIdentity.primaryMovieID)?section=chapters"))
+        XCTAssertEqual(toastMessage(app), "Chapters aren't shown on Apple TV's pages.")
+    }
+
     func test_libraryLink_forAnUnknownLibrary_saysSo() {
         let app = launchAtHome()
         app.open(link("library/\(UITestFixtureIdentity.missingItemID)"))

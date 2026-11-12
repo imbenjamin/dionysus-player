@@ -39,6 +39,9 @@ struct TVMainView: View {
     @State private var detailModels: [UUID: AssetDetailViewModel] = [:]
     @State private var pushedGrids: [UUID: CollectionGridViewModel] = [:]
     @State private var rememberedPushedFocus: [UUID: String] = [:]
+    /// A `dionysus://item` link's season and section (#406), for the page it
+    /// pushed, until that page has applied them.
+    @State private var linkedItemOptions: [UUID: TVLinkedItemOptions] = [:]
     /// The path entry pushed beneath a player that's still up
     /// (`openDetailBeneathPlayer`). It counts as covered until the player
     /// closes: as it closes tvOS puts focus where it likes (Watched, not
@@ -214,7 +217,11 @@ struct TVMainView: View {
         switch entry.route {
         case .assetDetail:
             if let model = detailModels[entry.id] {
-                TVDetailPage(viewModel: model, client: client, userID: userID, rememberedFocus: focus, onBack: pop)
+                TVDetailPage(
+                    viewModel: model, client: client, userID: userID, rememberedFocus: focus,
+                    linkedOptions: Binding(get: { linkedItemOptions[entry.id] }, set: { linkedItemOptions[entry.id] = $0 }),
+                    onBack: pop
+                )
             }
         case .collection(let query):
             if let grid = pushedGrids[entry.id] {
@@ -265,9 +272,13 @@ struct TVMainView: View {
         /// For Play: the playlist member, if any, and what the link asks of
         /// the session.
         let playback: (memberID: String?, overrides: PlaybackLinkOverrides)?
+        /// For a title's page: the season and section to open.
+        var linked: TVLinkedItemOptions?
         switch link.destination {
-        case .item(let id, _):
+        case .item(let id, let options):
             (itemID, playback) = (id, nil)
+            let notices = link.issues.compactMap(\.itemNotice)
+            if !options.isEmpty || !notices.isEmpty { linked = TVLinkedItemOptions(options: options, notices: notices) }
         case .play(let id, let options):
             // `offline` asks for a download, which the Apple TV doesn't have.
             itemID = options.playlistID ?? id
@@ -303,6 +314,7 @@ struct TVMainView: View {
             let item = MediaItem(dto: dto, images: await client.makeImageURLBuilder())
             guard let playback else {
                 open(.assetDetail(itemID: item.id, preloadedItem: item))
+                if let linked, let entry = nav.path.last { linkedItemOptions[entry.id] = linked }
                 return
             }
             let page = AssetDetailViewModel(client: client, userID: userID, itemID: item.id, preloadedItem: item)
@@ -421,6 +433,7 @@ struct TVMainView: View {
         detailModels[entry.id] = nil
         pushedGrids[entry.id] = nil
         rememberedPushedFocus[entry.id] = nil
+        linkedItemOptions[entry.id] = nil
     }
 
     /// The root page, built only while its row is the destination.
@@ -520,6 +533,7 @@ struct TVMainView: View {
             detailModels = [:]
             pushedGrids = [:]
             rememberedPushedFocus = [:]
+            linkedItemOptions = [:]
         }
         let selection = withAnimation(TVMotion.moving(.easeOut(duration: 0.2), reduceMotion: reduceMotion)) { nav.select(row) }
         guard selection == .navigated else { return }

@@ -621,6 +621,13 @@ links are two of them and must keep parsing.
   with any sub-page pushed in the split layout, and in the one list as a
   scroll to the section, a push, or the Account sheet. **Quick Connect's
   code is filled in, never submitted**: approving signs a device in.
+- **An item link's `season=` and `section=` wait for the page to load**
+  (`DeepLinkPageCue` on iOS, `TVLinkedItemOptions` held per pushed page on
+  the Apple TV): a show opens on the season (id or number), and the page
+  scrolls to the section (Cast & Crew and Details are tabs it opens) or, on
+  the Apple TV, focuses its first item, held until it settles since the
+  page's own claim and the shell's handoff land after it. What the page
+  lacks is said in one toast; the Apple TV's pages have no chapters.
 - **A link arriving mid-playback closes the player through
   `PlayerCloseRequest`**, which runs its close button's teardown and reports
   the stop; dismissing the cover from outside would skip that.

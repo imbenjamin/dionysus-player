@@ -94,6 +94,34 @@ final class DeepLinkJourneyTests: UITestCase {
         HomeScreen(app: app).awaitLoaded()
     }
 
+    /// The show opens on the linked season: its episodes are listed.
+    func testItemLink_opensAShowOnTheLinkedSeason() {
+        launchAtHome()
+        openLink(link("item/\(UITestFixtureIdentity.seriesID)?season=2"))
+        let page = AssetDetailScreen(app: app)
+        page.episodeRow(UITestFixtureIdentity.episodeID(season: 2, episode: 1)).awaitExistence("season 2's first episode")
+        XCTAssertFalse(page.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 1)).exists, "Season 1 isn't listed")
+    }
+
+    /// Cast & Crew is a tab: the link opens it, so the cast shows.
+    func testItemLink_opensTheCastTab() {
+        launchAtHome()
+        openLink(link("item/\(UITestFixtureIdentity.primaryMovieID)?section=cast"))
+        AssetDetailScreen(app: app).castMembers.firstMatch.awaitExistence("the cast, on the linked tab")
+    }
+
+    func testItemLink_forASeasonTheShowDoesntHave_saysSo() {
+        let home = launchAtHomeHearingAnnouncements()
+        openLink(link("item/\(UITestFixtureIdentity.seriesID)?season=9"))
+        awaitAnnouncement("This show has no season 9.", on: home)
+    }
+
+    func testItemLink_forASectionACollectionDoesntHave_saysSo() {
+        let home = launchAtHomeHearingAnnouncements()
+        openLink(link("item/\(UITestFixtureIdentity.boxSetID)?section=chapters"))
+        awaitAnnouncement("This title has no chapters to show.", on: home)
+    }
+
     func testItemLink_forAMissingTitle_saysItCantBeFound() {
         launchAtHome()
         openLink(link("item/\(UITestFixtureIdentity.missingItemID)"))
