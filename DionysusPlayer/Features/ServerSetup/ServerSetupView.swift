@@ -9,6 +9,10 @@ import SwiftUI
 /// Part of `OnboardingFlowView`, which supplies the background, the glyph's
 /// transition and the composition.
 struct ServerSetupView: View {
+    /// A `server?url=` link's address (#406, DEBUG builds only), filled into
+    /// the address sheet, which opens; connecting is still the person's tap.
+    var linkedAddress: LinkedServerAddress? = nil
+
     @Environment(AppState.self) private var appState
     @Environment(\.openURL) private var openURL
     @Environment(\.onboardingLayout) private var layout
@@ -39,6 +43,12 @@ struct ServerSetupView: View {
             }
         }
         .task { viewModel.startScanOnArrival() }
+        .onChange(of: linkedAddress, initial: true) { _, linked in
+            guard let linked else { return }
+            viewModel.address = linked.address
+            viewModel.syncHTTPSToggle(withAddress: linked.address)
+            isShowingAddressSheet = true
+        }
         .onDisappear { viewModel.cancelScan() }
         .alert(
             "Connect Over HTTP?",

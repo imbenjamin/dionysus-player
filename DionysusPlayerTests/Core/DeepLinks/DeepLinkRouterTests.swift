@@ -63,6 +63,19 @@ final class DeepLinkRouterTests: XCTestCase {
         XCTAssertNil(DeepLinkRouter.Refusal.serverChanged.message)
     }
 
+    /// `server?url=` (DEBUG builds only) fills in setup only where setup is
+    /// what's showing: never forgets a server, never signs anyone out.
+    func test_serverSetup_appliesOnlyWithNoServerSetUp() {
+        let link = DeepLink(.serverSetup(address: "http://10.0.0.2:8096"))
+        XCTAssertEqual(decide(link, restoring: true, signedIn: false, serverID: nil, userID: nil), .wait)
+        XCTAssertEqual(decide(link, serverAtArrival: nil, signedIn: false, serverID: nil, userID: nil), .apply)
+        XCTAssertEqual(decide(link, signedIn: false, userID: nil), .refuse(.serverConfigured), "On the sign-in screen")
+        XCTAssertEqual(decide(link), .refuse(.serverConfigured), "Signed in")
+        XCTAssertEqual(
+            DeepLinkRouter.Refusal.serverConfigured.message, "This link works only before a server is set up."
+        )
+    }
+
     /// A link takes a few awaits to apply (the closing player, the item's
     /// fetch); a sign-out in between, as Who's Watching? on return, or
     /// another user signed in, ends it (M6 review).

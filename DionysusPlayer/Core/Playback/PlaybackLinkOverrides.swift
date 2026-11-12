@@ -18,6 +18,15 @@ struct PlaybackLinkOverrides: Hashable, Sendable {
     var audioStreamIndex: Int?
     var subtitle: DeepLink.PlaybackOptions.Subtitle?
     var showsStats = false
+    #if DEBUG
+    /// DEBUG builds only: how this session negotiates with the server,
+    /// instead of Profile's Streaming setting.
+    var decisionMode: StreamDecisionMode?
+    /// DEBUG builds only: the session's bitrate cap in bits per second,
+    /// instead of Profile's Max Bitrate. Negotiated, so it implies Allow
+    /// Transcoding unless the link says `mode=direct`.
+    var maxBitrate: Int?
+    #endif
     /// Said already, before the player opened (a part of the link that
     /// couldn't be read, a title not in the playlist), shown with what the
     /// session finds.
@@ -43,6 +52,15 @@ struct PlaybackLinkOverrides: Hashable, Sendable {
             audioStreamIndex: options.audioStreamIndex, subtitle: options.subtitle,
             showsStats: options.showsStats, notices: issues.compactMap(\.playbackNotice)
         )
+        #if DEBUG
+        decisionMode = options.decisionMode.map {
+            switch $0 {
+            case .direct: .directPlayAlways
+            case .transcode: .allowTranscoding
+            }
+        }
+        maxBitrate = options.maxBitrate
+        #endif
     }
 
     /// Whether the link names an audio or subtitle track.
@@ -105,6 +123,31 @@ struct PlaybackLinkOverrides: Hashable, Sendable {
         return engineTracks.contains { $0.id == id && !$0.isExternal } ? id : nil
     }
 
+    #if DEBUG
+    /// Whether the link changes how the session negotiates with the server.
+    var overridesStreaming: Bool { decisionMode != nil || maxBitrate != nil }
+
+    /// How this session negotiates: the link's mode and bitrate over the
+    /// stored ones. A bitrate alone implies Allow Transcoding, since only a
+    /// negotiated session has a cap; with `mode=direct` it's ignored, and
+    /// said.
+    func streaming(
+        storedMode: StreamDecisionMode, storedMaxBitrate: Int?
+    ) -> (mode: StreamDecisionMode, maxBitrate: Int?, notice: String?) {
+        let mode = decisionMode ?? (maxBitrate != nil ? .allowTranscoding : storedMode)
+        guard mode == .allowTranscoding else {
+            let notice = maxBitrate == nil ? nil : String(localized: "Direct play has no bitrate cap, so the bitrate is ignored.")
+            return (mode, nil, notice)
+        }
+        return (mode, maxBitrate ?? storedMaxBitrate, nil)
+    }
+
+    /// What an offline session says about a mode or bitrate it can't apply.
+    static var downloadIgnoresStreamingNotice: String {
+        String(localized: "A download plays as it was downloaded, so the mode and bitrate don't apply.")
+    }
+    #endif
+
     /// One toast for several notices, in the order they arose.
     static func combined(_ notices: [String]) -> String? {
         notices.isEmpty ? nil : notices.joined(separator: " ")
@@ -120,7 +163,9 @@ extension DeepLink.Issue {
         case .unreadableChapter: String(localized: "Couldn't read the chapter.")
         case .unreadableAudio: String(localized: "Couldn't read the audio track.")
         case .unreadableSubtitle: String(localized: "Couldn't read the subtitle track.")
-        case .unknownSort, .unknownOrder, .unknownFilter, .unknownSection, .unknownMode, .unreadableBitrate: nil
+        case .unknownMode: String(localized: "Couldn't read the mode.")
+        case .unreadableBitrate: String(localized: "Couldn't read the bitrate.")
+        case .unknownSort, .unknownOrder, .unknownFilter, .unknownSection: nil
         }
     }
 }

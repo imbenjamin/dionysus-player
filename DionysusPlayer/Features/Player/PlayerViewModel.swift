@@ -174,6 +174,11 @@ final class PlayerViewModel {
     /// The link asked for Playback Stats: both players open with it showing,
     /// and show its button for this session even where the setting hides it.
     let linkShowsStats: Bool
+    #if DEBUG
+    /// A DEBUG link's mode and bitrate (#406), kept for every load of this
+    /// session (a retry too) but never the next title's, and never stored.
+    @ObservationIgnored private let linkStreaming: PlaybackLinkOverrides?
+    #endif
 
     /// The version `start()` actually played, resolved from `playbackInfo`:
     /// `requestedMediaSourceID` when it matched a source, else the server's
@@ -486,6 +491,9 @@ final class PlayerViewModel {
         self.pendingLinkOverrides = linkOverrides
         self.linkNotices = linkOverrides?.notices ?? []
         self.linkShowsStats = linkOverrides?.showsStats ?? false
+        #if DEBUG
+        self.linkStreaming = linkOverrides?.overridesStreaming == true ? linkOverrides : nil
+        #endif
         self.audioOffset = AudioOffsetController(itemID: itemID, store: audioOffsetStore) { [weak engine] milliseconds in
             engine?.setAudioOffset(AudioOffset.seconds(milliseconds))
         }
@@ -570,6 +578,22 @@ final class PlayerViewModel {
     }
     #endif
 
+    /// How this load negotiates with the server: the Streaming settings, or
+    /// in a DEBUG build a link's `mode`/`bitrate` (#406), said once if the
+    /// link's bitrate can't apply.
+    private func streamingForThisSession() -> (mode: StreamDecisionMode, maxBitrate: Int?) {
+        let storedMode = streamPreferenceStore.decisionMode
+        let storedMaxBitrate = streamPreferenceStore.streamingMaxBitrate.bitsPerSecond
+        #if DEBUG
+        if let linkStreaming {
+            let streaming = linkStreaming.streaming(storedMode: storedMode, storedMaxBitrate: storedMaxBitrate)
+            if let notice = streaming.notice, pendingLinkOverrides != nil { linkNotices.append(notice) }
+            return (streaming.mode, streaming.maxBitrate)
+        }
+        #endif
+        return (storedMode, storedMaxBitrate)
+    }
+
     /// - Parameter resumeSeconds: Seeks here after loading instead of consulting
     ///   the server's possibly-stale `resumePositionSeconds`. Used to resume in
     ///   place after a connectivity-loss retry, where the caller knows exactly
@@ -616,8 +640,9 @@ final class PlayerViewModel {
             // leaves Direct Play Always sending a non-negotiated request.
             let deviceProfile: DeviceProfile?
             let maxStreamingBitrate: Int?
-            if streamPreferenceStore.decisionMode == .allowTranscoding {
-                maxStreamingBitrate = streamPreferenceStore.streamingMaxBitrate.bitsPerSecond
+            let streaming = streamingForThisSession()
+            if streaming.mode == .allowTranscoding {
+                maxStreamingBitrate = streaming.maxBitrate
                 deviceProfile = DeviceProfileBuilder.build(maxStreamingBitrate: maxStreamingBitrate)
             } else {
                 deviceProfile = nil
@@ -775,6 +800,11 @@ final class PlayerViewModel {
     /// `titleRow` fell back to title text for every download, including ones with
     /// a cached logo on disk.
     private func startOffline(_ downloadedItem: DownloadedItem, resumeSeconds: TimeInterval?) async {
+        #if DEBUG
+        if pendingLinkOverrides?.overridesStreaming == true {
+            linkNotices.append(PlaybackLinkOverrides.downloadIgnoresStreamingNotice)
+        }
+        #endif
         let dto = BaseItemDto(
             id: downloadedItem.itemID,
             name: downloadedItem.title,

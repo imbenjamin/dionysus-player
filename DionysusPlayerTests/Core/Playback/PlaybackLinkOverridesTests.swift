@@ -114,4 +114,42 @@ final class PlaybackLinkOverridesTests: XCTestCase {
         XCTAssertNil(PlaybackLinkOverrides.combined([]))
         XCTAssertEqual(PlaybackLinkOverrides.combined(["One.", "Two."]), "One. Two.")
     }
+
+    // MARK: - Mode and bitrate (DEBUG builds only)
+
+    /// The link's mode maps onto the Streaming setting's, and a mode or
+    /// bitrate it couldn't read is said.
+    func test_modeAndBitrate_fromALink() {
+        let overrides = PlaybackLinkOverrides(
+            DeepLink.PlaybackOptions(decisionMode: .direct, maxBitrate: 4_000_000),
+            issues: [.unknownMode, .unreadableBitrate]
+        )
+        XCTAssertEqual(overrides.decisionMode, .directPlayAlways)
+        XCTAssertEqual(overrides.maxBitrate, 4_000_000)
+        XCTAssertTrue(overrides.overridesStreaming)
+        XCTAssertEqual(overrides.notices, ["Couldn't read the mode.", "Couldn't read the bitrate."])
+        XCTAssertEqual(PlaybackLinkOverrides(DeepLink.PlaybackOptions(decisionMode: .transcode)).decisionMode, .allowTranscoding)
+        XCTAssertFalse(PlaybackLinkOverrides().overridesStreaming)
+    }
+
+    /// The link's mode and bitrate beat the stored ones; a bitrate alone
+    /// negotiates even where the setting says Direct Play Always; with
+    /// `mode=direct` a bitrate has nothing to cap, and that's said.
+    func test_streaming_linkBeatsTheSettings() {
+        func streaming(_ mode: StreamDecisionMode?, _ bitrate: Int?, stored: StreamDecisionMode) -> (StreamDecisionMode, Int?, String?) {
+            var overrides = PlaybackLinkOverrides()
+            overrides.decisionMode = mode
+            overrides.maxBitrate = bitrate
+            let result = overrides.streaming(storedMode: stored, storedMaxBitrate: 20_000_000)
+            return (result.mode, result.maxBitrate, result.notice)
+        }
+        XCTAssertTrue(streaming(.directPlayAlways, nil, stored: .allowTranscoding) == (.directPlayAlways, nil, nil))
+        XCTAssertTrue(streaming(.allowTranscoding, nil, stored: .directPlayAlways) == (.allowTranscoding, 20_000_000, nil))
+        XCTAssertTrue(streaming(nil, 4_000_000, stored: .directPlayAlways) == (.allowTranscoding, 4_000_000, nil))
+        XCTAssertTrue(streaming(nil, nil, stored: .directPlayAlways) == (.directPlayAlways, nil, nil))
+        let ignored = streaming(.directPlayAlways, 4_000_000, stored: .allowTranscoding)
+        XCTAssertEqual(ignored.0, .directPlayAlways)
+        XCTAssertNil(ignored.1)
+        XCTAssertEqual(ignored.2, "Direct play has no bitrate cap, so the bitrate is ignored.")
+    }
 }

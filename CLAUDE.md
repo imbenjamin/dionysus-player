@@ -196,6 +196,15 @@ gated (`TESTING.md`, "Accessibility audits").
 VoiceOver on, and the wrapper is what `-UITestSimulateVoiceOver` sets, so
 `VoiceOverJourneyTests` can reach the controls that only mount under it.
 
+**To reach a screen, open a `dionysus://` link rather than tapping through
+to it**: `Scripts/deeplink.sh 'item/<id>?section=cast'` on the booted
+Simulator, iOS or Apple TV, signed in or not (a link waits through
+sign-in). A page, a library's filtered grid, a Profile page, a show's
+season or playback at a time, version, track, with Playback Stats open (and,
+in DEBUG builds, Direct Play or a bitrate cap) are each one link; the list
+is `TESTING.md`, "Deep links for debugging and tests". Journeys can open
+their page the same way when the path there isn't what they test.
+
 For exploratory checks (a new design, something a journey can't express),
 prefer the `ios-simulator-skill` over coordinate taps: it drives the
 Simulator through `idb`'s accessibility tree. It needs `idb-companion`
@@ -588,9 +597,10 @@ navigation type.
 debugging and UI tests (`xcrun simctl openurl booted 'dionysus://play/<id>'`).
 **They're an API-only capability: nothing in the app makes, copies or shares
 one** (Benjamin, 2026-11-11), and they navigate and play, never change data.
-The grammar, use cases and fallbacks are in
-`docs/superpowers/specs/2026-11-11-deep-linking-design.md`; the Top Shelf's
-links are two of them and must keep parsing.
+Every link, parameter and fallback is listed in `TESTING.md`, "Deep links
+for debugging and tests"; the Top Shelf's links are two of them and must
+keep parsing. **A new destination or parameter updates that table in the
+same change**, with a parser test and a journey per platform.
 
 - `DeepLink` parses and builds (pure, shared with the Top Shelf extension);
   `DeepLinkRouter` decides against the session. A link arriving signed out is
@@ -628,6 +638,15 @@ links are two of them and must keep parsing.
   the Apple TV, focuses its first item, held until it settles since the
   page's own claim and the shell's handoff land after it. What the page
   lacks is said in one toast; the Apple TV's pages have no chapters.
+- **DEBUG builds only: `mode`, `bitrate` and `server?url=`.** A play
+  link's `mode=direct|transcode` and `bitrate=<bps>` replace Profile's
+  Streaming and Max Bitrate for that one session, retries included
+  (`PlaybackLinkOverrides.streaming`); a bitrate alone negotiates
+  (Allow Transcoding), and with `mode=direct` it's ignored and said.
+  `server?url=` fills server setup's address and opens the field, past the
+  welcome, connecting to nothing; it's applied by the root (`RootView`,
+  `TVRootView`) and only while no server is set up, since a link never
+  forgets one. Release builds don't parse any of the three.
 - **A link arriving mid-playback closes the player through
   `PlayerCloseRequest`**, which runs its close button's teardown and reports
   the stop; dismissing the cover from outside would skip that.

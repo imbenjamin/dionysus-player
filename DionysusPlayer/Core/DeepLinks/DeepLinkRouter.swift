@@ -28,6 +28,10 @@ enum DeepLinkRouter {
         /// The link names a user other than the signed-in one. Never
         /// switches users.
         case otherUser
+        /// A `server?url=` link (DEBUG builds only) while a server is set
+        /// up: it fills server setup in, and never forgets a server to get
+        /// there.
+        case serverConfigured
     }
 
     enum Decision: Equatable, Sendable {
@@ -50,6 +54,9 @@ enum DeepLinkRouter {
     ) -> Decision {
         if isRestoringSession { return .wait }
         guard now.timeIntervalSince(pending.receivedAt) <= signInHoldLimit else { return .refuse(.expired) }
+        if case .serverSetup = pending.link.destination {
+            return serverID == nil && !isSignedIn ? .apply : .refuse(.serverConfigured)
+        }
         guard isSignedIn else { return .waitForSignIn }
         if let arrival = pending.serverIDAtArrival, arrival != serverID { return .refuse(.serverChanged) }
         if let linkServer = pending.link.serverID, linkServer != serverID { return .refuse(.otherServer) }
@@ -75,6 +82,7 @@ extension DeepLinkRouter.Refusal {
         case .expired, .serverChanged: nil
         case .otherServer: String(localized: "This link is for another server.")
         case .otherUser: String(localized: "This link is for another user.")
+        case .serverConfigured: String(localized: "This link works only before a server is set up.")
         }
     }
 }
@@ -83,4 +91,13 @@ extension DeepLink {
     /// What the app says about a `dionysus://` URL it can't read, or a
     /// destination this platform doesn't open.
     static var cantOpenMessage: String { String(localized: "This link can't be opened.") }
+}
+
+/// The address a `dionysus://server?url=` link (#406, DEBUG builds only)
+/// fills server setup in with: filled, never connected, so connecting is
+/// still the person's own tap. A fresh `id` per link, so the same address
+/// linked twice fills the field again.
+struct LinkedServerAddress: Equatable, Sendable {
+    let id = UUID()
+    let address: String
 }

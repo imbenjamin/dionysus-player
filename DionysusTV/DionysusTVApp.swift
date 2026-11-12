@@ -45,6 +45,9 @@ struct TVRootView: View {
     /// A link that couldn't be read arrived while the session restored (a
     /// cold launch from it): it's refused out loud once restoring ends.
     @State private var refusesUnreadableLinkAfterRestore = false
+    /// A `server?url=` link's address (DEBUG builds only), for Find Your
+    /// Server to fill in; cleared once setup is left.
+    @State private var linkedServerAddress: LinkedServerAddress?
 
     var body: some View {
         Group {
@@ -53,8 +56,8 @@ struct TVRootView: View {
             } else {
                 switch appState.phase {
                 case .serverSetup:
-                    if appState.sessionStore.hasCompletedWelcome {
-                        TVServerSetupView()
+                    if appState.sessionStore.hasCompletedWelcome || linkedServerAddress != nil {
+                        TVServerSetupView(linkedAddress: linkedServerAddress)
                     } else {
                         TVWelcomeView()
                     }
@@ -76,6 +79,15 @@ struct TVRootView: View {
             guard !isRestoring, refusesUnreadableLinkAfterRestore else { return }
             refusesUnreadableLinkAfterRestore = false
             if appState.phase == .main { ToastCenter.shared.post(.notice(DeepLink.cantOpenMessage)) }
+        }
+        // Server setup is before the main app, so the root applies it.
+        .onChange(of: appliedLink, initial: true) { _, link in
+            guard case .serverSetup(let address)? = link?.destination else { return }
+            linkedServerAddress = LinkedServerAddress(address: address)
+            pendingLink = nil
+        }
+        .onChange(of: appState.phase) { _, phase in
+            if phase != .serverSetup { linkedServerAddress = nil }
         }
         .environment(\.tvPendingDeepLink, appliedLink)
         .environment(\.tvDeepLinkApplied, { pendingLink = nil })
@@ -143,7 +155,8 @@ struct TVRootView: View {
         case .refuse(let refusal):
             Task { @MainActor in
                 self.pendingLink = nil
-                if let message = refusal.message { ToastCenter.shared.post(.notice(message)) }
+                // Toasts show only in the signed-in app.
+                if let message = refusal.message, appState.phase == .main { ToastCenter.shared.post(.notice(message)) }
             }
             return nil
         case .apply: return pendingLink.link

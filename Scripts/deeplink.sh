@@ -7,8 +7,8 @@
 # The device defaults to the booted one (`xcrun simctl openurl booted`); name
 # one by UDID when more than one is booted. Quote the link: `&` and `?`
 # mean something to the shell. A bare destination (`home`, `play/<id>`) gets
-# the scheme added. The grammar is in CLAUDE.md, "Deep links", and the spec
-# under docs/superpowers/specs/.
+# the scheme added. Every link and parameter is listed in TESTING.md, "Deep
+# links for debugging and tests".
 #
 # Links navigate and play; none signs in or changes data. Physical devices
 # aren't reached from here.
