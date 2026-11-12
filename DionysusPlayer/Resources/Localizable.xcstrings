@@ -671,6 +671,15 @@
     "Couldn't read the chapter." : {
 
     },
+    "Couldn't read the filter." : {
+
+    },
+    "Couldn't read the order." : {
+
+    },
+    "Couldn't read the sort." : {
+
+    },
     "Couldn't read the start time." : {
 
     },
@@ -753,6 +762,9 @@
 
     },
     "Current position: %@" : {
+
+    },
+    "Downloads aren't on Apple TV." : {
 
     },
     "DTS:X Speaker Layout" : {
@@ -1436,6 +1448,9 @@
     "Profile & Settings" : {
 
     },
+    "Profile has no such page." : {
+
+    },
     "Quality" : {
 
     },
@@ -1452,6 +1467,9 @@
 
     },
     "Quick Connect has been turned off on this server." : {
+
+    },
+    "Quick Connect is off on this server." : {
 
     },
     "Random Item" : {
@@ -1868,6 +1886,9 @@
 
     },
     "This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code." : {
+
+    },
+    "This library can't be found." : {
 
     },
     "This Title" : {

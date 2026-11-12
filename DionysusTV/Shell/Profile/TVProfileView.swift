@@ -9,6 +9,9 @@ import SwiftUI
 /// Countdown, Chapters in Scrubber, ASS/SSA Subtitles and the stats button are
 /// stored now and take effect with their player features in M4.
 struct TVProfileView: View {
+    /// A page a `dionysus://profile` or `quickconnect` link asked for (#406).
+    var linkedPage: LinkedProfilePage?
+
     @Environment(AppState.self) private var appState
     @AppStorage(heroAutoCarouselEnabledStorageKey) private var autoCarousel = true
     @AppStorage(nextUpCountdownStorageKey) private var nextUpCountdown: NextUpCountdownPreference = .seconds30
@@ -26,6 +29,8 @@ struct TVProfileView: View {
 
     @State private var cover: Cover?
     @State private var quickConnectAvailable = false
+    /// The code a link filled in, for the Quick Connect cover it opened.
+    @State private var linkedQuickConnectCode: String?
     /// Switch User is the default focus (`tvClaimsFocus`).
     @FocusState private var focus: String?
     @State private var remembered: String?
@@ -107,6 +112,13 @@ struct TVProfileView: View {
             guard let client = appState.apiClient else { return }
             quickConnectAvailable = await QuickConnectApprovalViewModel.isAvailable(on: client)
         }
+        .task(id: linkedPage?.id) {
+            guard let page = linkedPage?.page else { return }
+            await open(page)
+        }
+        .onChange(of: cover) { _, cover in
+            if cover == nil { linkedQuickConnectCode = nil }
+        }
         .fullScreenCover(item: $cover) { cover in
             switch cover {
             case .changeServer:
@@ -130,9 +142,13 @@ struct TVProfileView: View {
                 ) { appState.signOutForgettingAccount() }
             case .quickConnect:
                 if let client = appState.apiClient {
-                    TVQuickConnectApprovalView(viewModel: QuickConnectApprovalViewModel(
-                        client: client, userName: user?.name ?? "", serverName: server?.name ?? ""
-                    ))
+                    TVQuickConnectApprovalView(viewModel: {
+                        let viewModel = QuickConnectApprovalViewModel(
+                            client: client, userName: user?.name ?? "", serverName: server?.name ?? ""
+                        )
+                        if let linkedQuickConnectCode { viewModel.setCode(linkedQuickConnectCode) }
+                        return viewModel
+                    }())
                 }
             case .nextUpCountdown:
                 TVSettingsPicker(
@@ -179,6 +195,36 @@ struct TVProfileView: View {
             case .privacyPolicy:
                 TVTextPageView(title: "Privacy Policy", paragraphs: TVTextPageView.paragraphs(resource: "PRIVACY", extension: "md", markdown: true))
             }
+        }
+    }
+
+    /// Opens a page a link asked for (#406). Profile is one page here, so a
+    /// pane opens it as it is; a screen of its own opens as its cover, as
+    /// its row does. Downloads and a server without Quick Connect say why
+    /// Profile is all that opened.
+    private func open(_ page: DeepLink.ProfilePage) async {
+        // Once the page has claimed focus, or the cover's dismissal hands
+        // focus back to nothing.
+        try? await Task.sleep(for: .milliseconds(400))
+        guard !Task.isCancelled else { return }
+        switch page {
+        case .root, .account, .appearance, .playback, .about:
+            cover = nil
+        case .downloads:
+            cover = nil
+            ToastCenter.shared.post(.notice(DeepLink.noDownloadsMessage))
+        case .advancedPlayback: cover = .advanced
+        case .license: cover = .license
+        case .privacyPolicy: cover = .privacyPolicy
+        case .quickConnect(let code):
+            guard let client = appState.apiClient else { return }
+            guard await QuickConnectApprovalViewModel.isAvailable(on: client), !Task.isCancelled else {
+                ToastCenter.shared.post(.notice(QuickConnectApprovalViewModel.offMessage))
+                return
+            }
+            quickConnectAvailable = true
+            linkedQuickConnectCode = code
+            cover = .quickConnect
         }
     }
 

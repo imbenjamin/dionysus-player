@@ -6,8 +6,43 @@ final class DeepLinkNavigationTests: XCTestCase {
     func test_places_selectTheirTab() {
         XCTAssertEqual(DeepLinkNavigation.plan(for: .home), .init(tab: .home, homePath: []))
         XCTAssertEqual(DeepLinkNavigation.plan(for: .downloads), .init(tab: .downloads))
-        XCTAssertEqual(DeepLinkNavigation.plan(for: .profile(path: [])), .init(tab: .profile))
-        XCTAssertEqual(DeepLinkNavigation.plan(for: .profile(path: ["about"])), .init(tab: .profile))
+    }
+
+    func test_profile_opensTheLinkedPage() {
+        XCTAssertEqual(DeepLinkNavigation.plan(for: .profile(path: [])), .init(tab: .profile, profilePage: .root))
+        XCTAssertEqual(
+            DeepLinkNavigation.plan(for: .profile(path: ["about", "license"])), .init(tab: .profile, profilePage: .license)
+        )
+    }
+
+    /// A page Profile doesn't have opens Profile and says so.
+    func test_profile_unknownPage_opensProfile_andSaysSo() {
+        XCTAssertEqual(
+            DeepLinkNavigation.plan(for: .profile(path: ["nope"])),
+            .init(tab: .profile, profilePage: .root, notice: "Profile has no such page.")
+        )
+    }
+
+    func test_quickConnectApproval_opensQuickConnect_withTheCode() {
+        XCTAssertEqual(
+            DeepLinkNavigation.plan(for: .quickConnectApproval(code: "123456")),
+            .init(tab: .profile, profilePage: .quickConnect(code: "123456"))
+        )
+    }
+
+    /// Home's stack is left alone until the library is found
+    /// (`MainTabView`), so an unknown one moves nothing.
+    func test_library_isFoundBeforeHomesStackChanges() {
+        let options = DeepLink.LibraryOptions(sort: .title, filter: .favorites)
+        XCTAssertEqual(
+            DeepLinkNavigation.plan(for: .library(id: "l", options: options)),
+            .init(tab: .home, library: .init(id: "l", options: options))
+        )
+    }
+
+    func test_library_saysWhatItCouldntRead_inOneNotice() {
+        let plan = DeepLinkNavigation.plan(for: .library(id: "l", options: .init()), issues: [.unknownSort, .unknownFilter])
+        XCTAssertEqual(plan?.notice, "Couldn't read the sort. Couldn't read the filter.")
     }
 
     func test_search_fillsTheQuery_orJustOpensSearch() {
@@ -109,9 +144,7 @@ final class DeepLinkNavigationTests: XCTestCase {
         )
     }
 
-    func test_destinationsNotOpenedYet_planNothing() {
-        XCTAssertNil(DeepLinkNavigation.plan(for: .library(id: "l", options: .init())))
-        XCTAssertNil(DeepLinkNavigation.plan(for: .quickConnectApproval(code: nil)))
+    func test_serverSetup_isntOpenedYet() {
         XCTAssertNil(DeepLinkNavigation.plan(for: .serverSetup(address: "http://x")))
     }
 }
