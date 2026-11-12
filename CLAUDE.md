@@ -614,12 +614,20 @@ links are two of them and must keep parsing.
   the link couldn't read) is said in one toast while the rest plays as Play
   would. Tracks are Jellyfin's `MediaStream.Index`, mapped to engine ids as
   the Atmos hint and the ASS sidecars are.
+- **A library link finds the library among the user's before anything
+  moves** (`DeepLinkLibrary`: the rail's query, seeded with the link's sort
+  and facets; music isn't browsable, so not found), then pushes its grid on
+  Home's stack. **Profile pages** (`DeepLink.ProfilePage`) open as a pane
+  with any sub-page pushed in the split layout, and in the one list as a
+  scroll to the section, a push, or the Account sheet. **Quick Connect's
+  code is filled in, never submitted**: approving signs a device in.
 - **A link arriving mid-playback closes the player through
   `PlayerCloseRequest`**, which runs its close button's teardown and reports
   the stop; dismissing the cover from outside would skip that.
 - `XCUIApplication.open` relaunches the app with the link (a cold launch), so
   journeys that need the warm path open links with
   `XCUIDevice.shared.system.open` (`DeepLinkJourneyTests`).
+  `Scripts/deeplink.sh '<link>' [udid]` opens one on a Simulator by hand.
 
 ### Models (`Core/Models/`)
 

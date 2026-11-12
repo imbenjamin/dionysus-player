@@ -136,6 +136,8 @@ final class CollectionGridViewModel {
         self.sortOrder = query.initialSortOrder
         self.selectedGenre = query.initialGenre
         self.selectedStudio = query.initialStudio
+        self.selectedWatchStatus = query.initialWatchStatus
+        self.selectedFavoriteStatus = query.initialFavoriteStatus
     }
 
     /// The first load runs in a task of its own rather than the caller's, as

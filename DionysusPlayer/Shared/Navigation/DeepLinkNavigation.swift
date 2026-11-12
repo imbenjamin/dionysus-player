@@ -24,6 +24,18 @@ struct DeepLinkNavigation: Equatable {
     var searchQuery: String?
     /// The page on top of Home's stack plays this as soon as it has loaded.
     var playback: DeepLinkPlaybackCue.Cue?
+    /// A library whose grid goes on Home's stack, once `MainTabView` has
+    /// found it among the user's (`DeepLinkLibrary`); until then nothing moves.
+    var library: LibraryLink?
+    /// The page Profile opens.
+    var profilePage: DeepLink.ProfilePage?
+    /// Said as the link lands: what it asked for that this app doesn't have.
+    var notice: String?
+
+    struct LibraryLink: Equatable {
+        var id: String
+        var options: DeepLink.LibraryOptions
+    }
 
     /// Nil for a destination iPhone and iPad don't open (yet): the app stays
     /// where it is and says so. `issues` are what the link couldn't read;
@@ -40,9 +52,19 @@ struct DeepLinkNavigation: Equatable {
             DeepLinkNavigation(tab: .search, searchQuery: query)
         case .downloads:
             DeepLinkNavigation(tab: .downloads)
-        case .profile:
-            // Profile's own pages arrive with #406's fourth step.
-            DeepLinkNavigation(tab: .profile)
+        case .profile(let path):
+            if let page = DeepLink.ProfilePage(path: path) {
+                DeepLinkNavigation(tab: .profile, profilePage: page)
+            } else {
+                DeepLinkNavigation(tab: .profile, profilePage: .root, notice: DeepLink.ProfilePage.notFoundMessage)
+            }
+        case .quickConnectApproval(let code):
+            DeepLinkNavigation(tab: .profile, profilePage: .quickConnect(code: code))
+        case .library(let id, let options):
+            DeepLinkNavigation(
+                tab: .home, library: LibraryLink(id: id, options: options),
+                notice: issues.compactMap(\.libraryNotice).joined(separator: " ").nilIfEmpty
+            )
         case .item(let id, _):
             DeepLinkNavigation(tab: .home, homePath: [
                 isOffline && isDownloaded(id) ? .downloadedAsset(itemID: id) : .assetDetail(itemID: id),
@@ -51,7 +73,7 @@ struct DeepLinkNavigation: Equatable {
             DeepLinkNavigation(tab: .home, homePath: [.downloadedAsset(itemID: id)])
         case .play(let id, let options):
             playPlan(id: id, options: options, issues: issues, isDownloaded: isDownloaded, isOffline: isOffline)
-        case .library, .quickConnectApproval, .serverSetup:
+        case .serverSetup:
             nil
         }
     }
@@ -87,6 +109,10 @@ extension EnvironmentValues {
     /// (`DeepLinkRouter`); `RootView` clears it when told it's applied.
     @Entry var pendingDeepLink: DeepLink? = nil
     @Entry var deepLinkApplied: @MainActor () -> Void = {}
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 /// A search a link asked for; a new id runs it again even when the text

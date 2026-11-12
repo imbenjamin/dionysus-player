@@ -20,6 +20,8 @@ struct MainTabView: View {
     @Environment(\.deepLinkApplied) private var deepLinkApplied
     /// The query the last `dionysus://search` link asked for (#406).
     @State private var linkedSearch: LinkedSearchQuery?
+    /// The Profile page the last `dionysus://profile` link asked for (#406).
+    @State private var linkedProfilePage: LinkedProfilePage?
     @State private var profileTabIcon: UIImage?
     /// Bound (rather than the plain declarative `NavigationLink(value:)` the
     /// other two tabs use) so `SearchView` can push a result from inside a
@@ -134,7 +136,7 @@ struct MainTabView: View {
             // inside a stack isn't a supported arrangement. It applies
             // the same `.navigationDestination(for: AppRoute.self)` in
             // both of its layouts, so nothing is lost here.
-            ProfileView()
+            ProfileView(linkedPage: linkedProfilePage)
             // Applied to the view itself rather than to a stack, since
             // this tab has none — see the comment just above. `.tabItem`
             // wraps the already-tinted view either way, so the tab bar's
@@ -219,20 +221,39 @@ struct MainTabView: View {
         }
         DeepLinkPlaybackCue.shared.clear()
         let userID = appState.signedInUserID
+        let client = appState.apiClient
         Task { @MainActor in
+            @MainActor func canFinish() -> Bool {
+                guard let userID else { return false }
+                return DeepLinkRouter.canFinish(
+                    appliedFor: userID, isSignedIn: appState.phase == .main, signedInUserID: appState.signedInUserID
+                )
+            }
+            var homePath = plan.homePath
+            if let link = plan.library {
+                // Found before anything moves: a library that isn't the
+                // user's leaves the app where it was.
+                guard let client, let userID,
+                      let library = await DeepLinkLibrary.resolve(id: link.id, client: client, userID: userID)
+                else {
+                    if canFinish() { ToastCenter.shared.post(.notice(DeepLinkLibrary.notFoundMessage)) }
+                    return
+                }
+                homePath = [.collection(DeepLinkLibrary.query(for: library, options: link.options))]
+            }
             await DeepLinkPresentations.clear()
-            guard let userID, DeepLinkRouter.canFinish(
-                appliedFor: userID, isSignedIn: appState.phase == .main, signedInUserID: appState.signedInUserID
-            ) else { return }
+            guard canFinish() else { return }
             switch plan.tab {
             case .home: selectedTab = .home
             case .search: selectedTab = .search
             case .downloads: selectedTab = .downloads
             case .profile: selectedTab = .profile
             }
-            if let path = plan.homePath { homePath = path }
+            if let homePath { self.homePath = homePath }
             if let query = plan.searchQuery { linkedSearch = LinkedSearchQuery(query: query) }
+            if let page = plan.profilePage { linkedProfilePage = LinkedProfilePage(page: page) }
             if let cue = plan.playback { DeepLinkPlaybackCue.shared.post(cue) }
+            if let notice = plan.notice { ToastCenter.shared.post(.notice(notice)) }
         }
     }
 

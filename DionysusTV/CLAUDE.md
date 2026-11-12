@@ -592,6 +592,15 @@ source that fails is left out and the rest shown.
   after each it stops unless the same user is still signed in
   (`DeepLinkRouter.canFinish`): returning after a while, tvOS can hand the
   app the link before Who's Watching? signs out.
+- **Links to places choose their sidebar row as a press would**
+  (`TVMainView.applyPlace`), then fill the page: Search's query (run at
+  once, as Search's page may not exist yet to see it change), a library's
+  grid built from the link (`DeepLinkLibrary`) in place of the fresh one the
+  row would start, and Profile's page as the cover its row opens
+  (`TVProfileView.open`: Advanced, License, Privacy Policy, Quick Connect
+  with the code filled, never approved). Profile's panes are all one page
+  here, so `profile/playback` simply opens Profile. Downloads aren't on the
+  Apple TV: those links land on Home and say so.
 
 - **The text is drawn into the art.** tvOS 27 draws no text over a
   third-party carousel in either style (`.details` shows the bare image), so

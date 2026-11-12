@@ -99,6 +99,10 @@ final class QuickConnectApprovalViewModel {
         String(localized: "Something went wrong authorizing this code. Try again.")
     }
 
+    /// What a `dionysus://quickconnect/approve` link (#406) says when the
+    /// server has Quick Connect off, or can't say whether it's on.
+    static var offMessage: String { String(localized: "Quick Connect is off on this server.") }
+
     /// Whether to offer Quick Connect at all. `false` on any failure to ask,
     /// so an unreachable server never shows a row that could only fail —
     /// the same rule as the login screen's button.

@@ -11,6 +11,8 @@ import SwiftUI
 /// iPhone only. On iPad the same rows appear as a detail pane instead —
 /// see `AccountDetailsContent`.
 struct AccountDetailsSheet: View {
+    /// A Quick Connect code a link asked to approve (#406).
+    var quickConnectLink: QuickConnectLink?
     /// Called for Sign Out or Change Server, once confirmed. The presenter
     /// closes the sheet and performs the action from its `onDismiss` — see
     /// `AccountAction`.
@@ -20,7 +22,7 @@ struct AccountDetailsSheet: View {
 
     var body: some View {
         NavigationStack {
-            AccountDetailsContent(performAction: onAction)
+            AccountDetailsContent(quickConnectLink: quickConnectLink, performAction: onAction)
                 .accessibilityIdentifier(A11yID.Profile.accountSheet)
                 .navigationTitle("Account")
                 .navigationBarTitleDisplayMode(.inline)
@@ -84,6 +86,10 @@ struct AccountDetailsContent: View {
     @State private var isQuickConnectAvailable = false
     @State private var isShowingQuickConnect = false
 
+    /// A Quick Connect code a `dionysus://quickconnect/approve` link asked
+    /// to approve (#406): pushed with the code filled in, never submitted.
+    var quickConnectLink: QuickConnectLink?
+    @State private var openedQuickConnectLinkID: UUID?
     /// Set when the rows sit in a sheet that has to close before the action
     /// runs (`AccountDetailsSheet`). The iPad detail pane has nothing to close
     /// and leaves it `nil`, performing the action directly.
@@ -155,17 +161,28 @@ struct AccountDetailsContent: View {
             Button("Sign Out", role: .destructive) { request(.signOut) }
             Button("Cancel", role: .cancel) {}
         }
-        .task {
+        .task(id: quickConnectLink?.id) {
             guard let client = appState.apiClient else { return }
             isQuickConnectAvailable = await QuickConnectApprovalViewModel.isAvailable(on: client)
+            // Once per link: the task runs again whenever the rows reappear.
+            guard let link = quickConnectLink, link.id != openedQuickConnectLinkID else { return }
+            openedQuickConnectLinkID = link.id
+            if isQuickConnectAvailable {
+                isShowingQuickConnect = true
+            } else {
+                ToastCenter.shared.post(.notice(QuickConnectApprovalViewModel.offMessage))
+            }
         }
         .navigationDestination(isPresented: $isShowingQuickConnect) {
             if let client = appState.apiClient {
                 QuickConnectApprovalView(
                     client: client,
                     userName: appState.currentUser?.name ?? appState.sessionStore.credentials?.username ?? "",
-                    serverName: appState.sessionStore.serverConfiguration?.name ?? String(localized: "your server")
+                    serverName: appState.sessionStore.serverConfiguration?.name ?? String(localized: "your server"),
+                    code: quickConnectLink?.code
                 )
+                // A later link's code replaces whatever is in the field.
+                .id(quickConnectLink?.id)
             }
         }
         .confirmationDialog(
@@ -192,4 +209,11 @@ struct AccountDetailsContent: View {
 #Preview {
     AccountDetailsSheet { _ in }
         .environment(AppState())
+}
+
+/// A Quick Connect code a link asked to approve (#406); a new id fills it
+/// again even when it's the same code.
+struct QuickConnectLink: Equatable {
+    let id = UUID()
+    let code: String?
 }

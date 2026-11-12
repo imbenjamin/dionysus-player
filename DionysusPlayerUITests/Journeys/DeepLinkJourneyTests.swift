@@ -43,6 +43,46 @@ final class DeepLinkJourneyTests: UITestCase {
             .awaitExistence("a result for the linked query")
     }
 
+    /// The grid goes on Home's stack with the link's facets chosen: Genre
+    /// Action and Favorites leave `Iron Meridian` alone, as picking both does.
+    func testLibraryLink_opensTheGrid_filtered() {
+        launchAtHome()
+        openLink(link("library/\(UITestFixtureIdentity.moviesLibraryID)?genre=Action&filter=favorites&sort=dateAdded&order=desc"))
+        let collection = CollectionScreen(app: app)
+        collection.card(UITestFixtureIdentity.movieID(4)).awaitExistence("the one Action favourite")
+        XCTAssertFalse(collection.card(UITestFixtureIdentity.partWatchedMovieID).exists, "Sci-Fi, not a favourite")
+        collection.resetFiltersButton.awaitExistence("Reset, for the link's filters")
+        collection.resetFiltersButton.tap()
+        collection.card(UITestFixtureIdentity.partWatchedMovieID).awaitExistence("the whole library once reset")
+        app.navigationBars.buttons.firstMatch.tap()
+        HomeScreen(app: app).awaitLoaded()
+    }
+
+    func testProfileLink_pushesAboutsLicense() {
+        launchAtHome()
+        openLink(link("profile/about/license"))
+        app.staticTexts[A11yID.About.appLicense].awaitExistence("the app's licence")
+    }
+
+    func testProfileLink_pushesAdvancedPlayback() {
+        launchAtHome()
+        openLink(link("profile/playback/advanced"))
+        app.steppers[A11yID.Profile.readAheadBufferStepper].awaitExistence("Advanced playback's read-ahead stepper")
+    }
+
+    /// Filled, not submitted: approving signs a device in, so it stays a tap.
+    func testQuickConnectLink_fillsTheCode_withoutApproving() {
+        launchAtHome()
+        let code = UITestFixtureIdentity.quickConnectApprovableCode
+        openLink(link("quickconnect/approve?code=\(code)"))
+        let screen = QuickConnectApprovalScreen(app: app)
+        screen.codeField.awaitExistence("the Quick Connect code field")
+        XCTAssertEqual(screen.codeField.value as? String, code)
+        XCTAssertFalse(screen.successMessage.exists, "A link never approves the code")
+        screen.authorizeButton.tap()
+        screen.successMessage.awaitExistence("approval once Authorize is tapped")
+    }
+
     // MARK: - Titles
 
     /// The page goes on Home's stack, so Back returns to Home.
@@ -216,6 +256,29 @@ final class DeepLinkJourneyTests: UITestCase {
         openLink(link("item/\(UITestFixtureIdentity.primaryMovieID)?server=http://elsewhere.invalid"))
         awaitAnnouncement("This link is for another server.", on: home)
         XCTAssertFalse(AssetDetailScreen(app: app).playButton.exists)
+    }
+
+    func testLibraryLink_forAnUnknownLibrary_saysSo_andStaysPut() {
+        let home = launchAtHomeHearingAnnouncements()
+        openLink(link("library/\(UITestFixtureIdentity.missingItemID)"))
+        awaitAnnouncement("This library can't be found.", on: home)
+        home.awaitLoaded()
+    }
+
+    func testProfileLink_toAPageProfileDoesntHave_opensProfile_andSaysSo() {
+        let home = launchAtHomeHearingAnnouncements()
+        openLink(link("profile/nope"))
+        awaitAnnouncement("Profile has no such page.", on: home)
+        ProfileScreen(app: app).awaitLoaded()
+    }
+
+    func testQuickConnectLink_withQuickConnectOff_saysSo() {
+        launch(scenario: "quickConnectDisabled", extraArguments: ["-UITestSimulateVoiceOver", "YES"])
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        openLink(link("quickconnect/approve?code=123456"))
+        awaitAnnouncement("Quick Connect is off on this server.", on: home)
+        XCTAssertFalse(QuickConnectApprovalScreen(app: app).codeField.exists)
     }
 
     func testMalformedLink_saysSo_andStaysPut() {
