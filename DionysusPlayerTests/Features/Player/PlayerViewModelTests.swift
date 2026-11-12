@@ -2329,4 +2329,85 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertTrue(makeViewModel(linkOverrides: .init(showsStats: true)).0.linkShowsStats)
         XCTAssertFalse(makeViewModel().0.linkShowsStats)
     }
+
+    // MARK: - A DEBUG play link's mode and bitrate (#406)
+
+    /// Starts `viewModel` and returns the `/PlaybackInfo` body it sent.
+    private func playbackInfoBody(startingWith viewModel: PlayerViewModel) async -> [String: Any]? {
+        var body: [String: Any]?
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+            case "/Items/item-1/PlaybackInfo":
+                body = try JSONSerialization.jsonObject(with: request.capturedHTTPBody ?? Data()) as? [String: Any]
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: PlaybackInfoResponse(mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")], playSessionId: "sess-1")
+                )
+            case "/Sessions/Playing":
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            case "/MediaSegments/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                return MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+            }
+        }
+        await viewModel.start()
+        return body
+    }
+
+    private func streamingOverrides(_ mode: StreamDecisionMode?, _ bitrate: Int?) -> PlaybackLinkOverrides {
+        var overrides = PlaybackLinkOverrides()
+        overrides.decisionMode = mode
+        overrides.maxBitrate = bitrate
+        return overrides
+    }
+
+    /// `mode=direct` sends no profile, though the setting allows
+    /// transcoding, and leaves the setting as it was.
+    func test_link_directMode_beatsTheSetting_forThisSessionOnly() async {
+        let store = StreamPreferenceStore(defaults: defaults)
+        let (viewModel, _) = makeViewModel(streamPreferenceStore: store, linkOverrides: streamingOverrides(.directPlayAlways, nil))
+        let body = await playbackInfoBody(startingWith: viewModel)
+        XCTAssertNotNil(body)
+        XCTAssertNil(body?["DeviceProfile"])
+        XCTAssertEqual(store.decisionMode, .allowTranscoding, "A link never changes the setting")
+    }
+
+    /// A bitrate alone negotiates at that cap, even under Direct Play Always.
+    func test_link_bitrate_negotiatesAtThatCap() async {
+        defaults.set(StreamDecisionMode.directPlayAlways.rawValue, forKey: streamDecisionModeStorageKey)
+        let (viewModel, _) = makeViewModel(linkOverrides: streamingOverrides(nil, 4_000_000))
+        let body = await playbackInfoBody(startingWith: viewModel)
+        XCTAssertEqual(body?["MaxStreamingBitrate"] as? Int, 4_000_000)
+        XCTAssertEqual((body?["DeviceProfile"] as? [String: Any])?["MaxStreamingBitrate"] as? Int, 4_000_000)
+    }
+
+    /// With `mode=direct` there's no cap to set, and the toast says so.
+    func test_link_bitrateWithDirectMode_isIgnored_andSaid() async {
+        ToastCenter.shared.reset()
+        let (viewModel, _) = makeViewModel(linkOverrides: streamingOverrides(.directPlayAlways, 4_000_000))
+        let body = await playbackInfoBody(startingWith: viewModel)
+        XCTAssertNil(body?["DeviceProfile"])
+        XCTAssertNil(body?["MaxStreamingBitrate"])
+        XCTAssertEqual(ToastCenter.shared.current?.message, "Direct play has no bitrate cap, so the bitrate is ignored.")
+    }
+
+    /// A retry (`start(resumeSeconds:)`) keeps the link's mode: it's the
+    /// same session.
+    func test_link_mode_holdsAcrossARetry() async {
+        let (viewModel, _) = makeViewModel(linkOverrides: streamingOverrides(.directPlayAlways, nil))
+        _ = await playbackInfoBody(startingWith: viewModel)
+        var retryBody: [String: Any]?
+        let handler = MockURLProtocol.requestHandler
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Items/item-1/PlaybackInfo" {
+                retryBody = try JSONSerialization.jsonObject(with: request.capturedHTTPBody ?? Data()) as? [String: Any]
+            }
+            return try handler!(request)
+        }
+        await viewModel.start(resumeSeconds: 12)
+        XCTAssertNotNil(retryBody)
+        XCTAssertNil(retryBody?["DeviceProfile"])
+    }
 }

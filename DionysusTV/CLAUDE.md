@@ -7,6 +7,15 @@ and CI. Design, decisions and milestones:
 done, 2026-10-18). Facts marked with a tvOS version were measured there; tvOS
 26 and 27 behave differently, and 26.0 is the floor.
 
+**Reach a screen by `dionysus://` link, not by remote presses**: on the
+Apple TV Simulator `Scripts/deeplink.sh '<link>' <udid>` chooses the
+sidebar row as a press would and opens a page, a library's filtered grid, a
+Profile page, a show's season or a section's first item focused, or
+playback at a time with Playback Stats showing, in one step; a journey uses
+`app.open(url)`. Every link is in `TESTING.md`, "Deep links for debugging
+and tests"; what the Apple TV does with each is under "Top Shelf" below.
+Downloads and chapters aren't on the Apple TV, and those links say so.
+
 **The icon can't be `dionysus.icon`**: actool compiles no tvOS icon from an
 Icon Composer file and wants an "App Icon & Top Shelf Image" brand-assets set.
 `DionysusTV/Resources/TVAssets.xcassets` is rendered from `dionysus.icon`'s
@@ -608,6 +617,10 @@ source that fails is left out and the rest shown.
   page's default claim and the shell's focus handoff, so it's set again
   until it has held for half a second (three at most). Chapters aren't on
   the Apple TV's pages, and a link to them says so.
+- **`server?url=` (DEBUG builds only) is applied by `TVRootView`**, not the
+  shell: it fills Find Your Server's address field (past the welcome) and
+  focuses it, and only while no server is set up. With one, it's refused
+  (said by a toast only when signed in), since it never forgets a server.
 
 - **The text is drawn into the art.** tvOS 27 draws no text over a
   third-party carousel in either style (`.details` shows the bare image), so

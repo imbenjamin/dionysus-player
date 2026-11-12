@@ -386,4 +386,39 @@ final class DeepLinkJourneyTests: UITestCase {
         login.userTile(UITestFixtureIdentity.passwordlessUserID).tap()
         AssetDetailScreen(app: app).playButton.awaitExistence("the linked title, once signed in")
     }
+
+    // MARK: - DEBUG builds only: mode, bitrate and server setup
+
+    /// `mode=direct` has no bitrate to cap: the title plays, and says so.
+    /// (What the session asks the server for is the unit tests'; the stub
+    /// never transcodes.)
+    func testPlayLink_withABitrateDirectPlayCantCap_playsAndSaysSo() {
+        let home = launchAtHomeHearingAnnouncements()
+        openLink(link("play/\(UITestFixtureIdentity.primaryMovieID)?mode=direct&bitrate=4000000"))
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        // The probe sits under the player's cover; it keeps what was said.
+        player.close()
+        awaitAnnouncement("Direct play has no bitrate cap, so the bitrate is ignored.", on: home)
+    }
+
+    /// From the welcome, a server link opens server setup with the address
+    /// filled in, and connects to nothing until asked.
+    func testServerLink_fillsTheAddress_withoutConnecting() {
+        launch(signedIn: false, skipsWelcome: false)
+        WelcomeScreen(app: app).awaitLoaded()
+        openLink(link("server?url=http://10.0.0.9:8096"))
+        let setup = ServerSetupScreen(app: app)
+        setup.addressField.awaitExistence("the address sheet")
+        XCTAssertEqual(setup.addressField.value as? String, "http://10.0.0.9:8096")
+        XCTAssertFalse(LoginScreen(app: app).fixtureUserTile.exists, "Nothing connects until Connect is tapped")
+    }
+
+    /// Signed in, a server link changes nothing and says why.
+    func testServerLink_whileSignedIn_isRefused() {
+        let home = launchAtHomeHearingAnnouncements()
+        openLink(link("server?url=http://10.0.0.9:8096"))
+        awaitAnnouncement("This link works only before a server is set up.", on: home)
+        XCTAssertFalse(ServerSetupScreen(app: app).manualEntryButton.exists)
+    }
 }

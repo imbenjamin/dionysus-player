@@ -167,7 +167,9 @@ final class DeepLinkNavigationTests: XCTestCase {
         )
     }
 
-    func test_serverSetup_isntOpenedYet() {
+    /// Server setup is before the main app: the root fills it in
+    /// (`RootView`), never the tabs.
+    func test_serverSetup_isntATabsPlan() {
         XCTAssertNil(DeepLinkNavigation.plan(for: .serverSetup(address: "http://x")))
     }
 }

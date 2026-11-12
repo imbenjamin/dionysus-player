@@ -106,4 +106,26 @@ final class DeepLinkPlacesJourneyTests: TVUITestCase {
         XCTAssertEqual(toastMessage(app), "Downloads aren't on Apple TV.")
         XCTAssertTrue(app.buttons[A11yID.TV.Main.heroPlay].exists)
     }
+
+    // MARK: - DEBUG builds only: server setup
+
+    /// From the welcome, a server link opens Find Your Server with the
+    /// address filled in, and connects to nothing until Connect.
+    func test_serverLink_fillsTheAddress_withoutConnecting() {
+        let app = launch(skipsWelcome: false)
+        XCTAssertTrue(any(app, A11yID.TV.Onboarding.getStarted).waitForExistence(timeout: 10))
+        app.open(link("server?url=http://10.0.0.9:8096"))
+        let field = app.textFields[A11yID.TV.Onboarding.addressField]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "The address field")
+        XCTAssertEqual(field.value as? String, "http://10.0.0.9:8096")
+        XCTAssertFalse(any(app, A11yID.TV.Onboarding.whosWatchingTitle).exists, "Nothing connects until Connect")
+    }
+
+    /// Signed in, a server link changes nothing and says why.
+    func test_serverLink_whileSignedIn_isRefused() {
+        let app = launchAtHome()
+        app.open(link("server?url=http://10.0.0.9:8096"))
+        XCTAssertEqual(toastMessage(app), "This link works only before a server is set up.")
+        XCTAssertTrue(app.buttons[A11yID.TV.Main.heroPlay].exists)
+    }
 }

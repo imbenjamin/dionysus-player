@@ -527,7 +527,8 @@ it; everything in the modal is still audited.
    toast can be gone before either returns, so read what it announced
    under `-UITestSimulateVoiceOver` (`HomeScreen.lastAnnouncement`) rather
    than the capsule. By hand, `Scripts/deeplink.sh '<link>' [udid]` opens
-   one on the booted Simulator (`xcrun simctl openurl`).
+   one on the booted Simulator (`xcrun simctl openurl`). The grammar is in
+   "Deep links for debugging and tests" below.
 
 **An intermittent failure may be a crash, not flake.** The tell is an empty
 `app.debugDescription` (`Query chain: Find: Target Application`) with
@@ -543,6 +544,66 @@ its first failure, so the plan's `retryOnFailure` never runs (Apple's known
 issue 108565878, [forum thread 809989](https://developer.apple.com/forums/thread/809989));
 until 2026-10-09 every iOS UI failure in CI was final. A retried failure shows
 as "Iteration 2 of 3" in the log.
+
+## Deep links for debugging and tests
+
+`dionysus://` links (#406) open any place, title or playback on both apps,
+so a debugging session or a journey can go straight to the screen it's
+about instead of tapping its way there. They exist for this: nothing in the
+app makes, copies or shares one, and they navigate and play, never change
+data (no sign-in, sign-out, delete, watched or favourite). How each app
+applies them is in `CLAUDE.md`, "Deep links".
+
+**Opening one by hand**, on a Simulator only:
+
+```sh
+Scripts/deeplink.sh 'dionysus://play/<itemID>?t=1:02:03&stats=1'   # the booted Simulator
+Scripts/deeplink.sh 'item/<seriesID>?season=2' <udid>                # the scheme is optional
+```
+
+Quote the link (`?` and `&` mean something to the shell). The script wraps
+`xcrun simctl openurl`; it never reaches a physical device. A link sent
+while the app is signed out is held through sign-in (10 minutes at most);
+one sent to a closed app opens it and applies once the session restores.
+
+**In a journey:** on iOS, `XCUIDevice.shared.system.open(url)` reaches the
+running app (`DeepLinkJourneyTests.openLink`, which also accepts the
+system's "Open in Dionysus?" prompt); `XCUIApplication.open` relaunches the
+app with it, which suits only a cold-launch journey ("Writing a journey",
+rule 8). On the Apple TV `app.open(url)` is what the journeys use. The stub
+server's ids are `UITestFixtureIdentity`'s (`primaryMovieID`, `seriesID`,
+`playlistID`, `moviesLibraryID`, `missingItemID` for a title that's gone…).
+A journey whose subject isn't the path to a page may open the page by link.
+
+**Ids** are Jellyfin's: on a real server, the web client's address bar
+(`#/details?id=…`) or `/Items`. A stream index is Jellyfin's
+`MediaStream.Index`, as `/Items/<id>/PlaybackInfo` reports it (not the
+engine's track id).
+
+| Link | Opens |
+|---|---|
+| `home`, `search?q=<text>`, `downloads` (iOS) | That tab; Search runs the query. On the Apple TV, `downloads` lands on Home and says why |
+| `profile[/<page>]` | Profile, or a page: `account`, `appearance`, `playback`, `playback/advanced`, `downloads` (iOS), `about`, `about/license`, `about/privacy` |
+| `quickconnect/approve?code=<6 digits>` | Quick Connect approval with the code filled in, never submitted |
+| `library/<libraryID>` | The library's grid; `sort=title\|dateAdded\|releaseDate`, `order=asc\|desc`, `genre=`, `studio=`, `filter=favorites\|unwatched\|watched` |
+| `item/<id>` | The title's page, pushed on Home; `season=<id or number>` (a show), `section=cast\|chapters\|details\|similar` |
+| `downloaded/<itemID>` (iOS) | The download's page, offline too |
+| `play/<id>` | Plays what the page's Play would, over that page: a show or season its next episode, a playlist its Play target with the rest queued, a collection its first title alone |
+| `play/<id>?…` | `t=<seconds or [h:]m:ss>` (`t=0` restarts), `chapter=<n>` (1-based), `source=<mediaSourceID>`, `audio=<index>`, `subtitle=<index or off>`, `stats=1`, `playlist=<id>` (that member, the rest queued), `offline=1` (iOS: the download) |
+| `play/<id>?mode=direct\|transcode&bitrate=<bps>` | **DEBUG builds only.** For that session, instead of Profile's Streaming and Max Bitrate. `transcode` allows the server to transcode (Allow Transcoding) but doesn't force it; a low `bitrate` does. A bitrate alone allows transcoding; with `mode=direct` it's ignored |
+| `server?url=<address>` | **DEBUG builds only**, and only with no server set up: server setup with the address filled in, past the welcome. Connects to nothing until you do |
+
+Any link also takes `server=<ServerConfiguration.id>` and `user=<userID>`,
+and is refused (with a toast) for a server or user other than the signed-in
+one; it never switches. Overrides apply to the one session or page they
+open and are never stored.
+
+**What goes wrong is said, never silent**: a link always lands somewhere
+sensible, and a toast (also a VoiceOver announcement, which journeys read)
+says what it couldn't do: an unreadable link or parameter, a title or
+library that can't be found, a season, section, chapter, track or version
+the title lacks. An unreadable parameter is skipped and the rest applies.
+Release builds don't read `mode`, `bitrate` or `server`.
 
 ## Where they run in CI
 
@@ -1010,7 +1071,7 @@ the detail.
 | `Core/DeepLinks/DeepLinkTests` | `dionysus://` links (#406): every destination and parameter, start-time formats, what a malformed link or unreadable parameter does, DEBUG-only overrides, and that a built link parses back to itself (the Top Shelf's links unchanged) |
 | `Core/DeepLinks/DeepLinkLibraryTests` | A `dionysus://library` link's grid: the rail's query seeded with its sort, order, genre, studio and filter; finding the library among the user's (not music); what it couldn't read. Also `DeepLinkProfilePageTests`: which Profile page each path names |
 | `Core/DeepLinks/DeepLinkItemOptionsTests` | An item link's season (by id or number, Specials too) and what a page says for a season or section it doesn't have |
-| `Core/DeepLinks/DeepLinkRouterTests` | Whether a link applies now: waiting on a restoring session, holding it through sign-in (10 minutes at most, not across a server change), refusing it for another server or user, stopping once the user changes mid-apply |
+| `Core/DeepLinks/DeepLinkRouterTests` | Whether a link applies now: waiting on a restoring session, holding it through sign-in (10 minutes at most, not across a server change), refusing it for another server or user, stopping once the user changes mid-apply; a `server?url=` link only with no server set up |
 | `Core/Downloads/DownloadFileStoreTests` | Download file paths, sidecars and cleanup |
 | `Core/Downloads/DownloadManagerTests` | Delete (cancelling the task), the queue, one background session, retry budget and error classification |
 | `Core/Downloads/DownloadManagerBackgroundTests` | Adopting in-flight transfers after a relaunch, answering a background relaunch's completion handler, trickplay sheets, a retry that succeeds |
@@ -1052,6 +1113,7 @@ the detail.
 | `Core/Playback/ASSSubtitleGeometryTests` | libass's frame, margins and font scale in both orientations |
 | `Core/Playback/AetherPlaybackEngineClassificationTests` | Playback errors classified as refused, rate-limited or transient |
 | `Core/Playback/AetherPlaybackEngineLoadOptionsTests` | The display context passed to the engine |
+| `Core/Playback/PlaybackLinkOverridesTests` | What a play link asks of its session (#406): its start, the engine track for Jellyfin's stream index, one toast for what it lacks, and (DEBUG-only) its mode and bitrate over the Streaming settings |
 | `Core/Playback/PlaybackSegmentTests` | Duplicate intro, recap and credits segments merged into one |
 | `Core/Playback/StreamFormatDescriptionTests` | Stream format labels for Playback Stats |
 | `Features/AssetDetails/AssetActionTargetsTests` | What Add to Playlist and Delete offer on a detail page, and their words (iOS and the Apple TV) |
@@ -1070,7 +1132,7 @@ the detail.
 | `Features/Player/PlaybackStatsReportTests` | Playback Stats' rows |
 | `Features/Player/PlayerControlsOverlayTests` | The skip step |
 | `Features/Player/PlayerViewModelOfflineTests` | Offline playback of downloads |
-| `Features/Player/PlayerViewModelTests` | Resume, reporting, transport, tracks, versions, errors, the background reload and stopping while offline |
+| `Features/Player/PlayerViewModelTests` | Resume, reporting, transport, tracks, versions, errors, the background reload and stopping while offline; a play link's start, tracks, version, Playback Stats and (DEBUG-only) mode and bitrate, for its one session |
 | `Features/Player/SubtitleOverlayLayoutTests` | Subtitle metrics on phone and TV |
 | `Features/Profile/QuickConnectApprovalViewModelTests` | Approving another device's code |
 | `Features/Search/SearchViewModelTests` | Search and its history |
@@ -1152,7 +1214,7 @@ the detail.
 | `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), the Cast & Crew and Details tabs, deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
-| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a library's grid with its facets, Profile's License and Advanced, Quick Connect's code filled but not approved, a title's page, a show on the linked season, the Cast tab, a season or section the page doesn't have, playing over it (a show, the player closing first), a start time or chapter, tracks, Playback Stats, a playlist member with the rest queued, the downloaded copy, a missing or unplayable title, an unknown library or Profile page, Quick Connect turned off, another server, an unreadable link or start time, a missing chapter or download, a cold launch, a link held through sign-in |
+| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a library's grid with its facets, Profile's License and Advanced, Quick Connect's code filled but not approved, a title's page, a show on the linked season, the Cast tab, a season or section the page doesn't have, playing over it (a show, the player closing first), a start time or chapter, tracks, Playback Stats, a playlist member with the rest queued, the downloaded copy, a missing or unplayable title, an unknown library or Profile page, Quick Connect turned off, another server, an unreadable link or start time, a missing chapter or download, a cold launch, a link held through sign-in; DEBUG-only: a bitrate `mode=direct` can't cap, a server link filling setup's address without connecting, and refused while signed in |
 | `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
 | `DownloadsJourneyTests` | Downloading to completion (an item, or a season at once), the row updating while open, bulk delete, cancelling a selection, and offline after a relaunch with `offline`: a downloaded movie and episode, and a show's page (one season flat, two as seasons) and a season's, each opened and played |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
@@ -1176,7 +1238,7 @@ the detail.
 | `AccountSwitchingJourneyTests` | Remembered accounts (a Quick Connect one too; refused, a password account opens its password screen and a Quick Connect one asks for a new code, `revokedSessions`), Forget This Account, Follow Apple TV Users, Select a User Every Relaunch |
 | `CollectionDetailJourneyTests` | Box sets and playlists, empty and loading |
 | `CollectionGridJourneyTests` | A library's grid: pills, sort, filters, Reset, returning from a detail page |
-| `DeepLinkPlacesJourneyTests` | `dionysus://` links to places (#406): Search's query, Profile and Home, Profile's License and Advanced, Quick Connect's code filled but not approved, a library's grid with its facets, an unknown library, Downloads landing on Home, a show's linked season focused, focus on the cast, chapters not shown |
+| `DeepLinkPlacesJourneyTests` | `dionysus://` links to places (#406): Search's query, Profile and Home, Profile's License and Advanced, Quick Connect's code filled but not approved, a library's grid with its facets, an unknown library, Downloads landing on Home, a show's linked season focused, focus on the cast, chapters not shown; DEBUG-only: a server link filling Find Your Server's address without connecting, and refused while signed in |
 | `DeepLinkPlaybackJourneyTests` | `dionysus://play` links' parameters (#406): a start time or chapter, Playback Stats with the setting off, a playlist member with the rest queued, a playlist over its page |
 | `DetailJourneyTests` | Detail pages: Menu, the keep-alive cap, rows, Full Details, no backdrop, failures |
 | `HomeJourneyTests` | The hero, See All, rails loading, a failing Home |

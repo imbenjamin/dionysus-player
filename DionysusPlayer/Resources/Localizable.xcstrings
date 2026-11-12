@@ -369,6 +369,9 @@
     "9:59:59" : {
 
     },
+    "A download plays as it was downloaded, so the mode and bitrate don't apply." : {
+
+    },
     "A receiver or soundbar may show it as Dolby Atmos, Multichannel PCM or LPCM, depending on the model and on the track. Each means the height channels are there. It never shows as DTS:X, since a DTS:X track is decoded before it leaves the device. AirPods play it as Spatial Audio. Over AirPlay it's compressed instead, since AirPlay doesn't carry the uncompressed audio with its height channels." : {
 
     },
@@ -671,10 +674,16 @@
     "Couldn't read the audio track." : {
 
     },
+    "Couldn't read the bitrate." : {
+
+    },
     "Couldn't read the chapter." : {
 
     },
     "Couldn't read the filter." : {
+
+    },
+    "Couldn't read the mode." : {
 
     },
     "Couldn't read the order." : {
@@ -768,6 +777,9 @@
 
     },
     "Current position: %@" : {
+
+    },
+    "Direct play has no bitrate cap, so the bitrate is ignored." : {
 
     },
     "Downloads aren't on Apple TV." : {
@@ -1901,6 +1913,9 @@
 
     },
     "This library can't be found." : {
+
+    },
+    "This link works only before a server is set up." : {
 
     },
     "This show has no season %@." : {
