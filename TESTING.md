@@ -1009,6 +1009,7 @@ the detail.
 | `App/AppStateTests` | The phase machine, sign-in and silent sign-in, sign-out, offline launch, and tvOS's Who's Watching? launches |
 | `Core/DeepLinks/DeepLinkTests` | `dionysus://` links (#406): every destination and parameter, start-time formats, what a malformed link or unreadable parameter does, DEBUG-only overrides, and that a built link parses back to itself (the Top Shelf's links unchanged) |
 | `Core/DeepLinks/DeepLinkLibraryTests` | A `dionysus://library` link's grid: the rail's query seeded with its sort, order, genre, studio and filter; finding the library among the user's (not music); what it couldn't read. Also `DeepLinkProfilePageTests`: which Profile page each path names |
+| `Core/DeepLinks/DeepLinkItemOptionsTests` | An item link's season (by id or number, Specials too) and what a page says for a season or section it doesn't have |
 | `Core/DeepLinks/DeepLinkRouterTests` | Whether a link applies now: waiting on a restoring session, holding it through sign-in (10 minutes at most, not across a server change), refusing it for another server or user, stopping once the user changes mid-apply |
 | `Core/Downloads/DownloadFileStoreTests` | Download file paths, sidecars and cleanup |
 | `Core/Downloads/DownloadManagerTests` | Delete (cancelling the task), the queue, one background session, retry budget and error classification |
@@ -1082,7 +1083,7 @@ the detail.
 | `Shared/Components/OnboardingLayoutTests` | Onboarding's composition per measured device size |
 | `Shared/Components/ToastCenterTests` | Toasts |
 | `Shared/DeviceTiltObserverTests` | Tilt smoothing and the sensor's reference counting |
-| `Shared/Navigation/DeepLinkNavigationTests` | Where each `dionysus://` destination lands on iPhone and iPad: tab, Home's stack, Search's query, the play cue, a library to find, Profile's page and Quick Connect's code, and what a link says it couldn't do |
+| `Shared/Navigation/DeepLinkNavigationTests` | Where each `dionysus://` destination lands on iPhone and iPad: tab, Home's stack, Search's query, the play cue, the page cue for a season or section (not for an offline download), a library to find, Profile's page and Quick Connect's code, and what a link says it couldn't do |
 | `Shared/Navigation/TabBarTintTests` | Which tab bar placements let Home's hero pick the tab tint (iPad's top bar, not a Duo's) |
 
 ### Apple TV unit tests (`DionysusTVTests/`)
@@ -1151,7 +1152,7 @@ the detail.
 | `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), the Cast & Crew and Details tabs, deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
-| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a library's grid with its facets, Profile's License and Advanced, Quick Connect's code filled but not approved, a title's page, playing over it (a show, the player closing first), a start time or chapter, tracks, Playback Stats, a playlist member with the rest queued, the downloaded copy, a missing or unplayable title, an unknown library or Profile page, Quick Connect turned off, another server, an unreadable link or start time, a missing chapter or download, a cold launch, a link held through sign-in |
+| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a library's grid with its facets, Profile's License and Advanced, Quick Connect's code filled but not approved, a title's page, a show on the linked season, the Cast tab, a season or section the page doesn't have, playing over it (a show, the player closing first), a start time or chapter, tracks, Playback Stats, a playlist member with the rest queued, the downloaded copy, a missing or unplayable title, an unknown library or Profile page, Quick Connect turned off, another server, an unreadable link or start time, a missing chapter or download, a cold launch, a link held through sign-in |
 | `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
 | `DownloadsJourneyTests` | Downloading to completion (an item, or a season at once), the row updating while open, bulk delete, cancelling a selection, and offline after a relaunch with `offline`: a downloaded movie and episode, and a show's page (one season flat, two as seasons) and a season's, each opened and played |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
@@ -1175,7 +1176,7 @@ the detail.
 | `AccountSwitchingJourneyTests` | Remembered accounts (a Quick Connect one too; refused, a password account opens its password screen and a Quick Connect one asks for a new code, `revokedSessions`), Forget This Account, Follow Apple TV Users, Select a User Every Relaunch |
 | `CollectionDetailJourneyTests` | Box sets and playlists, empty and loading |
 | `CollectionGridJourneyTests` | A library's grid: pills, sort, filters, Reset, returning from a detail page |
-| `DeepLinkPlacesJourneyTests` | `dionysus://` links to places (#406): Search's query, Profile and Home, Profile's License and Advanced, Quick Connect's code filled but not approved, a library's grid with its facets, an unknown library, Downloads landing on Home |
+| `DeepLinkPlacesJourneyTests` | `dionysus://` links to places (#406): Search's query, Profile and Home, Profile's License and Advanced, Quick Connect's code filled but not approved, a library's grid with its facets, an unknown library, Downloads landing on Home, a show's linked season focused, focus on the cast, chapters not shown |
 | `DeepLinkPlaybackJourneyTests` | `dionysus://play` links' parameters (#406): a start time or chapter, Playback Stats with the setting off, a playlist member with the rest queued, a playlist over its page |
 | `DetailJourneyTests` | Detail pages: Menu, the keep-alive cap, rows, Full Details, no backdrop, failures |
 | `HomeJourneyTests` | The hero, See All, rails loading, a failing Home |

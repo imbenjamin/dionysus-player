@@ -111,8 +111,10 @@ struct AssetDetailView: View {
                     ShowDetailView(viewModel: viewModel)
                 case .boxSet:
                     CollectionDetailView(viewModel: viewModel)
+                        .takesDeepLinkPageCue(viewModel, apply: Self.sectionsNotHere)
                 case .playlist:
                     PlaylistDetailView(viewModel: viewModel)
+                        .takesDeepLinkPageCue(viewModel, apply: Self.sectionsNotHere)
                 default:
                     MovieDetailView(viewModel: viewModel)
                 }
@@ -130,7 +132,23 @@ struct AssetDetailView: View {
     }
 
     /// No retry: the item is gone, and asking again gets the same 404.
+    /// A collection's or playlist's page has neither seasons nor the
+    /// sections a link can name (#406).
+    private static func sectionsNotHere(_ options: DeepLink.ItemOptions) -> [String] {
+        [options.season.map { DeepLink.ItemOptions.missingSeasonNotice($0, isShow: false) }, options.section?.missingNotice]
+            .compactMap { $0 }
+    }
+
     private func dropUnplayableCue() {
+        // An item link's season or section (`DeepLinkPageCue`) goes with
+        // the page: none shows to take it.
+        if DeepLinkPageCue.shared.pageID == itemID {
+            switch viewModel.loadState {
+            case .failed, .notFound: DeepLinkPageCue.shared.clear()
+            case .loaded where viewModel.item?.isAudioContent == true: DeepLinkPageCue.shared.clear()
+            default: break
+            }
+        }
         let cue = DeepLinkPlaybackCue.shared
         guard cue.isFor(itemID) else { return }
         switch viewModel.loadState {

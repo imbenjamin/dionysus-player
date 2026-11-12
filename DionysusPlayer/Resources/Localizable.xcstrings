@@ -578,6 +578,9 @@
     "Chapters" : {
 
     },
+    "Chapters aren't shown on Apple TV's pages." : {
+
+    },
     "Chapters in Scrubber" : {
 
     },
@@ -675,6 +678,9 @@
 
     },
     "Couldn't read the order." : {
+
+    },
+    "Couldn't read the section." : {
 
     },
     "Couldn't read the sort." : {
@@ -1334,6 +1340,9 @@
     "On the device you're signing in on, choose Quick Connect to get a code, then enter it here." : {
 
     },
+    "Only a show has seasons." : {
+
+    },
     "Open Dionysus Player on GitHub" : {
 
     },
@@ -1879,6 +1888,9 @@
     "Theme" : {
 
     },
+    "There's nothing like this title yet." : {
+
+    },
     "This App" : {
 
     },
@@ -1889,6 +1901,9 @@
 
     },
     "This library can't be found." : {
+
+    },
+    "This show has no season %@." : {
 
     },
     "This Title" : {
@@ -1995,7 +2010,16 @@
     "This title has no audio track %lld, so the usual one is playing." : {
 
     },
+    "This title has no cast listed." : {
+
+    },
     "This title has no chapter %lld." : {
+
+    },
+    "This title has no chapters to show." : {
+
+    },
+    "This title has no details to show." : {
 
     },
     "This title has no subtitle track %lld, so the usual choice applies." : {

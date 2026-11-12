@@ -24,6 +24,9 @@ struct DeepLinkNavigation: Equatable {
     var searchQuery: String?
     /// The page on top of Home's stack plays this as soon as it has loaded.
     var playback: DeepLinkPlaybackCue.Cue?
+    /// The page on top of Home's stack opens this season or section once it
+    /// has loaded.
+    var page: DeepLinkPageCue.Cue?
     /// A library whose grid goes on Home's stack, once `MainTabView` has
     /// found it among the user's (`DeepLinkLibrary`); until then nothing moves.
     var library: LibraryLink?
@@ -65,10 +68,8 @@ struct DeepLinkNavigation: Equatable {
                 tab: .home, library: LibraryLink(id: id, options: options),
                 notice: issues.compactMap(\.libraryNotice).joined(separator: " ").nilIfEmpty
             )
-        case .item(let id, _):
-            DeepLinkNavigation(tab: .home, homePath: [
-                isOffline && isDownloaded(id) ? .downloadedAsset(itemID: id) : .assetDetail(itemID: id),
-            ])
+        case .item(let id, let options):
+            itemPlan(id: id, options: options, issues: issues, isDownloaded: isDownloaded, isOffline: isOffline)
         case .downloaded(let id):
             DeepLinkNavigation(tab: .home, homePath: [.downloadedAsset(itemID: id)])
         case .play(let id, let options):
@@ -76,6 +77,20 @@ struct DeepLinkNavigation: Equatable {
         case .serverSetup:
             nil
         }
+    }
+
+    /// A title's page, cued with the link's season and section. A download's
+    /// page, opened offline, has neither, so the link's options go unused.
+    private static func itemPlan(
+        id: String, options: DeepLink.ItemOptions, issues: [DeepLink.Issue],
+        isDownloaded: (String) -> Bool, isOffline: Bool
+    ) -> DeepLinkNavigation {
+        if isOffline, isDownloaded(id) {
+            return DeepLinkNavigation(tab: .home, homePath: [.downloadedAsset(itemID: id)])
+        }
+        let notices = issues.compactMap(\.itemNotice)
+        let cue = options.isEmpty && notices.isEmpty ? nil : DeepLinkPageCue.Cue(pageID: id, options: options, notices: notices)
+        return DeepLinkNavigation(tab: .home, homePath: [.assetDetail(itemID: id)], page: cue)
     }
 
     private static func playPlan(

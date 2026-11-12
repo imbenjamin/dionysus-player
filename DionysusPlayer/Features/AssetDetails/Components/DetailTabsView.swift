@@ -22,6 +22,8 @@ struct DetailTabsView: View {
     }
 
     let item: MediaItem
+    /// A tab a `dionysus://item?section=` link opened (#406).
+    var linkedTab: LinkedDetailTab?
     @State private var selectedTab: Tab = .about
 
     /// "About" always shows, applying to every item kind. "Cast & Crew" shows
@@ -72,7 +74,21 @@ struct DetailTabsView: View {
                 TechnicalDetailsView(item: item)
             }
         }
+        .onChange(of: linkedTab, initial: true) { _, linked in
+            guard let linked else { return }
+            switch linked.tab {
+            case .cast: selectedTab = .cast
+            case .details: selectedTab = .details
+            }
+        }
     }
+}
+
+/// The Cast & Crew or Details tab a link opened; a new id opens it again.
+struct LinkedDetailTab: Equatable {
+    enum Tab: Equatable { case cast, details }
+    let id = UUID()
+    let tab: Tab
 }
 
 /// Genres, then studios, then the tagline, then the synopsis. Studios are

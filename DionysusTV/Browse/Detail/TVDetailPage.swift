@@ -9,6 +9,8 @@ struct TVDetailPage: View {
     let client: JellyfinAPIClient
     let userID: String
     @Binding var rememberedFocus: String?
+    /// A `dionysus://item` link's season and section (#406), until applied.
+    @Binding var linkedOptions: TVLinkedItemOptions?
     /// Pops this page: the way out of one whose item is gone from the server.
     let onBack: () -> Void
     @Environment(\.tvPageIsOnShow) private var isOnShow
@@ -16,6 +18,15 @@ struct TVDetailPage: View {
     /// Set by a show's page, whose imagery follows the episode or season it
     /// is on; `nil` on every other page, which draws its own item's.
     @State private var backdropItem: MediaItem?
+    /// Nothing on a collection's or playlist's page takes a link's focus.
+    @FocusState private var noFocus: String?
+
+    /// A collection's or playlist's page has neither seasons nor the
+    /// sections a link can name (#406).
+    private static func sectionsNotHere(_ options: DeepLink.ItemOptions) -> (focus: String?, notices: [String]) {
+        (nil, [options.season.map { DeepLink.ItemOptions.missingSeasonNotice($0, isShow: false) }, options.section?.tvMissingNotice]
+            .compactMap { $0 })
+    }
 
     var body: some View {
         TVPageScaffold(background: { background }) {
@@ -56,13 +67,15 @@ struct TVDetailPage: View {
         } else if let item = viewModel.item {
             switch item.kind {
             case .series, .season, .episode:
-                TVShowDetailView(viewModel: viewModel, loadedItem: item, client: client, userID: userID, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader, backdropItem: $backdropItem)
+                TVShowDetailView(viewModel: viewModel, loadedItem: item, client: client, userID: userID, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader, backdropItem: $backdropItem, linkedOptions: $linkedOptions)
             case .boxSet:
                 TVBoxSetDetailView(viewModel: viewModel, item: item, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader)
+                    .tvAppliesItemLink($linkedOptions, viewModel: viewModel, focus: $noFocus, apply: Self.sectionsNotHere)
             case .playlist:
                 TVPlaylistDetailView(viewModel: viewModel, item: item, client: client, userID: userID, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader)
+                    .tvAppliesItemLink($linkedOptions, viewModel: viewModel, focus: $noFocus, apply: Self.sectionsNotHere)
             default:
-                TVMovieDetailView(viewModel: viewModel, item: item, client: client, userID: userID, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader)
+                TVMovieDetailView(viewModel: viewModel, item: item, client: client, userID: userID, rememberedFocus: $rememberedFocus, isBelowHeader: $isBelowHeader, linkedOptions: $linkedOptions)
             }
         } else {
             TVDetailLoading().frame(maxWidth: .infinity, maxHeight: .infinity)

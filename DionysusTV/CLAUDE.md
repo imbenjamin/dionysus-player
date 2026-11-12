@@ -601,6 +601,13 @@ source that fails is left out and the rest shown.
   with the code filled, never approved). Profile's panes are all one page
   here, so `profile/playback` simply opens Profile. Downloads aren't on the
   Apple TV: those links land on Home and say so.
+- **An item link's season and section focus the page's item**
+  (`TVLinkedItemOptions`, held by the shell for the pushed page and cleared
+  as the page applies it): Season N's tab, or a section's first item, which
+  scrolls the page there (`tvDetailLanding`). Set once, it lost to the
+  page's default claim and the shell's focus handoff, so it's set again
+  until it has held for half a second (three at most). Chapters aren't on
+  the Apple TV's pages, and a link to them says so.
 
 - **The text is drawn into the art.** tvOS 27 draws no text over a
   third-party carousel in either style (`.details` shows the bare image), so

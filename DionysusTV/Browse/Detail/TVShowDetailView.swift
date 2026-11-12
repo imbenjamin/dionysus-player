@@ -19,6 +19,8 @@ struct TVShowDetailView: View {
     @Binding var isBelowHeader: Bool
     /// Whose backdrop the page draws behind everything: see `artItem`.
     @Binding var backdropItem: MediaItem?
+    /// A `dionysus://item` link's season and section (#406), until applied.
+    @Binding var linkedOptions: TVLinkedItemOptions?
     @Environment(\.tvOpenRoute) private var open
     @FocusState private var focus: String?
     @State private var selectedSeasonID: String?
@@ -121,6 +123,30 @@ struct TVShowDetailView: View {
         item.cast.isEmpty ? (viewModel.seriesItem?.cast ?? []) : item.cast
     }
 
+    /// The season and section a link names (#406): the season chosen (its
+    /// tab focused when no section is named), and the section's first item.
+    private func applyLink(_ options: DeepLink.ItemOptions) -> (focus: String?, notices: [String]) {
+        var notices: [String] = []
+        var target: String?
+        if let season = options.season {
+            if let id = DeepLink.ItemOptions.seasonID(for: season, in: viewModel.seasons) {
+                selectedSeasonID = id
+                chosenEpisodeID = nil
+                if showsSeasonTabs { target = "season.\(id)" }
+            } else {
+                notices.append(DeepLink.ItemOptions.missingSeasonNotice(season, isShow: viewModel.seriesID != nil))
+            }
+        }
+        if let section = options.section {
+            if let id = TVMovieDetailView.focusID(for: section, cast: cast, similar: viewModel.similar, detailsItem: detailsItem) {
+                target = id
+            } else {
+                notices.append(section.tvMissingNotice)
+            }
+        }
+        return (target, notices)
+    }
+
     private static func isBelowHeader(_ id: String) -> Bool {
         id == TVDetailsPanel.focusID || ["season.", "episode.", "cast.", "similar."].contains { id.hasPrefix($0) }
     }
@@ -211,6 +237,7 @@ struct TVShowDetailView: View {
         .scrollClipDisabled()
         .onChange(of: artItem, initial: true) { _, art in backdropItem = art }
         .tvClaimsFocus($focus, ids: focusIDs, remembered: $rememberedFocus)
+        .tvAppliesItemLink($linkedOptions, viewModel: viewModel, focus: $focus, apply: applyLink)
         // Below the header, Menu first goes back to the page's landing view.
         .tvMenuReturnsToLanding($focus, landing: focusIDs.first, isAway: isBelowHeader) { topRequest += 1 }
         // A show with nothing to play loses its Play button once that's

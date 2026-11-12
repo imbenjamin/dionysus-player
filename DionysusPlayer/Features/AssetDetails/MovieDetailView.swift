@@ -26,89 +26,98 @@ struct MovieDetailView: View {
     /// to the whole `ScrollView` also worked but reset scroll position on every
     /// return from playback.
     @State private var refreshTrigger = UUID()
+    /// The tab a `dionysus://item?section=` link opened (#406).
+    @State private var linkedTab: LinkedDetailTab?
 
     var body: some View {
         ScrollView {
-            if let item = viewModel.item {
-                VStack(alignment: .leading, spacing: 20) {
-                    HeroHeaderView(
-                        backdropURL: item.backdropImageURL ?? item.primaryImageURL,
-                        logoURL: item.logoImageURL,
-                        title: item.name,
-                        kind: item.kind
-                    )
+            ScrollViewReader { scrollProxy in
+                if let item = viewModel.item {
+                    VStack(alignment: .leading, spacing: 20) {
+                        HeroHeaderView(
+                            backdropURL: item.backdropImageURL ?? item.primaryImageURL,
+                            logoURL: item.logoImageURL,
+                            title: item.name,
+                            kind: item.kind
+                        )
 
-                    VStack(alignment: .leading, spacing: 16) {
-                        InfoMetadataRow(item: item)
+                        VStack(alignment: .leading, spacing: 16) {
+                            InfoMetadataRow(item: item)
 
-                        HStack(spacing: 8) {
-                            PlayResumeButtonRow(
-                                item: item,
-                                onPlay: { versionID in
-                                    if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
-                                    playbackRequest = PlaybackRequest(itemID: item.id, mediaSourceID: versionID)
-                                },
-                                onResume: {
-                                    playbackRequest = PlaybackRequest(
-                                        itemID: item.id, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: item.id)
-                                    )
-                                },
-                                onRestart: { versionID in
-                                    if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
-                                    playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true, mediaSourceID: versionID)
-                                }
-                            )
-                            // See `MediaItem.playbackProgressIdentity`: without
-                            // this, the progress bar and Play-vs-Resume label can
-                            // stop updating after playback, since this view owns
-                            // `@State` and takes `item` as a non-tracked `let`.
-                            .id(item.playbackProgressIdentity)
+                            HStack(spacing: 8) {
+                                PlayResumeButtonRow(
+                                    item: item,
+                                    onPlay: { versionID in
+                                        if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
+                                        playbackRequest = PlaybackRequest(itemID: item.id, mediaSourceID: versionID)
+                                    },
+                                    onResume: {
+                                        playbackRequest = PlaybackRequest(
+                                            itemID: item.id, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: item.id)
+                                        )
+                                    },
+                                    onRestart: { versionID in
+                                        if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
+                                        playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true, mediaSourceID: versionID)
+                                    }
+                                )
+                                // See `MediaItem.playbackProgressIdentity`: without
+                                // this, the progress bar and Play-vs-Resume label can
+                                // stop updating after playback, since this view owns
+                                // `@State` and takes `item` as a non-tracked `let`.
+                                .id(item.playbackProgressIdentity)
 
-                            DownloadButton(item: item, client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager)
+                                DownloadButton(item: item, client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager)
+                            }
+
+                            DetailTabsView(item: item, linkedTab: linkedTab)
+                                .detailTabsPanel()
+                                .id(DeepLinkPageAnchor.tabs)
+                        }
+                        .padding(.horizontal)
+                        // Caps metadata, Play/Download and tabs to a readable measure
+                        // on regular width, leaving the hero above and rails below
+                        // full-bleed. See `ReadableDetailColumn`.
+                        .readableDetailColumn()
+                        // See `refreshTrigger`. Scoped to this metadata block, not the
+                        // whole `ScrollView`: an identity reset here is enough to pick
+                        // up a post-playback `item` change, and anything wider only
+                        // resets scroll position.
+                        .id(refreshTrigger)
+
+                        // Between the tabs and the related-content rails: a chapter
+                        // belongs to this item, like everything above, rather than
+                        // pointing at others like the rails below. `item.chapters` is
+                        // empty for anything without real chapters, Jellyfin's
+                        // single-dummy-chapter case included — see `MediaItem.chapters`.
+                        if !item.chapters.isEmpty {
+                            ChapterRailView(chapters: item.chapters) { chapter in
+                                playbackRequest = PlaybackRequest(
+                                    itemID: item.id,
+                                    mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: item.id),
+                                    startSeconds: chapter.startSeconds
+                                )
+                            }
+                            .id(DeepLinkPageAnchor.chapters)
                         }
 
-                        DetailTabsView(item: item)
-                            .detailTabsPanel()
-                    }
-                    .padding(.horizontal)
-                    // Caps metadata, Play/Download and tabs to a readable measure
-                    // on regular width, leaving the hero above and rails below
-                    // full-bleed. See `ReadableDetailColumn`.
-                    .readableDetailColumn()
-                    // See `refreshTrigger`. Scoped to this metadata block, not the
-                    // whole `ScrollView`: an identity reset here is enough to pick
-                    // up a post-playback `item` change, and anything wider only
-                    // resets scroll position.
-                    .id(refreshTrigger)
+                        if !viewModel.collections.isEmpty {
+                            MediaRailView(rail: MediaCollectionRail(
+                                title: String(localized: "Included In"), items: viewModel.collections
+                            ))
+                        }
 
-                    // Between the tabs and the related-content rails: a chapter
-                    // belongs to this item, like everything above, rather than
-                    // pointing at others like the rails below. `item.chapters` is
-                    // empty for anything without real chapters, Jellyfin's
-                    // single-dummy-chapter case included — see `MediaItem.chapters`.
-                    if !item.chapters.isEmpty {
-                        ChapterRailView(chapters: item.chapters) { chapter in
-                            playbackRequest = PlaybackRequest(
-                                itemID: item.id,
-                                mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: item.id),
-                                startSeconds: chapter.startSeconds
-                            )
+                        if !viewModel.similar.isEmpty {
+                            MediaRailView(rail: MediaCollectionRail(
+                                title: String(localized: "More Like This"), items: viewModel.similar
+                            ))
+                            .id(DeepLinkPageAnchor.similar)
                         }
                     }
-
-                    if !viewModel.collections.isEmpty {
-                        MediaRailView(rail: MediaCollectionRail(
-                            title: String(localized: "Included In"), items: viewModel.collections
-                        ))
-                    }
-
-                    if !viewModel.similar.isEmpty {
-                        MediaRailView(rail: MediaCollectionRail(
-                            title: String(localized: "More Like This"), items: viewModel.similar
-                        ))
-                    }
+                    .padding(.bottom, 32)
+                    // A `dionysus://item` link's season and section (#406).
+                    .takesDeepLinkPageCue(viewModel) { applyLink($0, proxy: scrollProxy) }
                 }
-                .padding(.bottom, 32)
             }
         }
         .ignoresSafeArea(edges: .top)
@@ -168,5 +177,27 @@ struct MovieDetailView: View {
                 linkOverrides: request.linkOverrides
             )
         }
+    }
+
+    /// Opens the section a link names (#406); a movie has no seasons. Returns
+    /// what the page doesn't have.
+    private func applyLink(_ options: DeepLink.ItemOptions, proxy: ScrollViewProxy) -> [String] {
+        guard let item = viewModel.item else { return [] }
+        var notices: [String] = []
+        if let season = options.season {
+            notices.append(DeepLink.ItemOptions.missingSeasonNotice(season, isShow: false))
+        }
+        if let section = options.section {
+            switch DeepLinkPageSection.target(for: section, item: item, showsChapters: true, hasSimilar: !viewModel.similar.isEmpty) {
+            case .tab(let tab):
+                linkedTab = LinkedDetailTab(tab: tab)
+                proxy.scrollToLinkedSection(.tabs)
+            case .anchor(let anchor):
+                proxy.scrollToLinkedSection(anchor)
+            case nil:
+                notices.append(section.missingNotice)
+            }
+        }
+        return notices
     }
 }
