@@ -19,6 +19,10 @@ struct PlaybackRequest: Identifiable, Hashable {
     /// Play/Resume/Restart, leaving the existing behavior untouched. See
     /// `PlayerView.startSeconds` for how it reaches `PlayerViewModel`.
     var startSeconds: TimeInterval?
+    /// What a `dionysus://play` link asked of this session (#406): its start,
+    /// version, tracks and Playback Stats, checked once the title has loaded.
+    /// `nil` for everything a person starts.
+    var linkOverrides: PlaybackLinkOverrides?
     /// Include every field in the identity so a different action right after
     /// another (e.g. Restart tapped right after a Resume, picking a
     /// different version on a second Play, or tapping a *second* chapter
@@ -31,6 +35,7 @@ struct PlaybackRequest: Identifiable, Hashable {
         // ("failed to produce diagnostic for expression"), not just slow it
         // down.
         let start = startSeconds.map { String($0) } ?? ""
-        return "\(itemID)-\(startFromBeginning)-\(mediaSourceID ?? "")-\(start)"
+        let link = linkOverrides.map { String($0.hashValue) } ?? ""
+        return "\(itemID)-\(startFromBeginning)-\(mediaSourceID ?? "")-\(start)-\(link)"
     }
 }

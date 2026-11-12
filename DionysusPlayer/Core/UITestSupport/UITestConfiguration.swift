@@ -218,8 +218,9 @@ enum UITestScenario: String {
     /// listed twice, a copy ending 20s sooner first, as a server with two
     /// segment providers lists it.
     case skipIntro
-    /// Every episode's credits start at 0:05, so Next Up shows as soon as an
-    /// episode plays and counts down 10s.
+    /// Every episode's credits start at 0:05, and every playlist member's,
+    /// so Next Up shows as soon as one plays with something after it (the
+    /// next episode, or the playlist's next member) and counts down 10s.
     case earlyCredits
     /// `.standard`, but the fake engine reports the audio offset unavailable,
     /// standing in for a server transcode (AetherEngine's `.remoteBypass`),

@@ -97,6 +97,100 @@ final class DeepLinkJourneyTests: UITestCase {
             .awaitExistence("a result for the linked query")
     }
 
+    // MARK: - Playback parameters
+
+    /// The player's position off the scrubber's value, the unlocalized "m:ss"
+    /// (or "h:mm:ss") the playhead reads.
+    private func position(_ player: PlayerScreen) -> Double? {
+        let parts = ((player.scrubber.value as? String) ?? "").split(separator: ":").compactMap { Double($0) }
+        return parts.count >= 2 ? parts.reduce(0) { $0 * 60 + $1 } : nil
+    }
+
+    /// Waits for the playhead to settle in `range`; the fake engine plays on
+    /// at 1x, so each range leaves room for a few seconds of playback.
+    private func awaitPosition(_ range: ClosedRange<Double>, of player: PlayerScreen, _ what: String,
+                               file: StaticString = #filePath, line: UInt = #line) {
+        let reached = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in self.position(player).map(range.contains) ?? false }, object: nil
+        )
+        XCTAssertEqual(XCTWaiter().wait(for: [reached], timeout: Self.defaultTimeout), .completed,
+                       "\(what): the playhead read \(player.scrubber.value ?? "nothing")", file: file, line: line)
+    }
+
+    private func openPlayer(_ path: String) -> PlayerScreen {
+        openLink(link(path))
+        let player = PlayerScreen(app: app)
+        player.closeButton.awaitExistence("the player")
+        return player
+    }
+
+    func testPlayLink_startsAtTheLinkedTime() {
+        launchAtHome()
+        let player = openPlayer("play/\(UITestFixtureIdentity.primaryMovieID)?t=1:30")
+        awaitPosition(90...110, of: player, "Starts at 1:30")
+    }
+
+    /// Chapters are 1-based, as shown: the fixture movie's second starts at
+    /// 23:00, a quarter of its 92 minutes.
+    func testPlayLink_startsAtTheLinkedChapter() {
+        launchAtHome()
+        let player = openPlayer("play/\(UITestFixtureIdentity.primaryMovieID)?chapter=2")
+        awaitPosition(1380...1400, of: player, "Starts at chapter 2")
+    }
+
+    /// Jellyfin's stream indexes: the fixture's audio stream 1 and subtitle
+    /// stream 3, which the fake engine lists as its Commentary track and its
+    /// placed-cue Signs track.
+    func testPlayLink_playsTheLinkedTracks() {
+        launchAtHome()
+        let player = openPlayer("play/\(UITestFixtureIdentity.primaryMovieID)?audio=1&subtitle=3")
+        app.descendants(matching: .any).matching(identifier: A11yID.Player.plainSubtitle)
+            .matching(NSPredicate(format: "label == %@", UITestFixtureIdentity.alignedSubtitleCueText)).firstMatch
+            .awaitExistence("the linked subtitle track's cue")
+        player.tracksButton.tap()
+        player.trackNavigationRow("audio").tap()
+        let commentary = player.trackOption("audio", 1)
+        commentary.awaitExistence("the linked audio track's row")
+        XCTAssertTrue(commentary.isSelected, "The linked audio track plays")
+    }
+
+    /// Opened even where the setting hides the button, which then shows so
+    /// the overlay can be closed.
+    func testPlayLink_opensPlaybackStats() {
+        launch(extraArguments: ["-showPlaybackStatsButtonEnabled", "NO"])
+        HomeScreen(app: app).awaitLoaded()
+        let player = openPlayer("play/\(UITestFixtureIdentity.primaryMovieID)?stats=1")
+        player.statsPageIndicator.awaitExistence("Playback Stats")
+        player.statsButton.awaitExistence("the stats button, to close them")
+    }
+
+    /// A member plays from the playlist's page, with the rest queued after
+    /// it: Next Up offers the playlist's next member, which a movie played
+    /// alone has none of. (`earlyCredits` starts a member's credits at 0:05.)
+    func testPlayLink_forAPlaylistMember_queuesTheRest() {
+        launch(scenario: "earlyCredits")
+        HomeScreen(app: app).awaitLoaded()
+        let player = openPlayer("play/\(UITestFixtureIdentity.primaryMovieID)?playlist=\(UITestFixtureIdentity.playlistID)")
+        player.nextUpCard.awaitExistence("Next Up, for the playlist's next member")
+    }
+
+    /// `offline=1` plays the downloaded copy, from the download's own page.
+    func testPlayLink_offline_playsTheDownload() {
+        launchAtHome()
+        HomeScreen(app: app).openItem(UITestFixtureIdentity.primaryMovieID)
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.downloadButton.tap()
+        let audioChoice = app.buttons["ENG EAC3"]
+        audioChoice.awaitExistence("the audio-track prompt's default track option")
+        audioChoice.tap()
+        detail.awaitDownloadCompletion()
+
+        let player = openPlayer("play/\(UITestFixtureIdentity.primaryMovieID)?offline=1")
+        player.close()
+        app.buttons[A11yID.Downloads.playButton].awaitExistence("the download's page under the player")
+    }
+
     // MARK: - Fallbacks
 
     /// A refusal's toast can be gone by the time `open` returns, so these
@@ -138,6 +232,39 @@ final class DeepLinkJourneyTests: UITestCase {
         openLink(link("play/\(UITestFixtureIdentity.moviesLibraryID)"))
         awaitAnnouncement("Nothing to play here.", on: home)
         XCTAssertFalse(PlayerScreen(app: app).closeButton.exists)
+    }
+
+    /// A start time it can't read is said; the title plays as Play would.
+    func testPlayLink_withAnUnreadableTime_playsAndSaysSo() {
+        let home = launchAtHomeHearingAnnouncements()
+        openLink(link("play/\(UITestFixtureIdentity.primaryMovieID)?t=soon"))
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        // The probe sits under the player's cover; it keeps what was said.
+        player.close()
+        awaitAnnouncement("Couldn't read the start time.", on: home)
+    }
+
+    /// Asked for the downloaded copy of a title that has none, it streams.
+    func testPlayLink_offline_withNoDownload_streamsAndSaysSo() {
+        let home = launchAtHomeHearingAnnouncements()
+        openLink(link("play/\(UITestFixtureIdentity.primaryMovieID)?offline=1"))
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        // The probe sits under the player's cover; it keeps what was said.
+        player.close()
+        awaitAnnouncement("This title isn't downloaded, so it's streaming.", on: home)
+    }
+
+    /// A chapter the title doesn't have is said, after the title loads.
+    func testPlayLink_toAMissingChapter_saysSo() {
+        let home = launchAtHomeHearingAnnouncements()
+        openLink(link("play/\(UITestFixtureIdentity.primaryMovieID)?chapter=9"))
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        // The probe sits under the player's cover; it keeps what was said.
+        player.close()
+        awaitAnnouncement("This title has no chapter 9.", on: home)
     }
 
     // MARK: - Cold launch

@@ -21,6 +21,8 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
     private var viewModel: PlayerViewModel { session.viewModel }
     private var engine: PlaybackEngine { viewModel.engine }
     private let input = TVPlayerInput()
+    /// A link's Playback Stats are turned on once, on first appearing (#406).
+    private var hasShownLinkStats = false
     private var swipeGate = TVSwipeGate()
 
     private var aetherView: AetherPlayerView?
@@ -191,6 +193,10 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         // The transport is up already; the input model times its fade from
         // playback starting, not from here.
         session.begin()
+        if viewModel.linkShowsStats, !hasShownLinkStats {
+            hasShownLinkStats = true
+            input.showStats()
+        }
         input.start()
         syncAccessibleLayer()
     }

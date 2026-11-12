@@ -17,7 +17,10 @@ extension TVPlayerContext {
         selectedSubtitleIndex = subtitles.firstIndex(where: \.isSelected)
         audioTrackTitles = audio.map(\.title)
         subtitleTrackTitles = subtitles.map(\.title)
-        statsButtonEnabled = Self.flag(showPlaybackStatsButtonEnabledStorageKey, default: showPlaybackStatsButtonEnabledDefault, in: defaults)
+        // A link that opened Playback Stats (#406) shows them, and their
+        // button, whatever the setting says.
+        statsButtonEnabled = viewModel.linkShowsStats
+            || Self.flag(showPlaybackStatsButtonEnabledStorageKey, default: showPlaybackStatsButtonEnabledDefault, in: defaults)
         chaptersInScrubber = Self.flag(chaptersInScrubberEnabledStorageKey, default: chaptersInScrubberEnabledDefault, in: defaults)
         skipSegment = viewModel.currentSkipSegment.map { SkipSegment(id: $0.id, endSeconds: $0.endSeconds) }
         nextUpSecondsRemaining = viewModel.nextUpSecondsRemaining

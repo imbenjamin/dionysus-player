@@ -499,7 +499,9 @@ struct PlayerControlsOverlay: View {
                     // (`isPlaybackStatsButtonEnabled`) — omitted entirely
                     // when disabled, not shown-disabled, same treatment the
                     // PiP button above gets when unavailable.
-                    if isPlaybackStatsButtonEnabled {
+                    // A link that opened Playback Stats (#406) shows its
+                    // button too, so the overlay can be closed.
+                    if isPlaybackStatsButtonEnabled || viewModel.linkShowsStats {
                         Button {
                             onInteract()
                             onTogglePlaybackStats()

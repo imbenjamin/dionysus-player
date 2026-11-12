@@ -76,12 +76,12 @@ struct DeepLink: Equatable, Sendable {
     }
 
     struct PlaybackOptions: Equatable, Sendable {
-        enum Start: Equatable, Sendable {
+        enum Start: Hashable, Sendable {
             case time(TimeInterval)
             /// 1-based, as the chapter list shows it.
             case chapter(Int)
         }
-        enum Subtitle: Equatable, Sendable {
+        enum Subtitle: Hashable, Sendable {
             case off
             /// Jellyfin's `MediaStream.Index`.
             case stream(Int)
