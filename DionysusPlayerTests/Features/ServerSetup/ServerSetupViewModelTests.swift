@@ -423,6 +423,17 @@ final class ServerSetupViewModelTests: XCTestCase {
         XCTAssertNil(MockURLProtocol.lastRequest, "An invalid port shouldn't be probed.")
     }
 
+    /// The question both apps show: the reason the last port failed, when
+    /// there is one, ahead of what's asked.
+    func test_httpPortRequest_message_leadsWithTheProblem() {
+        let first = ServerSetupViewModel.HTTPPortRequest(server: lanHTTPS, problem: nil)
+        XCTAssertTrue(first.message.hasPrefix(lanHTTPS.name))
+        XCTAssertFalse(first.message.contains("\n"))
+
+        let again = ServerSetupViewModel.HTTPPortRequest(server: lanHTTPS, problem: "Nothing on 9000.")
+        XCTAssertEqual(again.message, "Nothing on 9000.\n\n" + first.message)
+    }
+
     func test_parsePort() {
         XCTAssertEqual(ServerSetupViewModel.parsePort("8096"), 8096)
         XCTAssertEqual(ServerSetupViewModel.parsePort(" 1 "), 1)

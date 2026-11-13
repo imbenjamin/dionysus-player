@@ -713,6 +713,16 @@ is open, Enter Server Address heads it as text. **The field claims focus
 until it holds**: the button it replaced goes, so tvOS hands focus to the
 server list's default, which beat a claim made as the field appeared.
 
+**A discovered HTTPS server whose certificate fails gets iOS's HTTP fallback**
+(#429; the logic is the shared `ServerSetupViewModel`'s, root `CLAUDE.md`).
+iOS's two alerts are covers here: `TVHTTPPortPage` when nothing answers on
+8096 (the field focused; a silent port brings it back saying so), then a
+`TVConfirmation` with Cancel focused. `TVServerSetupView` mirrors the view
+model's `httpPortRequest`/`insecureFallbackOffer` into one cover and acts on
+the answer from its `onDismiss`, so the confirmation never presents while
+the port page is still closing; Cancel or Menu leaves the certificate error
+on screen. Trusting the certificate itself instead is #466.
+
 **Sign-in puts Quick Connect first** (`TVSignInRoute`): a user with a password
 goes to a code, with "Use Password Instead" one press away; only a user the
 server reports as passwordless signs in on Select.

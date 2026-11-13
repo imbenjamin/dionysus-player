@@ -21,6 +21,31 @@ struct TVServerSetupView: View {
     /// server; the first one found takes focus unless they've moved already.
     @State private var userMovedFocus = false
     @State private var showsAddressEntry = false
+    /// The HTTP fallback's question on show (#429), mirrored from the view
+    /// model, whose own state stays set until `fallbackDismissed` answers it.
+    @State private var fallbackCover: FallbackCover?
+    /// What the question's cover was closed with; nil is Cancel or Menu.
+    @State private var fallbackAnswer: FallbackAnswer?
+
+    /// A discovered HTTPS server whose certificate fails, but which may answer
+    /// over plain HTTP: which port (when 8096 is silent), then whether to
+    /// connect unencrypted. iOS asks both in alerts; here each is a cover.
+    private enum FallbackCover: Identifiable {
+        case port(ServerSetupViewModel.HTTPPortRequest)
+        case offer(ServerSetupViewModel.InsecureFallbackOffer)
+
+        var id: String {
+            switch self {
+            case .port(let request): "port.\(request.server.id).\(request.problem ?? "")"
+            case .offer(let offer): "offer.\(offer.configuration.baseURL)"
+            }
+        }
+    }
+
+    private enum FallbackAnswer {
+        case tryPort(String, ServerSetupViewModel.HTTPPortRequest)
+        case connect
+    }
 
     var body: some View {
         TVBrandBackground {
@@ -126,6 +151,56 @@ struct TVServerSetupView: View {
             if let message { AccessibilityNotification.Announcement(message).post() }
         }
         .onMoveCommand { _ in userMovedFocus = true }
+        .onChange(of: viewModel.httpPortRequest) { _, request in
+            if let request { fallbackCover = .port(request) }
+        }
+        .onChange(of: viewModel.insecureFallbackOffer) { _, offer in
+            if let offer { fallbackCover = .offer(offer) }
+        }
+        // Answered once the cover has gone, as the Apple TV's other questions
+        // are, so a port that works can raise the next question cleanly.
+        .fullScreenCover(item: $fallbackCover, onDismiss: fallbackDismissed) { cover in
+            switch cover {
+            case .port(let request):
+                TVHTTPPortPage(request: request) { text in
+                    fallbackAnswer = .tryPort(text, request)
+                }
+            case .offer(let offer):
+                // iOS's words; Cancel takes focus, so a stray Select doesn't
+                // send a password unencrypted.
+                TVConfirmation(
+                    title: Text("Connect Without Encryption?"),
+                    message: Text("\(offer.server.name)'s security certificate can't be verified, but the server also answers over unencrypted HTTP at \(offer.httpDisplayAddress). Your password and everything you watch would be sent without encryption, readable by others on this network."),
+                    action: Text("Connect Over HTTP"),
+                    actionIdentifier: A11yID.TV.Onboarding.insecureFallbackConfirm,
+                    isDestructive: false
+                ) { fallbackAnswer = .connect }
+            }
+        }
+    }
+
+    private func fallbackDismissed() {
+        let answer = fallbackAnswer
+        fallbackAnswer = nil
+        switch answer {
+        case .tryPort(let text, let request):
+            Task {
+                await viewModel.tryHTTPPort(text, for: request)
+                // A port that fails again with the same reason is the same
+                // request, which `onChange` wouldn't see.
+                if let request = viewModel.httpPortRequest {
+                    fallbackCover = .port(request)
+                }
+            }
+        case .connect:
+            if let configuration = viewModel.acceptInsecureFallback() {
+                appState.completeServerSetup(configuration)
+            }
+        case nil:
+            // The certificate error stays on screen, with the servers found.
+            viewModel.cancelHTTPPortRequest()
+            viewModel.declineInsecureFallback()
+        }
     }
 
     private func serverRow(_ server: DiscoveredServer) -> some View {
