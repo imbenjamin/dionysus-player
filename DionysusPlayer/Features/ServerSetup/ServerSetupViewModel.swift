@@ -236,6 +236,14 @@ final class ServerSetupViewModel {
         let server: DiscoveredServer
         /// Why the previous answer didn't work, if there was one.
         let problem: String?
+
+        /// What the question says, on iOS's alert and the Apple TV's page
+        /// alike: why the previous port failed, if it did, then what's asked.
+        var message: String {
+            let explanation = String(localized: "\(server.name)'s security certificate can't be verified. If the server also accepts unencrypted HTTP connections, enter the port it uses for them.")
+            guard let problem else { return explanation }
+            return problem + "\n\n" + explanation
+        }
     }
 
     private(set) var insecureFallbackOffer: InsecureFallbackOffer?

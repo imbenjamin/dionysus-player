@@ -258,18 +258,67 @@ final class OnboardingJourneyTests: TVUITestCase {
         XCTAssertFalse(app.staticTexts[A11yID.TV.Onboarding.quickConnectCode].exists, "Not a Quick Connect code")
     }
 
-    /// A discovered HTTPS server whose certificate can't be verified says so
-    /// on Find Your Server, in red, and doesn't connect. The Apple TV offers
-    /// no plain-HTTP fallback yet (iOS asks; #429): when it does, this
-    /// journey goes on to it.
-    func test_unverifiableHTTPSServer_saysWhy_andStaysOnFindYourServer() {
+    // MARK: - HTTP fallback (#429)
+
+    /// A discovered HTTPS server whose certificate can't be verified, but which
+    /// answers over HTTP on 8096, asks before connecting unencrypted, Cancel
+    /// focused; Cancel stays on Find Your Server, explained, with the servers
+    /// still listed.
+    func test_unverifiableHTTPSServer_cancellingTheHTTPFallback_staysOnFindYourServer() {
         let app = launch()
-        let https = app.buttons[A11yID.TV.Onboarding.serverRow(UITestFixtureIdentity.serverSystemID)]
-        XCTAssertTrue(https.waitForExistence(timeout: 10))
-        for _ in 0..<3 where !https.hasFocus { press(.down) }
-        XCTAssertTrue(waitForFocus(https))
+        selectUnverifiableHTTPSServer(app)
+        XCTAssertTrue(app.buttons[A11yID.TV.Onboarding.insecureFallbackConfirm].waitForExistence(timeout: 10), "The question")
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.confirmationCancel]), "It opens on Cancel")
         press(.select)
         XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.serverSetupError].waitForExistence(timeout: 10), "The certificate is explained")
+        XCTAssertTrue(app.buttons[A11yID.TV.Onboarding.serverRow(UITestFixtureIdentity.discoveredServerID)].exists, "The servers are still there to pick from")
         XCTAssertFalse(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].exists, "Not connected")
+    }
+
+    /// Accepting the same question connects over HTTP.
+    func test_unverifiableHTTPSServer_connectingOverHTTP_reachesWhosWatching() {
+        let app = launch()
+        selectUnverifiableHTTPSServer(app)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.confirmationCancel], timeout: 10))
+        let connect = app.buttons[A11yID.TV.Onboarding.insecureFallbackConfirm]
+        press(.up)
+        XCTAssertTrue(waitForFocus(connect))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
+    }
+
+    /// With nothing on 8096 the port is asked for first: a silent port asks
+    /// again, saying so; one that answers leads to the same question.
+    func test_httpFallback_asksForThePort_whenTheDefaultIsSilent() {
+        let app = launch(scenario: "customHTTPPort")
+        selectUnverifiableHTTPSServer(app)
+        let field = app.textFields[A11yID.TV.Onboarding.httpPortField]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "The port page")
+        XCTAssertTrue(waitForFocus(field), "It opens on the field")
+
+        enterPort("8096", into: field)
+        XCTAssertTrue(waitForFocus(field, timeout: 10), "Asked again")
+        XCTAssertTrue(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS '8096'")).firstMatch.exists,
+            "Saying which port didn't answer"
+        )
+
+        enterPort("8097", into: field)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.confirmationCancel], timeout: 10), "The question, on Cancel")
+        press(.up)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.insecureFallbackConfirm]))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
+    }
+
+    /// Types `port` with the system keyboard, then presses Try Port.
+    private func enterPort(_ port: String, into field: XCUIElement) {
+        press(.select)
+        field.typeText(port)
+        press(.menu)
+        let tryPort = XCUIApplication().buttons[A11yID.TV.Onboarding.httpPortTry]
+        for _ in 0..<3 where !tryPort.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(tryPort))
+        press(.select)
     }
 }

@@ -594,6 +594,14 @@ enum A11yID {
             static let signInError = "tv.onboarding.signIn.error"
             /// Why a server couldn't be reached, in red, on Find Your Server.
             static let serverSetupError = "tv.onboarding.findServer.error"
+            /// A discovered HTTPS server's plain-HTTP fallback (#429): the
+            /// port page shown when nothing answers on 8096, and the
+            /// question's Connect Over HTTP (its Cancel is
+            /// `TV.confirmationCancel`).
+            static let httpPortField = "tv.onboarding.httpPort.field"
+            static let httpPortTry = "tv.onboarding.httpPort.try"
+            static let httpPortCancel = "tv.onboarding.httpPort.cancel"
+            static let insecureFallbackConfirm = "tv.onboarding.insecureFallback.confirm"
             /// Other's username field, with Quick Connect off.
             static let manualUsername = "tv.onboarding.manual.username"
             static let getNewCode = "tv.onboarding.quickConnect.getNewCode"

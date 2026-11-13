@@ -72,7 +72,7 @@ struct ServerSetupView: View {
             }
             .accessibilityIdentifier(A11yID.ServerSetup.httpPortCancelButton)
         } message: { request in
-            Text(httpPortMessage(for: request))
+            Text(verbatim: request.message)
         }
         // A separate `.alert` on a separate view from the one above, so the
         // two presentations never share a view: one follows the other
@@ -358,12 +358,6 @@ struct ServerSetupView: View {
     private func connect(to server: DiscoveredServer) async {
         guard let configuration = await viewModel.connect(to: server) else { return }
         appState.completeServerSetup(configuration)
-    }
-
-    private func httpPortMessage(for request: ServerSetupViewModel.HTTPPortRequest) -> String {
-        let explanation = String(localized: "\(request.server.name)'s security certificate can't be verified. If the server also accepts unencrypted HTTP connections, enter the port it uses for them.")
-        guard let problem = request.problem else { return explanation }
-        return problem + "\n\n" + explanation
     }
 }
 

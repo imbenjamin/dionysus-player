@@ -383,6 +383,22 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    /// The HTTP fallback's port page (#429), with 8096 silent.
+    func test_findYourServer_httpPort() throws {
+        let app = launch(scenario: "customHTTPPort")
+        selectUnverifiableHTTPSServer(app)
+        XCTAssertTrue(waitForFocus(app.textFields[A11yID.TV.Onboarding.httpPortField], timeout: 10))
+        try audit(app)
+    }
+
+    /// The HTTP fallback's question (#429), Cancel focused.
+    func test_findYourServer_insecureFallbackConfirmation() throws {
+        let app = launch()
+        selectUnverifiableHTTPSServer(app)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.confirmationCancel], timeout: 10))
+        try audit(app)
+    }
+
     func test_whosWatching() throws {
         let app = launch()
         connectToDiscoveredServer(app)
