@@ -611,11 +611,13 @@ source that fails is left out and the rest shown.
   here, so `profile/playback` simply opens Profile. Downloads aren't on the
   Apple TV: those links land on Home and say so.
 - **An item link's season and section focus the page's item**
-  (`TVLinkedItemOptions`, held by the shell for the pushed page and cleared
-  as the page applies it): Season N's tab, or a section's first item, which
+  (`TVLinkedItemOptions`, held by the shell for the pushed page until the
+  page has applied it): Season N's tab, or a section's first item, which
   scrolls the page there (`tvDetailLanding`). Set once, it lost to the
   page's default claim and the shell's focus handoff, so it's set again
-  until it has held for half a second (three at most). Chapters aren't on
+  until it has held for half a second (three at most). **The link is
+  cleared only after that hold**: it keys the applying task, and clearing
+  it first cancelled the hold after one pass (#462). Chapters aren't on
   the Apple TV's pages, and a link to them says so.
 - **`server?url=` (DEBUG builds only) is applied by `TVRootView`**, not the
   shell: it fills Find Your Server's address field (past the welcome) and

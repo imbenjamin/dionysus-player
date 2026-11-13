@@ -20,7 +20,7 @@ extension View {
     /// Applies a linked season and section once `viewModel` has loaded:
     /// `apply` opens what the page has and names the item to focus, which
     /// scrolls the page there (`tvDetailLanding`), and says what it doesn't
-    /// have. The link is cleared as it's applied, so it applies once.
+    /// have. The link is cleared once focus has held, so it applies once.
     func tvAppliesItemLink(
         _ link: Binding<TVLinkedItemOptions?>, viewModel: AssetDetailViewModel, focus: FocusState<String?>.Binding,
         apply: @escaping (DeepLink.ItemOptions) -> (focus: String?, notices: [String])
@@ -38,7 +38,11 @@ private struct TVItemLinkApplier: ViewModifier {
     func body(content: Content) -> some View {
         content.task(id: link != nil && viewModel.loadState == .loaded) {
             guard let linked = link, viewModel.loadState == .loaded else { return }
-            link = nil
+            // Cleared once the hold below is done (or the page goes), never
+            // first: clearing it changes this task's id, which cancelled the
+            // hold after its first pass, and the page's own claim then put
+            // focus back on Play (#462).
+            defer { link = nil }
             let result = apply(linked.options)
             let notices = linked.notices + result.notices
             if !notices.isEmpty { ToastCenter.shared.post(.notice(notices.joined(separator: " "))) }
