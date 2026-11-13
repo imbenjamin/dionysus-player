@@ -116,6 +116,14 @@ final class AetherPlaybackEngine: PlaybackEngine {
         return CGSize(width: Int(engine.sourceVideoWidth), height: Int(engine.sourceVideoHeight))
     }
 
+    /// AetherEngine's resolved ratio (`PixelAspectPolicy`), the same one its
+    /// decoders attach and the loopback fMP4's `pasp` carries, so it matches
+    /// the picture the layer draws. 1 on the remote-HLS bypass, whose
+    /// delivered transcode Jellyfin scales to square pixels.
+    var videoPixelAspectRatio: Double {
+        engine.sourceVideoPixelAspectRatio > 0 ? engine.sourceVideoPixelAspectRatio : 1
+    }
+
     private var selectedAudioTrackID: Int?
     private var selectedSubtitleTrackID: Int?
     /// Set once per `load(...)`, read by the `$audioTracks` subscription each

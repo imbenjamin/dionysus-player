@@ -19,8 +19,8 @@ final class PlacedSubtitleJourneyTests: UITestCase {
     /// A rounding allowance: SwiftUI lays out on the pixel grid.
     private let tolerance: CGFloat = 1.5
 
-    private func playTrack(_ id: Int) -> PlayerScreen {
-        launch()
+    private func playTrack(_ id: Int, scenario: String = "standard") -> PlayerScreen {
+        launch(scenario: scenario)
         let home = HomeScreen(app: app)
         home.awaitLoaded()
         home.openItem(UITestFixtureIdentity.primaryMovieID)
@@ -121,6 +121,38 @@ final class PlacedSubtitleJourneyTests: UITestCase {
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Image cue"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// Anamorphic video (720×576 coded, shown at 16:9) whose PGS canvas is
+    /// the coded frame, as AetherEngine reports a DVB or DVD plane. The
+    /// picture rect takes the displayed 16:9 shape, and the canvas covers it
+    /// exactly: mapped width-aligned onto the displayed picture, it was 1.42
+    /// times too tall and the cue sat low.
+    func testImageCue_onAnamorphicVideo_isPlacedOnTheDisplayedPicture() {
+        _ = playTrack(pgsTrackID, scenario: "anamorphicVideo")
+        let cue = app.descendants(matching: .any)[A11yID.Player.imageSubtitle]
+        cue.awaitExistence("the PGS cue")
+        let marker = app.descendants(matching: .any)[A11yID.Player.subtitlePicture]
+        marker.awaitExistence("the overlay's picture rect")
+        let video = marker.frame
+        XCTAssertEqual(video.width / video.height, 16.0 / 9.0, accuracy: 0.02,
+                       "The picture rect should take the displayed 16:9 shape, not the coded 5:4 (\(video))")
+
+        let rect = UITestFixtureIdentity.imageSubtitleCueRect
+        let expected = CGRect(
+            x: video.minX + rect.minX * video.width, y: video.minY + rect.minY * video.height,
+            width: rect.width * video.width, height: rect.height * video.height
+        )
+        let frame = cue.frame
+        XCTAssertEqual(frame.minX, expected.minX, accuracy: tolerance, "PGS cue at \(frame), expected \(expected)")
+        XCTAssertEqual(frame.minY, expected.minY, accuracy: tolerance, "PGS cue at \(frame), expected \(expected)")
+        XCTAssertEqual(frame.width, expected.width, accuracy: tolerance, "PGS cue at \(frame), expected \(expected)")
+        XCTAssertEqual(frame.height, expected.height, accuracy: tolerance, "PGS cue at \(frame), expected \(expected)")
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Anamorphic image cue"
         attachment.lifetime = .keepAlways
         add(attachment)
     }

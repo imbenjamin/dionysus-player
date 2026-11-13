@@ -271,6 +271,13 @@ final class PlayerViewModel {
               width > 0, height > 0 else { return nil }
         return CGSize(width: width, height: height)
     }
+
+    /// The engine's pixel aspect ratio, which goes with `videoNaturalSize`'s
+    /// coded size. Its fallback, Jellyfin's coded dimensions, has no ratio
+    /// beside it, so that path stays square-pixelled as it was.
+    var videoPixelAspectRatio: Double {
+        engine.videoNaturalSize == nil ? 1 : engine.videoPixelAspectRatio
+    }
     /// A fresh snapshot per access, uncached: `PlaybackStatsOverlay` polls it on
     /// its own timer only while visible, so there is nothing to keep in sync.
     var stats: PlaybackStats { engine.stats }

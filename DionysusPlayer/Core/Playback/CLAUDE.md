@@ -347,6 +347,23 @@ would subtract the lead twice. Three things remain the app's job:
 Direct play and offline need none of this: there `sourceTime` is the source
 PTS.
 
+### Bitmap cues and anamorphic video
+
+`SubtitleOverlayView` places every cue against the *displayed* picture
+(`pictureRect`): the coded size (`videoNaturalSize`) times AetherEngine's
+pixel aspect ratio (`videoPixelAspectRatio`, from `sourceVideoPixelAspectRatio`),
+so 720×576 at 64:45 is a 16:9 picture. A bitmap cue (PGS, DVB, DVD) maps as
+`SubtitleImage.canvasSize` documents (`imageCueFrame`): the canvas,
+in coded pixels, goes onto the coded frame width-aligned and centred (a
+cropped-video rip's canvas is taller than its video), then that rect scales
+onto the picture per axis. Since AetherEngine 7.56.0 (DVB) and 7.59.0 (DVD)
+those planes report the coded frame as their canvas, which then covers the
+picture exactly. Until 2026-11-13 the rect came from the coded size alone and
+the canvas went width-aligned onto it, so on anamorphic video every cue sat
+against a picture that was too tall. Square pixels, nearly everything, are
+unchanged; `SubtitlePictureGeometryTests` and `PlacedSubtitleJourneyTests`'
+`anamorphicVideo` journey pin both.
+
 ### ASS/SSA Subtitles
 
 Profile → Playback → Advanced → ASS/SSA Subtitles (named "Subtitle Styling"

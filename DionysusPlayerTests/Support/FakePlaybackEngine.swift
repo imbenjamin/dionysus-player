@@ -30,6 +30,7 @@ final class FakePlaybackEngine: PlaybackEngine {
     var subtitleTracks: [PlaybackTrack] = []
     var videoFormatDescription: String?
     var videoNaturalSize: CGSize?
+    var videoPixelAspectRatio: Double = 1
     var zoomMode: VideoZoomMode = .fit
     var stats = PlaybackStats(
         videoSize: nil,

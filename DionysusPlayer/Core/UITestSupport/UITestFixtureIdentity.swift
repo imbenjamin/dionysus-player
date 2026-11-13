@@ -117,6 +117,12 @@ enum UITestFixtureIdentity {
     static let imageSubtitleCueRect = CGRect(x: 0.3, y: 0.7, width: 0.4, height: 0.08)
     static let imageSubtitleCanvasSize = CGSize(width: 1920, height: 1080)
 
+    /// The `anamorphicVideo` scenario's video: PAL DVD, 720×576 coded with
+    /// 64:45 pixels, so it shows at 1024×576, 16:9. Its PGS cue's canvas is
+    /// the coded frame itself, at `imageSubtitleCueRect`.
+    static let anamorphicVideoCodedSize = CGSize(width: 720, height: 576)
+    static let anamorphicVideoPixelAspectRatio = 64.0 / 45.0
+
     /// A styled subtitle must never render this close to the top of the
     /// screen. Misplaced into the top letterbox bar it lands around y 9;
     /// correctly placed it sits at the top of the picture, which on the
