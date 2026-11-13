@@ -250,6 +250,12 @@ enum UITestScenario: String {
     /// `/Videos/{id}/Trickplay/{width}/{n}.jpg` serves its sheet:
     /// `UITestTrickplay`.
     case scrubThumbnails
+    /// `.standard`, but the fake engine's video is anamorphic, 720×576 coded
+    /// and shown at 16:9 (`UITestFixtureIdentity.anamorphicVideoCodedSize`),
+    /// and its PGS cue's canvas is that coded frame, as AetherEngine reports a
+    /// DVB or DVD plane: the overlay must place cues against the displayed
+    /// picture, not the coded one.
+    case anamorphicVideo
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a

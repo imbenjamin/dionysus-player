@@ -511,6 +511,25 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.videoNaturalSize)
     }
 
+    /// The ratio goes with the engine's own coded size.
+    func test_videoPixelAspectRatio_isTheEngines_withItsCodedSize() {
+        let (viewModel, engine) = makeViewModel()
+        engine.videoNaturalSize = CGSize(width: 720, height: 576)
+        engine.videoPixelAspectRatio = 64.0 / 45.0
+
+        XCTAssertEqual(viewModel.videoPixelAspectRatio, 64.0 / 45.0, accuracy: 0.0001)
+    }
+
+    /// Jellyfin's coded dimensions stand in while the engine has none, with no
+    /// ratio of their own: square, whatever the engine last held.
+    func test_videoPixelAspectRatio_isSquare_onJellyfinsFallback() {
+        let (viewModel, engine) = makeViewModel()
+        engine.videoNaturalSize = nil
+        engine.videoPixelAspectRatio = 64.0 / 45.0
+
+        XCTAssertEqual(viewModel.videoPixelAspectRatio, 1)
+    }
+
     /// The double-subtitle bug, seen on device: on a transcode the app's
     /// sidecars are declared as real HLS renditions (AetherEngine's #316), so
     /// selecting one hands the drawing to AVPlayer — and libass then drew the

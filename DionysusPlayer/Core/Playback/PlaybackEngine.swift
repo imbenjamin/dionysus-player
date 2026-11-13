@@ -69,6 +69,14 @@ protocol PlaybackEngine: AnyObject {
     /// than pushed: it settles once per load, before the first cue can arrive.
     var videoNaturalSize: CGSize? { get }
 
+    /// Display-width multiplier for non-square source pixels:
+    /// `videoNaturalSize.width * this` is the width the picture presents at
+    /// (64/45 for 720×576 at 16:9). 1 for square pixels, before load and when
+    /// unknown. `SubtitleOverlayView` needs it for the displayed picture's
+    /// shape, which the layer draws and the coded size alone gets wrong on
+    /// anamorphic video.
+    var videoPixelAspectRatio: Double { get }
+
     /// How `makeSurface()`'s surface fills its space. Settable at any time,
     /// including before `load(url:)`: the underlying `videoGravity` applies to
     /// whichever render layer is bound, loaded or not.

@@ -319,20 +319,9 @@ struct SubtitleOverlayView: View {
 
     // MARK: - Image
 
-    /// `position`/`canvasSize` are normalized `[0, 1]` against the composition
-    /// canvas, the same contract as `SubtitleImage` (see
-    /// `SubtitleCueDisplay.Body.image`). The canvas maps onto `video`
-    /// width-aligned and center-anchored, since a cropped-video rip can author a
-    /// taller canvas than the coded video. `canvasSize == .zero` collapses to
-    /// canvas == video, which falls out of this math when their heights are equal.
     private func imageCueView(_ cgImage: CGImage, position: CGRect, canvasSize: CGSize, video: CGRect) -> some View {
-        let canvasHeightOnScreen = canvasSize == .zero ? video.height : video.width * (canvasSize.height / canvasSize.width)
-        let canvasOriginY = video.midY - canvasHeightOnScreen / 2
-        let frame = CGRect(
-            x: video.minX + position.minX * video.width,
-            y: canvasOriginY + position.minY * canvasHeightOnScreen,
-            width: position.width * video.width,
-            height: position.height * canvasHeightOnScreen
+        let frame = Self.imageCueFrame(
+            position: position, canvasSize: canvasSize, codedSize: viewModel.videoNaturalSize, picture: video
         )
         return Image(decorative: cgImage, scale: 1)
             .resizable()
@@ -343,24 +332,71 @@ struct SubtitleOverlayView: View {
 
     // MARK: - Geometry
 
+    private func videoRect(in containerSize: CGSize) -> CGRect {
+        Self.pictureRect(
+            in: containerSize, codedSize: viewModel.videoNaturalSize,
+            pixelAspectRatio: viewModel.videoPixelAspectRatio, zoomMode: zoomMode
+        )
+    }
+
     /// Replicates the `resizeAspect`/`resizeAspectFill` math the video layer uses
     /// (see `AetherPlaybackEngine.zoomMode`), so cues can be placed against the
     /// real picture rect without access to AetherEngine's internal
     /// `AVPlayerLayer`. Falls back to the full container before the natural size
     /// is known, when there are no cues to place anyway.
-    private func videoRect(in containerSize: CGSize) -> CGRect {
-        guard let natural = viewModel.videoNaturalSize, natural.width > 0, natural.height > 0,
+    ///
+    /// The picture's shape is the *displayed* one: the coded width times the
+    /// pixel aspect ratio. Anamorphic video (720×576 at 16:9, 1440×1080)
+    /// presents wider than it is coded, and the layer honours that, so a rect
+    /// from the coded size alone was too tall and every cue was placed against
+    /// the wrong picture.
+    static func pictureRect(
+        in containerSize: CGSize, codedSize: CGSize?, pixelAspectRatio: Double, zoomMode: VideoZoomMode
+    ) -> CGRect {
+        guard let coded = codedSize, coded.width > 0, coded.height > 0,
               containerSize.width > 0, containerSize.height > 0 else {
             return CGRect(origin: .zero, size: containerSize)
         }
+        let pixelAspect = pixelAspectRatio > 0 ? pixelAspectRatio : 1
         let containerAspect = containerSize.width / containerSize.height
-        let videoAspect = natural.width / natural.height
+        let videoAspect = coded.width * pixelAspect / coded.height
         let fitsWidth = (zoomMode == .fit) == (videoAspect > containerAspect)
         let size = fitsWidth
             ? CGSize(width: containerSize.width, height: containerSize.width / videoAspect)
             : CGSize(width: containerSize.height * videoAspect, height: containerSize.height)
         let origin = CGPoint(x: (containerSize.width - size.width) / 2, y: (containerSize.height - size.height) / 2)
         return CGRect(origin: origin, size: size)
+    }
+
+    /// Where a bitmap cue lands on screen. `position`/`canvasSize` follow
+    /// `SubtitleImage`'s contract (see `SubtitleCueDisplay.Body.image`):
+    /// `position` is normalized `[0, 1]` against the canvas, and `canvasSize`
+    /// is in the video's *coded* pixels. As AetherEngine documents it, the
+    /// canvas maps onto the coded frame width-aligned and centre-anchored (a
+    /// cropped-video rip authors a canvas taller than its video), and that
+    /// rect then scales onto the displayed picture per axis. Mapping the
+    /// canvas width-aligned onto the displayed picture directly makes it too
+    /// tall on anamorphic video, dropping cues low or off the bottom. On
+    /// square pixels the two agree. `canvasSize == .zero` (unknown) is the
+    /// picture itself, and an unknown coded size falls back to treating the
+    /// picture as square-pixelled.
+    static func imageCueFrame(position: CGRect, canvasSize: CGSize, codedSize: CGSize?, picture: CGRect) -> CGRect {
+        let canvasHeightOnScreen: CGFloat
+        if canvasSize.width <= 0 || canvasSize.height <= 0 {
+            canvasHeightOnScreen = picture.height
+        } else if let coded = codedSize, coded.width > 0, coded.height > 0 {
+            let canvasHeightInCodedPixels = coded.width * canvasSize.height / canvasSize.width
+            canvasHeightOnScreen = canvasHeightInCodedPixels * picture.height / coded.height
+        } else {
+            canvasHeightOnScreen = picture.width * canvasSize.height / canvasSize.width
+        }
+        let canvasOriginY = picture.midY - canvasHeightOnScreen / 2
+        return CGRect(
+            x: picture.minX + position.minX * picture.width,
+            y: canvasOriginY + position.minY * canvasHeightOnScreen,
+            width: position.width * picture.width,
+            height: position.height * canvasHeightOnScreen
+        )
     }
 }
 

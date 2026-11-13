@@ -21,7 +21,7 @@ final class LicenseDocumentTests: XCTestCase {
     func test_everyShippedLibrary_hasItsNotices() {
         XCTAssertEqual(LicenseDocument.components().map(\.name), [
             "AetherEngine", "FFmpeg", "dav1d", "zimg", "libzvbi", "libdovi", "LibTrueHD",
-            "libass", "fontconfig", "FreeType", "HarfBuzz", "FriBidi", "libpng",
+            "Anime4K", "libass", "fontconfig", "FreeType", "HarfBuzz", "FriBidi", "libpng",
             "swift-ass-renderer", "swift-libass", "SwiftUI-Shimmer",
             "swift-issue-reporting", "combine-schedulers", "swift-concurrency-extras"
         ])

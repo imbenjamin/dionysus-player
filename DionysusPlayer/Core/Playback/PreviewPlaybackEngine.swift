@@ -51,7 +51,10 @@ final class PreviewPlaybackEngine: PlaybackEngine {
                       isSelected: false, codec: "pgssub")
     ]
     var videoFormatDescription: String? = "Dolby Vision P8.1"
-    var videoNaturalSize: CGSize? = CGSize(width: 3840, height: 1600)
+    var videoNaturalSize: CGSize? = UITestConfiguration.scenario == .anamorphicVideo
+        ? UITestFixtureIdentity.anamorphicVideoCodedSize : CGSize(width: 3840, height: 1600)
+    var videoPixelAspectRatio: Double = UITestConfiguration.scenario == .anamorphicVideo
+        ? UITestFixtureIdentity.anamorphicVideoPixelAspectRatio : 1
     var zoomMode: VideoZoomMode = .fit
     /// Set before a preview's `load(...)` to render the error UI —
     /// `ErrorStateView`'s Retry-versus-Close branch — instead of succeeding.
@@ -269,14 +272,18 @@ final class PreviewPlaybackEngine: PlaybackEngine {
 
     /// One bitmap cue on a 16:9 canvas, taller than the fixture's 2.4:1
     /// picture, as a cropped-video rip authors it: the overlay must map the
-    /// canvas width-aligned and centred on the picture (`imageCueView`).
+    /// canvas width-aligned and centred on the picture (`imageCueFrame`).
+    /// Under `anamorphicVideo` the canvas is the coded frame instead, as
+    /// AetherEngine reports a DVB or DVD plane, and covers the picture exactly.
     private static let imageCues = [
         SubtitleCueDisplay(
             id: 0, startTime: 0, endTime: .greatestFiniteMagnitude,
             body: .image(
                 imageCueBitmap,
                 rect: UITestFixtureIdentity.imageSubtitleCueRect,
-                canvasSize: UITestFixtureIdentity.imageSubtitleCanvasSize
+                canvasSize: UITestConfiguration.scenario == .anamorphicVideo
+                    ? UITestFixtureIdentity.anamorphicVideoCodedSize
+                    : UITestFixtureIdentity.imageSubtitleCanvasSize
             )
         )
     ]
