@@ -281,6 +281,14 @@ else (SubRip, WebVTT, teletext, PGS and other bitmaps) renders through
   gated by codec on the embedded path too, in `EmbeddedSubtitleDecoder.init`,
   which narrows it once into a stored property (now `emitsRawASSLines`).
   Don't re-raise AetherEngine#587, which upstream refuted by measurement.
+- **The engine is told the app offsets no subtitle**
+  (`engine.maximumSubtitleOffsetSeconds = 0`, AetherEngine 7.62.1): at the
+  default 60 s, an embedded subtitle on direct play started a second reader
+  that downloaded the video again (about 244 MB a minute against 105 for
+  1080p, AE#1015) to decode cues for an earlier offset. A bitmap track still
+  reads the 15 s behind each seek landing (AE#1022), so a line a seek lands
+  inside shows. **A subtitle offset control would have to raise it** to the
+  offset's range, or its cues won't be there.
 - **A whole script, loaded once, never `reloadTrack` per cue.**
   `swift-ass-renderer` exposes only whole-script load and reload, and
   `reloadTrack` frees the current track synchronously, so feeding it a growing

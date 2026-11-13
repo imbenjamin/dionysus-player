@@ -218,6 +218,15 @@ final class AetherPlaybackEngine: PlaybackEngine {
         // may still invalidate it while suspended, and a paused session that
         // comes back torn down is still reloaded (`observeAppLifecycle()`).
         engine.retainsVideoPipelineWhenBackgrounded = true
+        // The app shifts no subtitle in time, so it declares a reach of 0
+        // (AetherEngine 7.62.1). At the default 60 s, selecting an embedded
+        // subtitle on a remote source started a second reader that downloaded
+        // the video again (about 244 MB a minute against 105 for 1080p,
+        // AE#1015), only to decode cues for an earlier offset nobody applies.
+        // A bitmap track still reads the 15 s behind each seek landing
+        // (AE#1022, 7.63.0), and the OCR worker behind PiP's and AirPlay's
+        // bitmap renditions keeps its own prefetch.
+        engine.maximumSubtitleOffsetSeconds = 0
         observeEngine()
         observeAppLifecycle()
         observeAudioRoute()
@@ -228,6 +237,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     /// Whether a paused session keeps its pipeline in the background, for tests.
     var retainsPausedPipelineInBackground: Bool { engine.retainsVideoPipelineWhenBackgrounded }
+
+    /// How far either way the engine keeps subtitle cues for an offset, for tests.
+    var subtitleOffsetReachSeconds: Double { engine.maximumSubtitleOffsetSeconds }
 
     #if os(tvOS)
     /// The tvOS player host binds the engine's own view on the software route
