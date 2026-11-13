@@ -40,7 +40,8 @@ final class PlayerViewModelTests: XCTestCase {
         streamPreferenceStore: StreamPreferenceStore? = nil,
         audioOffsetStore: AudioOffsetStore? = nil,
         spatialAudioStore: SpatialAudioStore? = nil,
-        playbackQueue: [MediaItem] = []
+        playbackQueue: [MediaItem] = [],
+        linkOverrides: PlaybackLinkOverrides? = nil
     ) -> (PlayerViewModel, FakePlaybackEngine) {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
@@ -51,7 +52,8 @@ final class PlayerViewModelTests: XCTestCase {
             streamPreferenceStore: streamPreferenceStore ?? StreamPreferenceStore(defaults: defaults),
             audioOffsetStore: audioOffsetStore ?? AudioOffsetStore(defaults: defaults),
             spatialAudioStore: spatialAudioStore ?? SpatialAudioStore(storage: defaults),
-            playbackQueue: playbackQueue
+            playbackQueue: playbackQueue,
+            linkOverrides: linkOverrides
         )
         return (viewModel, engine)
     }
@@ -2201,5 +2203,211 @@ final class PlayerViewModelTests: XCTestCase {
         await viewModel.stop()
         viewModel.audioOffset.flush()
         XCTAssertEqual(engine.audioOffsetRequests, [])
+    }
+
+    // MARK: - A play link's overrides (#406)
+
+    /// 100 s long, resumed at 30 s, with chapters at 0, 40 and 70 s.
+    private func linkedItemDto() -> BaseItemDto {
+        var dto = BaseItemDto(
+            id: "item-1", name: "Arrival", type: .movie,
+            runTimeTicks: 100 * 10_000_000, userData: UserItemDataDto(playbackPositionTicks: 30 * 10_000_000)
+        )
+        dto.chapters = [0, 40, 70].map { ChapterInfoDto(startPositionTicks: Int64($0) * 10_000_000, name: nil) }
+        return dto
+    }
+
+    private func linkedSource() -> MediaSourceInfo {
+        var source = MediaSourceInfo(id: "src-1", container: "mkv")
+        source.mediaStreams = [
+            MediaStream(index: 0, type: "Video", codec: "hevc"),
+            MediaStream(index: 1, type: "Audio", codec: "eac3"),
+            MediaStream(index: 2, type: "Audio", codec: "aac"),
+            MediaStream(index: 3, type: "Subtitle", codec: "pgssub"),
+        ]
+        return source
+    }
+
+    private func linkedEngine() -> FakePlaybackEngine {
+        let engine = FakePlaybackEngine()
+        engine.audioTracks = [
+            PlaybackTrack(id: 1, kind: .audio, title: "English", metadata: nil, isSelected: true),
+            PlaybackTrack(id: 2, kind: .audio, title: "Commentary", metadata: nil, isSelected: false),
+        ]
+        engine.subtitleTracks = [PlaybackTrack(id: 3, kind: .subtitle, title: "English", metadata: nil, isSelected: false)]
+        return engine
+    }
+
+    /// A link's time beats the resume position; `t=0` starts from the top.
+    func test_link_startTime_beatsTheResumePosition() async {
+        let (viewModel, engine) = makeViewModel(linkOverrides: .init(start: .time(55)))
+        stubStart(itemDto: linkedItemDto())
+        await viewModel.start()
+        XCTAssertEqual(engine.exactSeekedTimes, [55])
+
+        let (restart, restartEngine) = makeViewModel(linkOverrides: .init(start: .time(0)))
+        stubStart(itemDto: linkedItemDto())
+        await restart.start()
+        XCTAssertTrue(restartEngine.seekedTimes.isEmpty, "t=0 is Restart, not the resume position")
+    }
+
+    /// A chapter starts at its own start, 1-based as shown.
+    func test_link_chapter_startsThere() async {
+        let (viewModel, engine) = makeViewModel(linkOverrides: .init(start: .chapter(3)))
+        stubStart(itemDto: linkedItemDto())
+        await viewModel.start()
+        XCTAssertEqual(engine.exactSeekedTimes, [70])
+    }
+
+    /// A start the title can't take is said, and Play's resume applies.
+    func test_link_startThatDoesntFit_resumesAsPlayWould_andSaysWhy() async {
+        ToastCenter.shared.reset()
+        let (viewModel, engine) = makeViewModel(linkOverrides: .init(start: .chapter(9), notices: ["Couldn't read the audio track."]))
+        stubStart(itemDto: linkedItemDto())
+        await viewModel.start()
+        XCTAssertEqual(engine.exactSeekedTimes, [30])
+        XCTAssertEqual(ToastCenter.shared.current?.message, "Couldn't read the audio track. This title has no chapter 9.")
+
+        ToastCenter.shared.reset()
+        let (past, pastEngine) = makeViewModel(linkOverrides: .init(start: .time(100)))
+        stubStart(itemDto: linkedItemDto())
+        await past.start()
+        XCTAssertEqual(pastEngine.exactSeekedTimes, [30])
+        XCTAssertEqual(ToastCenter.shared.current?.message, "The start time is past the end.")
+    }
+
+    /// The link's tracks play, by Jellyfin's stream index, and aren't
+    /// remembered: playing the title again plays the remembered ones.
+    func test_link_tracks_applyForThisSessionOnly() async {
+        let store = TrackPreferenceStore(defaults: defaults)
+        let engine = linkedEngine()
+        let (viewModel, _) = makeViewModel(
+            engine: engine, trackPreferenceStore: store,
+            linkOverrides: .init(audioStreamIndex: 2, subtitle: .stream(3))
+        )
+        stubStart(itemDto: linkedItemDto(), mediaSources: [linkedSource()])
+        await viewModel.start()
+        XCTAssertEqual(engine.selectedAudioTrackIDs.last, 2)
+        XCTAssertEqual(engine.selectedSubtitleTrackIDs.last, 3)
+        XCTAssertNil(store.selection(forItem: "item-1", userID: "user-1"), "A link's tracks aren't remembered")
+    }
+
+    /// Subtitles off from a link beat a remembered subtitle; the remembered
+    /// audio, which the link leaves alone, still applies.
+    func test_link_subtitlesOff_keepsTheRememberedAudio() async {
+        let store = TrackPreferenceStore(defaults: defaults)
+        store.recordAudioSelection(.init(id: 2, title: "Commentary"), forItem: "item-1", userID: "user-1")
+        store.recordSubtitleSelection(.init(id: 3, title: "English"), forItem: "item-1", userID: "user-1")
+        let engine = linkedEngine()
+        let (viewModel, _) = makeViewModel(engine: engine, trackPreferenceStore: store, linkOverrides: .init(subtitle: .off))
+        stubStart(itemDto: linkedItemDto(), mediaSources: [linkedSource()])
+        await viewModel.start()
+        XCTAssertEqual(engine.selectedAudioTrackIDs, [2])
+        XCTAssertEqual(engine.selectedSubtitleTrackIDs.last, .some(nil))
+    }
+
+    /// A track or version the title doesn't have is said, in one toast.
+    func test_link_missingTrackAndVersion_areSaid() async {
+        ToastCenter.shared.reset()
+        let engine = linkedEngine()
+        let (viewModel, _) = makeViewModel(
+            mediaSourceID: "src-gone", engine: engine,
+            linkOverrides: .init(mediaSourceID: "src-gone", audioStreamIndex: 7, subtitle: .stream(8))
+        )
+        stubStart(itemDto: linkedItemDto(), mediaSources: [linkedSource()])
+        await viewModel.start()
+        XCTAssertEqual(viewModel.activeMediaSourceID, "src-1")
+        XCTAssertTrue(engine.selectedAudioTrackIDs.isEmpty)
+        XCTAssertEqual(ToastCenter.shared.current?.message, [
+            "This title has no such version, so the usual one is playing.",
+            "This title has no audio track 7, so the usual one is playing.",
+            "This title has no subtitle track 8, so the usual choice applies.",
+        ].joined(separator: " "))
+    }
+
+    func test_link_showsStats() {
+        XCTAssertTrue(makeViewModel(linkOverrides: .init(showsStats: true)).0.linkShowsStats)
+        XCTAssertFalse(makeViewModel().0.linkShowsStats)
+    }
+
+    // MARK: - A DEBUG play link's mode and bitrate (#406)
+
+    /// Starts `viewModel` and returns the `/PlaybackInfo` body it sent.
+    private func playbackInfoBody(startingWith viewModel: PlayerViewModel) async -> [String: Any]? {
+        var body: [String: Any]?
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/user-1/Items/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDto(id: "item-1", name: "Arrival", type: .movie))
+            case "/Items/item-1/PlaybackInfo":
+                body = try JSONSerialization.jsonObject(with: request.capturedHTTPBody ?? Data()) as? [String: Any]
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: PlaybackInfoResponse(mediaSources: [MediaSourceInfo(id: "src-1", container: "mp4")], playSessionId: "sess-1")
+                )
+            case "/Sessions/Playing":
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            case "/MediaSegments/item-1":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                return MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+            }
+        }
+        await viewModel.start()
+        return body
+    }
+
+    private func streamingOverrides(_ mode: StreamDecisionMode?, _ bitrate: Int?) -> PlaybackLinkOverrides {
+        var overrides = PlaybackLinkOverrides()
+        overrides.decisionMode = mode
+        overrides.maxBitrate = bitrate
+        return overrides
+    }
+
+    /// `mode=direct` sends no profile, though the setting allows
+    /// transcoding, and leaves the setting as it was.
+    func test_link_directMode_beatsTheSetting_forThisSessionOnly() async {
+        let store = StreamPreferenceStore(defaults: defaults)
+        let (viewModel, _) = makeViewModel(streamPreferenceStore: store, linkOverrides: streamingOverrides(.directPlayAlways, nil))
+        let body = await playbackInfoBody(startingWith: viewModel)
+        XCTAssertNotNil(body)
+        XCTAssertNil(body?["DeviceProfile"])
+        XCTAssertEqual(store.decisionMode, .allowTranscoding, "A link never changes the setting")
+    }
+
+    /// A bitrate alone negotiates at that cap, even under Direct Play Always.
+    func test_link_bitrate_negotiatesAtThatCap() async {
+        defaults.set(StreamDecisionMode.directPlayAlways.rawValue, forKey: streamDecisionModeStorageKey)
+        let (viewModel, _) = makeViewModel(linkOverrides: streamingOverrides(nil, 4_000_000))
+        let body = await playbackInfoBody(startingWith: viewModel)
+        XCTAssertEqual(body?["MaxStreamingBitrate"] as? Int, 4_000_000)
+        XCTAssertEqual((body?["DeviceProfile"] as? [String: Any])?["MaxStreamingBitrate"] as? Int, 4_000_000)
+    }
+
+    /// With `mode=direct` there's no cap to set, and the toast says so.
+    func test_link_bitrateWithDirectMode_isIgnored_andSaid() async {
+        ToastCenter.shared.reset()
+        let (viewModel, _) = makeViewModel(linkOverrides: streamingOverrides(.directPlayAlways, 4_000_000))
+        let body = await playbackInfoBody(startingWith: viewModel)
+        XCTAssertNil(body?["DeviceProfile"])
+        XCTAssertNil(body?["MaxStreamingBitrate"])
+        XCTAssertEqual(ToastCenter.shared.current?.message, "Direct play has no bitrate cap, so the bitrate is ignored.")
+    }
+
+    /// A retry (`start(resumeSeconds:)`) keeps the link's mode: it's the
+    /// same session.
+    func test_link_mode_holdsAcrossARetry() async {
+        let (viewModel, _) = makeViewModel(linkOverrides: streamingOverrides(.directPlayAlways, nil))
+        _ = await playbackInfoBody(startingWith: viewModel)
+        var retryBody: [String: Any]?
+        let handler = MockURLProtocol.requestHandler
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/Items/item-1/PlaybackInfo" {
+                retryBody = try JSONSerialization.jsonObject(with: request.capturedHTTPBody ?? Data()) as? [String: Any]
+            }
+            return try handler!(request)
+        }
+        await viewModel.start(resumeSeconds: 12)
+        XCTAssertNotNil(retryBody)
+        XCTAssertNil(retryBody?["DeviceProfile"])
     }
 }

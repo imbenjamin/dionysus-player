@@ -19,4 +19,8 @@ struct CollectionQuery: Hashable {
     var initialSortOrder: CollectionSortOrder = .ascending
     var initialGenre: String? = nil
     var initialStudio: String? = nil
+    /// Seed the Watched and Favorites facets, for a `dionysus://library`
+    /// link's `filter=` (#406).
+    var initialWatchStatus: CollectionWatchStatus? = nil
+    var initialFavoriteStatus: CollectionFavoriteStatus? = nil
 }

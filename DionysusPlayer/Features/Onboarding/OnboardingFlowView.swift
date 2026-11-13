@@ -19,6 +19,10 @@ struct OnboardingFlowView: View {
         case login
     }
 
+    /// A `server?url=` link's address (#406, DEBUG builds only): server
+    /// setup opens with it filled in, past the welcome.
+    var linkedServerAddress: LinkedServerAddress? = nil
+
     @Environment(AppState.self) private var appState
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Namespace private var glyphNamespace
@@ -29,7 +33,7 @@ struct OnboardingFlowView: View {
         if appState.isRestoringSession { return .splash }
         switch appState.phase {
         case .serverSetup:
-            return appState.sessionStore.hasCompletedWelcome ? .serverSetup : .welcome
+            return appState.sessionStore.hasCompletedWelcome || linkedServerAddress != nil ? .serverSetup : .welcome
         case .login:
             return .login
         case .main:
@@ -53,7 +57,7 @@ struct OnboardingFlowView: View {
                 case .welcome:
                     WelcomeView()
                 case .serverSetup:
-                    ServerSetupView()
+                    ServerSetupView(linkedAddress: linkedServerAddress)
                 case .login:
                     LoginView()
                 }

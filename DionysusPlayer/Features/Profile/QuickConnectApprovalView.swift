@@ -8,10 +8,13 @@ struct QuickConnectApprovalView: View {
     @State private var viewModel: QuickConnectApprovalViewModel
     @FocusState private var isCodeFocused: Bool
 
-    init(client: JellyfinAPIClient, userName: String, serverName: String) {
-        _viewModel = State(initialValue: QuickConnectApprovalViewModel(
-            client: client, userName: userName, serverName: serverName
-        ))
+    /// `code` fills the field, as a `dionysus://quickconnect/approve` link
+    /// does (#406), without submitting it: approving signs a device in, so
+    /// that stays a tap.
+    init(client: JellyfinAPIClient, userName: String, serverName: String, code: String? = nil) {
+        let viewModel = QuickConnectApprovalViewModel(client: client, userName: userName, serverName: serverName)
+        if let code { viewModel.setCode(code) }
+        _viewModel = State(initialValue: viewModel)
     }
 
     var body: some View {

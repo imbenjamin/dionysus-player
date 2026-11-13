@@ -12,6 +12,8 @@ struct TVMovieDetailView: View {
     /// True once focus has moved below the header and actions: the page
     /// blurs its backdrop so the rails read against it.
     @Binding var isBelowHeader: Bool
+    /// A `dionysus://item` link's section (#406), until applied.
+    @Binding var linkedOptions: TVLinkedItemOptions?
     @Environment(\.tvOpenRoute) private var open
     @FocusState private var focus: String?
     @State private var showsFullOverview = false
@@ -38,10 +40,38 @@ struct TVMovieDetailView: View {
             .tvDetailLanding(focus: focus, isBelowHeader: $isBelowHeader, topRequest: topRequest, isBelow: Self.isBelowHeader)
         .scrollClipDisabled()
         .tvClaimsFocus($focus, ids: focusIDs, remembered: $rememberedFocus)
+        .tvAppliesItemLink($linkedOptions, viewModel: viewModel, focus: $focus, apply: applyLink)
         // Below the header, Menu first goes back to the page's landing view.
         .tvMenuReturnsToLanding($focus, landing: focusIDs.first, isAway: isBelowHeader) { topRequest += 1 }
         .fullScreenCover(isPresented: $showsFullOverview) {
             TVFullOverview(title: item.name, overview: item.overview ?? "")
+        }
+    }
+
+    /// The section a link names (#406), as the item focus goes to; a movie
+    /// has no seasons.
+    private func applyLink(_ options: DeepLink.ItemOptions) -> (focus: String?, notices: [String]) {
+        var notices: [String] = []
+        if let season = options.season {
+            notices.append(DeepLink.ItemOptions.missingSeasonNotice(season, isShow: false))
+        }
+        var target: String?
+        if let section = options.section {
+            target = Self.focusID(for: section, cast: item.cast, similar: viewModel.similar, detailsItem: item)
+            if target == nil { notices.append(section.tvMissingNotice) }
+        }
+        return (target, notices)
+    }
+
+    /// The first item of a section on a detail page; nil where it has none.
+    static func focusID(
+        for section: DeepLink.ItemOptions.Section, cast: [CastMember], similar: [MediaItem], detailsItem: MediaItem
+    ) -> String? {
+        switch section {
+        case .cast: cast.first.map { "cast.\($0.id)" }
+        case .similar: similar.first.map { "similar.\($0.id)" }
+        case .details: TVDetailsPanel.hasRows(for: detailsItem) ? TVDetailsPanel.focusID : nil
+        case .chapters: nil
         }
     }
 

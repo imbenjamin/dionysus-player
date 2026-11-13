@@ -165,6 +165,20 @@ final class PlayerViewModel {
     /// remembered preference for a Resume. `nil` lets `start()` fall back to the
     /// server's default.
     let requestedMediaSourceID: String?
+    /// What a `dionysus://play` link asked of this session (#406), until the
+    /// first load applies it; never written to track memory.
+    @ObservationIgnored private var pendingLinkOverrides: PlaybackLinkOverrides?
+    /// What the link's parts came to, said in one toast once the first load
+    /// has finished, however it finished.
+    @ObservationIgnored private var linkNotices: [String] = []
+    /// The link asked for Playback Stats: both players open with it showing,
+    /// and show its button for this session even where the setting hides it.
+    let linkShowsStats: Bool
+    #if DEBUG
+    /// A DEBUG link's mode and bitrate (#406), kept for every load of this
+    /// session (a retry too) but never the next title's, and never stored.
+    @ObservationIgnored private let linkStreaming: PlaybackLinkOverrides?
+    #endif
 
     /// The version `start()` actually played, resolved from `playbackInfo`:
     /// `requestedMediaSourceID` when it matched a source, else the server's
@@ -278,8 +292,14 @@ final class PlayerViewModel {
 
     /// Cap on the end-credits countdown, which replaces the configured
     /// preference entirely once such a segment exists (see
-    /// `nextUpSecondsRemaining`).
-    private static let endCreditsCountdownSeconds = 10
+    /// `nextUpSecondsRemaining`). 5 s under `-UITestShortPlayerTimers`, for
+    /// journeys that wait the countdown out.
+    private static var endCreditsCountdownSeconds: Int {
+        #if DEBUG
+        if UITestConfiguration.shortensPlayerTimers { return 5 }
+        #endif
+        return 10
+    }
 
     /// The last `.outro` segment chronologically. Jellyfin has no separate
     /// opening- versus closing-credits type, so an item with a mid-content
@@ -454,7 +474,8 @@ final class PlayerViewModel {
         streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
         audioOffsetStore: AudioOffsetStore = AudioOffsetStore(),
         spatialAudioStore: SpatialAudioStore = SpatialAudioStore(),
-        playbackQueue: [MediaItem] = []
+        playbackQueue: [MediaItem] = [],
+        linkOverrides: PlaybackLinkOverrides? = nil
     ) {
         self.client = client
         self.spatialAudioStore = spatialAudioStore
@@ -467,6 +488,12 @@ final class PlayerViewModel {
         self.nextUpPreferenceStore = nextUpPreferenceStore
         self.streamPreferenceStore = streamPreferenceStore
         self.playbackQueue = playbackQueue
+        self.pendingLinkOverrides = linkOverrides
+        self.linkNotices = linkOverrides?.notices ?? []
+        self.linkShowsStats = linkOverrides?.showsStats ?? false
+        #if DEBUG
+        self.linkStreaming = linkOverrides?.overridesStreaming == true ? linkOverrides : nil
+        #endif
         self.audioOffset = AudioOffsetController(itemID: itemID, store: audioOffsetStore) { [weak engine] milliseconds in
             engine?.setAudioOffset(AudioOffset.seconds(milliseconds))
         }
@@ -532,7 +559,8 @@ final class PlayerViewModel {
         spatialAudioStore: SpatialAudioStore = SpatialAudioStore(),
         downloadedItem: DownloadedItem?,
         downloadStore: DownloadStore?,
-        playbackQueue: [MediaItem] = []
+        playbackQueue: [MediaItem] = [],
+        linkOverrides: PlaybackLinkOverrides? = nil
     ) {
         self.init(
             client: client, userID: userID, itemID: itemID, engine: engine,
@@ -542,12 +570,29 @@ final class PlayerViewModel {
             streamPreferenceStore: streamPreferenceStore,
             audioOffsetStore: audioOffsetStore,
             spatialAudioStore: spatialAudioStore,
-            playbackQueue: playbackQueue
+            playbackQueue: playbackQueue,
+            linkOverrides: linkOverrides
         )
         self.downloadedItem = downloadedItem
         self.downloadStore = downloadStore
     }
     #endif
+
+    /// How this load negotiates with the server: the Streaming settings, or
+    /// in a DEBUG build a link's `mode`/`bitrate` (#406), said once if the
+    /// link's bitrate can't apply.
+    private func streamingForThisSession() -> (mode: StreamDecisionMode, maxBitrate: Int?) {
+        let storedMode = streamPreferenceStore.decisionMode
+        let storedMaxBitrate = streamPreferenceStore.streamingMaxBitrate.bitsPerSecond
+        #if DEBUG
+        if let linkStreaming {
+            let streaming = linkStreaming.streaming(storedMode: storedMode, storedMaxBitrate: storedMaxBitrate)
+            if let notice = streaming.notice, pendingLinkOverrides != nil { linkNotices.append(notice) }
+            return (streaming.mode, streaming.maxBitrate)
+        }
+        #endif
+        return (storedMode, storedMaxBitrate)
+    }
 
     /// - Parameter resumeSeconds: Seeks here after loading instead of consulting
     ///   the server's possibly-stale `resumePositionSeconds`. Used to resume in
@@ -559,6 +604,7 @@ final class PlayerViewModel {
         cancelSpatialAudioCorrection()
         isAwaitingStart = true
         startTarget = nil
+        defer { postLinkNotices() }
         #if DOWNLOADS
         if let downloadedItem {
             await startOffline(downloadedItem, resumeSeconds: resumeSeconds)
@@ -594,8 +640,9 @@ final class PlayerViewModel {
             // leaves Direct Play Always sending a non-negotiated request.
             let deviceProfile: DeviceProfile?
             let maxStreamingBitrate: Int?
-            if streamPreferenceStore.decisionMode == .allowTranscoding {
-                maxStreamingBitrate = streamPreferenceStore.streamingMaxBitrate.bitsPerSecond
+            let streaming = streamingForThisSession()
+            if streaming.mode == .allowTranscoding {
+                maxStreamingBitrate = streaming.maxBitrate
                 deviceProfile = DeviceProfileBuilder.build(maxStreamingBitrate: maxStreamingBitrate)
             } else {
                 deviceProfile = nil
@@ -609,6 +656,9 @@ final class PlayerViewModel {
             // removed version — so fall back to the server's default.
             let source = requestedMediaSourceID.flatMap { id in playbackInfo.mediaSources?.first { $0.id == id } }
                 ?? playbackInfo.mediaSources?.first
+            if let linked = pendingLinkOverrides?.mediaSourceID, source?.id != linked {
+                linkNotices.append(String(localized: "This title has no such version, so the usual one is playing."))
+            }
             activeMediaSourceID = source?.id
             activePlaySessionID = playbackInfo.playSessionId
             sourceVideoStream = source?.mediaStreams?.first { $0.type == "Video" }
@@ -682,11 +732,13 @@ final class PlayerViewModel {
                 url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices,
                 isRemoteHLS: isRemoteHLS, audioOffset: audioOffset.loadSeconds, spatialAudio: spatialAudio
             )
-            let restoredAudioTrackID = applyStoredTrackSelection()
+            let restoredAudioTrackID = pendingLinkOverrides?.choosesTracks == true
+                ? applyLinkTrackSelection() : applyStoredTrackSelection()
             // Before the resume seek, so a rebuild doesn't follow it.
             await correctSpatialAudio(
                 forEngineTrackID: restoredAudioTrackID ?? engine.audioTracks.first(where: \.isSelected)?.id
             )
+            let linkStart = resolveLinkStart(chapters: mediaItem.chapters, runTimeTicks: dto.runTimeTicks)
             // An explicit `resumeSeconds` wins over the server's last-known
             // position and ignores `startFromBeginning`: this recovers an
             // already-started session rather than honouring a play-from-the-top
@@ -694,6 +746,8 @@ final class PlayerViewModel {
             var startTime: TimeInterval = 0
             if let resumeSeconds, resumeSeconds > 0 {
                 startTime = resumeSeconds
+            } else if let linkStart {
+                startTime = linkStart
             } else if !startFromBeginning, let resumeSeconds = mediaItem.resumePositionSeconds, resumeSeconds > 0 {
                 startTime = resumeSeconds
             }
@@ -746,6 +800,11 @@ final class PlayerViewModel {
     /// `titleRow` fell back to title text for every download, including ones with
     /// a cached logo on disk.
     private func startOffline(_ downloadedItem: DownloadedItem, resumeSeconds: TimeInterval?) async {
+        #if DEBUG
+        if pendingLinkOverrides?.overridesStreaming == true {
+            linkNotices.append(PlaybackLinkOverrides.downloadIgnoresStreamingNotice)
+        }
+        #endif
         let dto = BaseItemDto(
             id: downloadedItem.itemID,
             name: downloadedItem.title,
@@ -797,10 +856,15 @@ final class PlayerViewModel {
                 url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [],
                 isRemoteHLS: false, audioOffset: audioOffset.loadSeconds
             )
-            applyStoredTrackSelection()
+            if pendingLinkOverrides?.choosesTracks == true { applyLinkTrackSelection() } else { applyStoredTrackSelection() }
+            let linkStart = resolveLinkStart(
+                chapters: chapters, runTimeTicks: downloadedItem.runtimeTicks
+            )
             var startTime: TimeInterval = 0
             if let resumeSeconds, resumeSeconds > 0 {
                 startTime = resumeSeconds
+            } else if let linkStart {
+                startTime = linkStart
             } else if !startFromBeginning, downloadedItem.resumePositionTicks > 0 {
                 startTime = Double(downloadedItem.resumePositionTicks) / 10_000_000
             }
@@ -1467,7 +1531,7 @@ final class PlayerViewModel {
     /// A stream's position in the container AetherEngine demuxes, which is its
     /// engine track id: Jellyfin numbers external streams into the same
     /// sequence, so each one before it shifts `index` one higher.
-    static func physicalIndex(of index: Int, in mediaStreams: [MediaStream]) -> Int {
+    nonisolated static func physicalIndex(of index: Int, in mediaStreams: [MediaStream]) -> Int {
         index - mediaStreams.filter { $0.isExternal == true && $0.index < index }.count
     }
 
@@ -1501,6 +1565,69 @@ final class PlayerViewModel {
     private func cancelSpatialAudioCorrection() {
         spatialAudioCorrection?.cancel()
         spatialAudioCorrection = nil
+    }
+
+    // MARK: - A link's overrides (#406)
+
+    /// Selects the tracks a link asked for, for this session only (not
+    /// recorded, unlike `selectAudioTrack`/`selectSubtitleTrack`), over the
+    /// remembered ones, which still apply to whatever the link leaves alone
+    /// or names but the title doesn't have. Returns the audio track playing,
+    /// for the Spatial Audio correction. Runs on the first load only.
+    @discardableResult
+    private func applyLinkTrackSelection() -> Int? {
+        guard let overrides = pendingLinkOverrides else { return applyStoredTrackSelection() }
+        var audioTrackID: Int?
+        if let index = overrides.audioStreamIndex {
+            audioTrackID = PlaybackLinkOverrides.audioTrackID(
+                forStreamIndex: index, mediaStreams: mediaStreams, engineTracks: engine.audioTracks
+            )
+            if audioTrackID == nil {
+                linkNotices.append(String(localized: "This title has no audio track \(index), so the usual one is playing."))
+            }
+        }
+        // The remembered choices first, where the link leaves a kind alone
+        // or names a track that isn't there, then the link's on top.
+        let restored = applyStoredTrackSelection()
+        if let audioTrackID {
+            engine.selectAudioTrack(id: audioTrackID)
+        }
+        switch overrides.subtitle {
+        case nil:
+            break
+        case .off:
+            engine.selectSubtitleTrack(id: nil)
+        case .stream(let index):
+            if let id = PlaybackLinkOverrides.subtitleTrackID(
+                forStreamIndex: index, mediaStreams: mediaStreams, sidecars: externalSubtitleStreams,
+                engineTracks: engine.subtitleTracks
+            ) {
+                engine.selectSubtitleTrack(id: id)
+            } else {
+                linkNotices.append(String(localized: "This title has no subtitle track \(index), so the usual choice applies."))
+            }
+        }
+        return audioTrackID ?? restored ?? engine.audioTracks.first(where: \.isSelected)?.id
+    }
+
+    /// The link's start, in seconds, once the title's chapters and runtime
+    /// are known; nil when there is none or it doesn't fit (said in a
+    /// notice), leaving the resume position to apply. Ends the link's
+    /// overrides: they belong to the first load only.
+    private func resolveLinkStart(chapters: [Chapter], runTimeTicks: Int64?) -> TimeInterval? {
+        defer { pendingLinkOverrides = nil }
+        guard let start = pendingLinkOverrides?.start else { return nil }
+        let duration = runTimeTicks.flatMap { $0 > 0 ? TimeInterval($0) / 10_000_000 : nil }
+        let resolved = PlaybackLinkOverrides.startSeconds(for: start, chapters: chapters, duration: duration)
+        if let notice = resolved.notice { linkNotices.append(notice) }
+        return resolved.seconds
+    }
+
+    /// One toast for everything a link's parts came to, once.
+    private func postLinkNotices() {
+        guard let message = PlaybackLinkOverrides.combined(linkNotices) else { return }
+        linkNotices = []
+        ToastCenter.shared.post(.notice(message))
     }
 
     /// Restores the tracks last explicitly picked for this item, overriding what

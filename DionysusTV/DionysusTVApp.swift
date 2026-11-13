@@ -38,8 +38,16 @@ struct DionysusTVApp: App {
 struct TVRootView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.scenePhase) private var scenePhase
-    /// A Top Shelf link (M6), held until the session can take it.
-    @State private var pendingLink: TVDeepLink?
+    /// A `dionysus://` link (the Top Shelf's, M6, or one opened for
+    /// debugging, #406), held until the session can take it, through
+    /// sign-in if need be.
+    @State private var pendingLink: PendingDeepLink?
+    /// A link that couldn't be read arrived while the session restored (a
+    /// cold launch from it): it's refused out loud once restoring ends.
+    @State private var refusesUnreadableLinkAfterRestore = false
+    /// A `server?url=` link's address (DEBUG builds only), for Find Your
+    /// Server to fill in; cleared once setup is left.
+    @State private var linkedServerAddress: LinkedServerAddress?
 
     var body: some View {
         Group {
@@ -48,8 +56,8 @@ struct TVRootView: View {
             } else {
                 switch appState.phase {
                 case .serverSetup:
-                    if appState.sessionStore.hasCompletedWelcome {
-                        TVServerSetupView()
+                    if appState.sessionStore.hasCompletedWelcome || linkedServerAddress != nil {
+                        TVServerSetupView(linkedAddress: linkedServerAddress)
                     } else {
                         TVWelcomeView()
                     }
@@ -66,7 +74,21 @@ struct TVRootView: View {
         // The splash crossfades into what follows it, as on iOS (`RootView`).
         .animation(.default, value: appState.isRestoringSession)
         .buttonStyle(TVOpaqueAtRestButtonStyle())
-        .onOpenURL { url in pendingLink = TVDeepLink(url: url) }
+        .onOpenURL(perform: receive)
+        .onChange(of: appState.isRestoringSession) { _, isRestoring in
+            guard !isRestoring, refusesUnreadableLinkAfterRestore else { return }
+            refusesUnreadableLinkAfterRestore = false
+            if appState.phase == .main { ToastCenter.shared.post(.notice(DeepLink.cantOpenMessage)) }
+        }
+        // Server setup is before the main app, so the root applies it.
+        .onChange(of: appliedLink, initial: true) { _, link in
+            guard case .serverSetup(let address)? = link?.destination else { return }
+            linkedServerAddress = LinkedServerAddress(address: address)
+            pendingLink = nil
+        }
+        .onChange(of: appState.phase) { _, phase in
+            if phase != .serverSetup { linkedServerAddress = nil }
+        }
         .environment(\.tvPendingDeepLink, appliedLink)
         .environment(\.tvDeepLinkApplied, { pendingLink = nil })
         // The Top Shelf follows whoever last used Dionysus (M6).
@@ -99,21 +121,45 @@ struct TVRootView: View {
         )
     }
 
-    /// The pending link once the router says it can go; a dropped one is
-    /// cleared here, a waiting one is kept until the session has restored.
-    private var appliedLink: TVDeepLink? {
+    /// A link replaces any still pending; one that can't be read is
+    /// refused, out loud only where someone is signed in to see it (after
+    /// the restore, for a cold launch from it).
+    private func receive(_ url: URL) {
+        guard let link = DeepLink(url: url) else {
+            if appState.isRestoringSession {
+                refusesUnreadableLinkAfterRestore = true
+            } else if appState.phase == .main {
+                ToastCenter.shared.post(.notice(DeepLink.cantOpenMessage))
+            }
+            return
+        }
+        pendingLink = PendingDeepLink(
+            link: link, receivedAt: Date(), serverIDAtArrival: appState.sessionStore.serverConfiguration?.id
+        )
+    }
+
+    /// The pending link once the router says it can go; a refused one is
+    /// cleared here (saying why, where it says anything), a waiting one is
+    /// kept until the session has restored or someone has signed in.
+    private var appliedLink: DeepLink? {
         guard let pendingLink else { return nil }
-        switch TVDeepLinkRouter.decide(
+        switch DeepLinkRouter.decide(
             pendingLink,
+            now: Date(),
             isRestoringSession: appState.isRestoringSession,
             isSignedIn: appState.phase == .main,
-            serverID: appState.sessionStore.serverConfiguration?.id
+            serverID: appState.sessionStore.serverConfiguration?.id,
+            userID: appState.signedInUserID
         ) {
-        case .wait: return nil
-        case .ignore:
-            Task { @MainActor in self.pendingLink = nil }
+        case .wait, .waitForSignIn: return nil
+        case .refuse(let refusal):
+            Task { @MainActor in
+                self.pendingLink = nil
+                // Toasts show only in the signed-in app.
+                if let message = refusal.message, appState.phase == .main { ToastCenter.shared.post(.notice(message)) }
+            }
             return nil
-        case .openDetail, .play: return pendingLink
+        case .apply: return pendingLink.link
         }
     }
 }

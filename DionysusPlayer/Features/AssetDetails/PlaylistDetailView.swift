@@ -121,6 +121,8 @@ struct PlaylistDetailView: View {
             }
             .duoVerticalPreferred()
         }
+        // A `dionysus://play` link (#406) plays what this page's Play would.
+        .playsDeepLinkCue(viewModel) { playbackRequest = $0 }
         .fullScreenCover(
             item: $playbackRequest,
             onDismiss: {
@@ -143,7 +145,8 @@ struct PlaylistDetailView: View {
                 startSeconds: request.startSeconds,
                 onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) },
                 onRequestNextItem: { pendingNextItemID = $0 },
-                playbackQueue: viewModel.orderedPlaylistItems
+                playbackQueue: viewModel.orderedPlaylistItems,
+                linkOverrides: request.linkOverrides
             )
         }
     }

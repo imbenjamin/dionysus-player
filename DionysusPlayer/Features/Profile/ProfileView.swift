@@ -60,6 +60,26 @@ private enum ProfileSettingsPane: Identifiable, Hashable {
     }
 }
 
+/// The screens pushed inside Profile, by value so a `dionysus://profile`
+/// link (#406) can push one (`ProfileView.open(_:)`).
+private enum ProfileSubpage: Hashable {
+    case advancedPlayback
+    /// A push on the one list only; the split layout has a Downloads pane.
+    case downloads
+    case license
+    case privacyPolicy
+
+    @ViewBuilder
+    var destination: some View {
+        switch self {
+        case .advancedPlayback: AdvancedPlaybackSettingsView()
+        case .downloads: DownloadsSettingsView()
+        case .license: LicenseView()
+        case .privacyPolicy: PrivacyPolicyView()
+        }
+    }
+}
+
 /// Account/server settings: who's signed in and where, plus sign out and
 /// change server.
 ///
@@ -81,6 +101,9 @@ private enum ProfileSettingsPane: Identifiable, Hashable {
 /// per layout — a `NavigationSplitView` inside a `NavigationStack` is not
 /// supported.
 struct ProfileView: View {
+    /// A page a `dionysus://profile` or `quickconnect` link asked for (#406).
+    var linkedPage: LinkedProfilePage?
+
     @Environment(AppState.self) private var appState
     @AppStorage(themePreferenceStorageKey) private var themePreference: ThemePreference = .system
     /// Default `true`, matching `HeroHeaderView`'s default for this key. An
@@ -116,6 +139,15 @@ struct ProfileView: View {
     /// something" placeholder, like Settings.app. Declared `Optional` because
     /// that's what `List(selection:)` binds to.
     @State private var selectedPane: ProfileSettingsPane? = .appearance
+    /// What each layout's stack has pushed; bound so a link can push.
+    @State private var compactPath = NavigationPath()
+    @State private var detailPath = NavigationPath()
+    /// The one list's sections, for a link to scroll to.
+    @State private var compactScrollTarget: LinkedProfileScroll?
+    /// A Quick Connect code a link asked to approve, for the Account rows.
+    @State private var linkedQuickConnect: QuickConnectLink?
+    /// The link last opened, so a change of layout doesn't open it again.
+    @State private var openedLinkID: UUID?
 
     /// See `SettingsLayout` for why this ANDs both size classes rather than
     /// testing width alone like the Home/Search/Downloads grids, and for the
@@ -195,16 +227,26 @@ struct ProfileView: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
+        // Once the width is known, which picks the layout the page opens in.
+        .task(id: linkedPage?.id) {
+            guard let link = linkedPage, link.id != openedLinkID else { return }
+            for _ in 0..<20 where containerWidth == 0 {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            openedLinkID = link.id
+            open(link.page)
+        }
         .task(id: appState.currentUser?.id) { await loadAvatarImageURL() }
         .sheet(isPresented: $showsSpatialAudioHelp) { SpatialAudioHelpView() }
         // Sign Out and Change Server close the sheet first and run from here,
         // once it's gone — see `AccountAction`.
         .sheet(isPresented: $showAccountDetails, onDismiss: {
+            linkedQuickConnect = nil
             guard let action = pendingAccountAction else { return }
             pendingAccountAction = nil
             action.perform(on: appState)
         }) {
-            AccountDetailsSheet { action in
+            AccountDetailsSheet(quickConnectLink: linkedQuickConnect) { action in
                 pendingAccountAction = action
                 showAccountDetails = false
             }
@@ -231,35 +273,49 @@ struct ProfileView: View {
     /// iPhone, and any non-iPad regular-width container (see
     /// `usesSplitLayout`). One list, every section inline.
     private var compactLayout: some View {
-        NavigationStack {
-            List {
-                Section { accountCard }
+        NavigationStack(path: $compactPath) {
+            ScrollViewReader { proxy in
+                List {
+                    Section { accountCard }
+                        .id(LinkedProfileScroll.Section.top)
 
-                Section("Appearance") { appearanceRows }
+                    Section("Appearance") { appearanceRows }
+                        .id(LinkedProfileScroll.Section.appearance)
 
-                Section {
-                    playbackRows
-                } header: {
-                    Text("Playback")
-                } footer: {
-                    playbackFooter
+                    Section {
+                        playbackRows
+                    } header: {
+                        Text("Playback")
+                    } footer: {
+                        playbackFooter
+                    }
+                    .id(LinkedProfileScroll.Section.playback)
+
+                    spatialAudioSection
+
+                    Section { downloadsRow }
+
+                    Section("About") { aboutRows }
+                        .id(LinkedProfileScroll.Section.about)
+
+                    // Page-wide footer, not tied to the section above it: the
+                    // build's branch/commit, plus a GitHub repo link.
+                    Section {
+                    } footer: {
+                        versionFooter
+                    }
                 }
-
-                spatialAudioSection
-
-                Section { downloadsRow }
-
-                Section("About") { aboutRows }
-
-                // Page-wide footer, not tied to the section above it: the
-                // build's branch/commit, plus a GitHub repo link.
-                Section {
-                } footer: {
-                    versionFooter
+                .navigationTitle("Profile & Settings")
+                .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
+                .navigationDestination(for: ProfileSubpage.self) { $0.destination }
+                .task(id: compactScrollTarget) {
+                    guard let target = compactScrollTarget else { return }
+                    // After the list has laid out, when the tab has only just
+                    // been chosen by the link.
+                    try? await Task.sleep(for: .milliseconds(300))
+                    withAnimation { proxy.scrollTo(target.section, anchor: .top) }
                 }
             }
-            .navigationTitle("Profile & Settings")
-            .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
         }
     }
 
@@ -277,9 +333,10 @@ struct ProfileView: View {
             // screen pushed from the previous pane can't be stranded on top of
             // the new one's root. Costs the pane's scroll position on return.
             let pane = selectedPane ?? .appearance
-            NavigationStack {
+            NavigationStack(path: $detailPath) {
                 detailContent(for: pane)
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
+                    .navigationDestination(for: ProfileSubpage.self) { $0.destination }
             }
             .id(pane)
         }
@@ -294,7 +351,7 @@ struct ProfileView: View {
     }
 
     private var sidebar: some View {
-        List(selection: $selectedPane) {
+        List(selection: Binding(get: { selectedPane }, set: { select($0) })) {
             // Tagged, so it selects the Account pane like any other sidebar
             // row — no `Button`, no sheet. No chevron, which would imply a
             // push; selection highlight is the affordance.
@@ -339,7 +396,7 @@ struct ProfileView: View {
         switch pane {
         case .account:
             // The same rows the iPhone shows in a sheet.
-            AccountDetailsContent()
+            AccountDetailsContent(quickConnectLink: linkedQuickConnect)
                 .navigationTitle("Account")
         case .appearance:
             List { Section { appearanceRows } }
@@ -373,6 +430,58 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("About")
+        }
+    }
+
+    // MARK: Links
+
+    /// A pane chosen in the sidebar starts at its own root.
+    private func select(_ pane: ProfileSettingsPane?) {
+        selectedPane = pane
+        detailPath = NavigationPath()
+    }
+
+    /// Opens a page a link asked for (#406): in the split layout its pane,
+    /// with a sub-page pushed in the detail column; in the one list its
+    /// section scrolled to, or its screen pushed, or the Account sheet.
+    private func open(_ page: DeepLink.ProfilePage) {
+        if usesSplitLayout {
+            switch page {
+            case .root: break
+            case .account: select(.account)
+            case .quickConnect(let code):
+                select(.account)
+                linkedQuickConnect = QuickConnectLink(code: code)
+            case .appearance: select(.appearance)
+            case .playback: select(.playback)
+            case .downloads: select(.downloads)
+            case .about: select(.about)
+            case .advancedPlayback:
+                select(.playback)
+                detailPath.append(ProfileSubpage.advancedPlayback)
+            case .license:
+                select(.about)
+                detailPath.append(ProfileSubpage.license)
+            case .privacyPolicy:
+                select(.about)
+                detailPath.append(ProfileSubpage.privacyPolicy)
+            }
+            return
+        }
+        compactPath = NavigationPath()
+        switch page {
+        case .root: compactScrollTarget = LinkedProfileScroll(section: .top)
+        case .account: showAccountDetails = true
+        case .quickConnect(let code):
+            linkedQuickConnect = QuickConnectLink(code: code)
+            showAccountDetails = true
+        case .appearance: compactScrollTarget = LinkedProfileScroll(section: .appearance)
+        case .playback: compactScrollTarget = LinkedProfileScroll(section: .playback)
+        case .about: compactScrollTarget = LinkedProfileScroll(section: .about)
+        case .downloads: compactPath.append(ProfileSubpage.downloads)
+        case .advancedPlayback: compactPath.append(ProfileSubpage.advancedPlayback)
+        case .license: compactPath.append(ProfileSubpage.license)
+        case .privacyPolicy: compactPath.append(ProfileSubpage.privacyPolicy)
         }
     }
 
@@ -504,10 +613,8 @@ struct ProfileView: View {
         // own pushed screen — see `AdvancedPlaybackSettingsView`. "Advanced"
         // is also `DownloadsQualityLadderView`'s link text, so the identifier
         // is what tells the two apart.
-        NavigationLink("Advanced") {
-            AdvancedPlaybackSettingsView()
-        }
-        .accessibilityIdentifier(A11yID.Profile.advancedPlaybackLink)
+        NavigationLink("Advanced", value: ProfileSubpage.advancedPlayback)
+            .accessibilityIdentifier(A11yID.Profile.advancedPlaybackLink)
     }
 
     /// TrueHD Atmos and DTS:X as Spatial Audio (Benjamin, 2026-10-19): a
@@ -588,9 +695,7 @@ struct ProfileView: View {
     }
 
     private var downloadsRow: some View {
-        NavigationLink {
-            DownloadsSettingsView()
-        } label: {
+        NavigationLink(value: ProfileSubpage.downloads) {
             LabeledContent("Downloads", value: downloadsStorageUsedText)
                 // `LabeledContent` folds title and value into one combined
                 // label rather than a label/value pair, so
@@ -606,14 +711,10 @@ struct ProfileView: View {
 
     @ViewBuilder
     private var aboutRows: some View {
-        NavigationLink("License") {
-            LicenseView()
-        }
-        .accessibilityIdentifier(A11yID.Profile.licenseLink)
-        NavigationLink("Privacy Policy") {
-            PrivacyPolicyView()
-        }
-        .accessibilityIdentifier(A11yID.Profile.privacyPolicyLink)
+        NavigationLink("License", value: ProfileSubpage.license)
+            .accessibilityIdentifier(A11yID.Profile.licenseLink)
+        NavigationLink("Privacy Policy", value: ProfileSubpage.privacyPolicy)
+            .accessibilityIdentifier(A11yID.Profile.privacyPolicyLink)
     }
 
     private var versionFooter: some View {
@@ -645,4 +746,12 @@ struct ProfileView: View {
 #Preview {
     ProfileView()
         .environment(AppState())
+}
+
+/// A section of Profile's one list a link scrolls to; a new id scrolls
+/// again even to the same section.
+private struct LinkedProfileScroll: Equatable {
+    enum Section: Hashable { case top, appearance, playback, about }
+    let id = UUID()
+    let section: Section
 }

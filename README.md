@@ -432,6 +432,17 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
   -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)'
 ```
 
+For debugging, `dionysus://` links open any screen, title or playback on
+either app in the Simulator, without tapping through to it:
+
+```sh
+Scripts/deeplink.sh 'dionysus://play/<itemID>?t=1:02:03&stats=1'
+```
+
+They're for debugging and tests only: nothing in the app makes or shares
+one, and they never change data. Every link is listed in
+[`TESTING.md`](TESTING.md#deep-links-for-debugging-and-tests).
+
 All tests passing as of this writing. See [`TESTING.md`](TESTING.md) for the
 full strategy, a coverage table, the UI harness, and known gaps (snapshot
 tests, accessibility audits, and `AetherPlaybackEngine`'s own adapter code).

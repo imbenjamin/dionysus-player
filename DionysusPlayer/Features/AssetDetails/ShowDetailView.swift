@@ -37,6 +37,8 @@ struct ShowDetailView: View {
     /// `SeasonEpisodeList` half follows from the scope excluding it rather than
     /// from a separate observation on a real Show page.
     @State private var refreshTrigger = UUID()
+    /// The tab a `dionysus://item?section=` link opened (#406).
+    @State private var linkedTab: LinkedDetailTab?
 
     /// `.id()`'d by a marker near the bottom of the hero, roughly where its logo
     /// sits, so selecting an episode from the list further down can scroll back
@@ -145,8 +147,9 @@ struct ShowDetailView: View {
                                 }
                             }
 
-                            DetailTabsView(item: item)
+                            DetailTabsView(item: item, linkedTab: linkedTab)
                                 .detailTabsPanel()
+                                .id(DeepLinkPageAnchor.tabs)
                         }
                         .padding(.horizontal)
                         // Caps metadata, Play/Download and tabs to a readable
@@ -184,6 +187,7 @@ struct ShowDetailView: View {
                                     startSeconds: chapter.startSeconds
                                 )
                             }
+                            .id(DeepLinkPageAnchor.chapters)
                         }
 
                         if let seriesID = viewModel.seriesID, !viewModel.seasons.isEmpty {
@@ -201,6 +205,7 @@ struct ShowDetailView: View {
                                     }
                                 }
                             )
+                            .id(DeepLinkPageAnchor.seasons)
                         }
 
                         if !viewModel.collections.isEmpty {
@@ -213,9 +218,12 @@ struct ShowDetailView: View {
                             MediaRailView(rail: MediaCollectionRail(
                                 title: String(localized: "More Like This"), items: viewModel.similar
                             ))
+                            .id(DeepLinkPageAnchor.similar)
                         }
                     }
                     .padding(.bottom, 32)
+                    // A `dionysus://item` link's season and section (#406).
+                    .takesDeepLinkPageCue(viewModel) { applyLink($0, proxy: scrollProxy) }
                     // `initial: true`, not `.onAppear`: this view renders as
                     // soon as `viewModel.item` is non-nil, immediately for a
                     // preloaded item, well before `load()` populates
@@ -311,6 +319,8 @@ struct ShowDetailView: View {
                 }
             }
         }
+        // A `dionysus://play` link (#406) plays what this page's Play would.
+        .playsDeepLinkCue(viewModel) { playbackRequest = $0 }
         .fullScreenCover(
             item: $playbackRequest,
             // Registered via `viewModel.track(_:)` so `AssetDetailView`'s
@@ -334,8 +344,39 @@ struct ShowDetailView: View {
                 itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
                 startSeconds: request.startSeconds,
                 onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) },
-                onRequestNextItem: { pendingNextEpisodeID = $0 }
+                onRequestNextItem: { pendingNextEpisodeID = $0 },
+                linkOverrides: request.linkOverrides
             )
         }
+    }
+
+    /// Opens the season and section a link names (#406): the season by id or
+    /// number, scrolled to when no section is named. Returns what the page
+    /// doesn't have.
+    private func applyLink(_ options: DeepLink.ItemOptions, proxy: ScrollViewProxy) -> [String] {
+        guard let item = viewModel.item else { return [] }
+        var notices: [String] = []
+        if let season = options.season {
+            if let seasonID = DeepLink.ItemOptions.seasonID(for: season, in: viewModel.seasons) {
+                selectedSeasonID = seasonID
+                if options.section == nil { proxy.scrollToLinkedSection(.seasons) }
+            } else {
+                notices.append(DeepLink.ItemOptions.missingSeasonNotice(season, isShow: viewModel.seriesID != nil))
+            }
+        }
+        if let section = options.section {
+            switch DeepLinkPageSection.target(
+                for: section, item: item, showsChapters: isEpisodeContent, hasSimilar: !viewModel.similar.isEmpty
+            ) {
+            case .tab(let tab):
+                linkedTab = LinkedDetailTab(tab: tab)
+                proxy.scrollToLinkedSection(.tabs)
+            case .anchor(let anchor):
+                proxy.scrollToLinkedSection(anchor)
+            case nil:
+                notices.append(section.missingNotice)
+            }
+        }
+        return notices
     }
 }

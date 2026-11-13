@@ -124,6 +124,18 @@ final class CollectionGridViewModelTests: XCTestCase {
         XCTAssertEqual(captured["SortOrder"], "Descending")
     }
 
+    /// A `dionysus://library` link's `filter=` (#406) seeds the Watched and
+    /// Favorites facets as the genre and studio presets do.
+    func test_init_seedsWatchedAndFavoritesFromQueryPresets() {
+        let query = CollectionQuery(
+            title: "Movies", includeItemTypes: ["Movie"], initialWatchStatus: .unwatched, initialFavoriteStatus: .favorite
+        )
+        let viewModel = makeViewModel(query: query)
+        XCTAssertEqual(viewModel.selectedWatchStatus, .unwatched)
+        XCTAssertEqual(viewModel.selectedFavoriteStatus, .favorite)
+        XCTAssertTrue(viewModel.hasActiveFilters)
+    }
+
     // MARK: setSortField
 
     func test_setSortField_changesFieldAndReloads() async {

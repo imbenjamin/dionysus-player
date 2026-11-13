@@ -7,6 +7,11 @@ import SwiftUI
 /// Enter Server Address, which heads the field once it's open. Once a scan
 /// is over, Rescan scans again from an empty list.
 struct TVServerSetupView: View {
+    /// A `server?url=` link's address (#406, DEBUG builds only): the
+    /// address field opens with it filled in and focused; Connect is still
+    /// the person's press.
+    var linkedAddress: LinkedServerAddress? = nil
+
     @Environment(AppState.self) private var appState
     @State private var viewModel = ServerSetupViewModel()
     @FocusState private var focusedServer: DiscoveredServer.ID?
@@ -90,6 +95,13 @@ struct TVServerSetupView: View {
             }
         }
         .onAppear { viewModel.startScanOnArrival() }
+        .onChange(of: linkedAddress, initial: true) { _, linked in
+            guard let linked else { return }
+            viewModel.address = linked.address
+            viewModel.syncHTTPSToggle(withAddress: linked.address)
+            userMovedFocus = true
+            showsAddressEntry = true
+        }
         // Enter Server Address turns into the field's heading, so the focus
         // it had is dropped and tvOS hands it to the server list's default.
         // A claim made as the field appears loses to that, so it's made

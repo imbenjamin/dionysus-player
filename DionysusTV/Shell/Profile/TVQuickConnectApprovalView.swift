@@ -4,9 +4,16 @@ import SwiftUI
 /// shared `QuickConnectApprovalViewModel`. The code is typed with the system
 /// keyboard (and so the Continuity Keyboard on a nearby iPhone).
 struct TVQuickConnectApprovalView: View {
-    @State var viewModel: QuickConnectApprovalViewModel
-    @State private var text = ""
+    @State private var viewModel: QuickConnectApprovalViewModel
+    @State private var text: String
     @FocusState private var focus: String?
+
+    /// The field starts with the view model's code: one a
+    /// `dionysus://quickconnect/approve` link filled in (#406), not submitted.
+    init(viewModel: QuickConnectApprovalViewModel) {
+        _viewModel = State(initialValue: viewModel)
+        _text = State(initialValue: viewModel.code)
+    }
 
     var body: some View {
         VStack(spacing: 30) {

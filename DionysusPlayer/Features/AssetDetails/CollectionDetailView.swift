@@ -100,6 +100,8 @@ struct CollectionDetailView: View {
             }
             .duoVerticalPreferred()
         }
+        // A `dionysus://play` link (#406) plays what this page's Play would.
+        .playsDeepLinkCue(viewModel) { playbackRequest = $0 }
         .fullScreenCover(
             item: $playbackRequest,
             // Registered via `viewModel.track(_:)` — see its doc comment —
@@ -116,7 +118,8 @@ struct CollectionDetailView: View {
             PlayerView(
                 itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
                 startSeconds: request.startSeconds,
-                onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) }
+                onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) },
+                linkOverrides: request.linkOverrides
             )
         }
     }

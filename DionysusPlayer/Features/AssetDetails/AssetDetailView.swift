@@ -42,6 +42,10 @@ struct AssetDetailView: View {
             // `viewModel`'s screen-level owner, not a toolbar item or sub-view
             // whose `.onDisappear` is less predictable.
             .onDisappear { viewModel.cancelBackgroundWork() }
+            // A play link's cue (#406) is taken by the page this shows; when
+            // none shows (not found, failed, audio), it's dropped here, or it
+            // would play the next time someone opens this title.
+            .onChange(of: viewModel.loadState, initial: true) { dropUnplayableCue() }
             // Something was deleted from the server, possibly by the page that
             // was until a moment ago on top of this one. Popping back to a parent
             // doesn't refresh it (see `DeletedItemBroadcaster`), so without this a
@@ -107,8 +111,10 @@ struct AssetDetailView: View {
                     ShowDetailView(viewModel: viewModel)
                 case .boxSet:
                     CollectionDetailView(viewModel: viewModel)
+                        .takesDeepLinkPageCue(viewModel, apply: Self.sectionsNotHere)
                 case .playlist:
                     PlaylistDetailView(viewModel: viewModel)
+                        .takesDeepLinkPageCue(viewModel, apply: Self.sectionsNotHere)
                 default:
                     MovieDetailView(viewModel: viewModel)
                 }
@@ -126,6 +132,37 @@ struct AssetDetailView: View {
     }
 
     /// No retry: the item is gone, and asking again gets the same 404.
+    /// A collection's or playlist's page has neither seasons nor the
+    /// sections a link can name (#406).
+    private static func sectionsNotHere(_ options: DeepLink.ItemOptions) -> [String] {
+        [options.season.map { DeepLink.ItemOptions.missingSeasonNotice($0, isShow: false) }, options.section?.missingNotice]
+            .compactMap { $0 }
+    }
+
+    private func dropUnplayableCue() {
+        // An item link's season or section (`DeepLinkPageCue`) goes with
+        // the page: none shows to take it.
+        if DeepLinkPageCue.shared.pageID == itemID {
+            switch viewModel.loadState {
+            case .failed, .notFound: DeepLinkPageCue.shared.clear()
+            case .loaded where viewModel.item?.isAudioContent == true: DeepLinkPageCue.shared.clear()
+            default: break
+            }
+        }
+        let cue = DeepLinkPlaybackCue.shared
+        guard cue.isFor(itemID) else { return }
+        switch viewModel.loadState {
+        case .idle, .loading:
+            return
+        case .failed, .notFound:
+            cue.clear()
+        case .loaded:
+            guard viewModel.item?.isAudioContent == true else { return }
+            cue.clear()
+            ToastCenter.shared.post(.notice(String(localized: "Nothing to play here.")))
+        }
+    }
+
     private var notFound: some View {
         ContentUnavailableView {
             Label("This Title Can't Be Found", systemImage: "questionmark.square.dashed")

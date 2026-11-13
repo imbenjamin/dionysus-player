@@ -4,11 +4,14 @@ import XCTest
 /// but the mode is the same, so the focus engine drives real buttons.
 final class PlayerAccessibleTransportJourneyTests: TVUITestCase {
     private let accessible = ["-UITestAccessibleTransport", "YES"]
+    /// With the remote mode's fade at 1.5 s, for the journeys that wait it out.
+    private let accessibleWithShortTimers = ["-UITestAccessibleTransport", "YES", "-UITestShortPlayerTimers", "YES"]
 
     /// Proves the accessible transport never fades or comes back by itself:
-    /// past the remote mode's 4 s fade (`TVTransportChrome.visibleDuration`),
-    /// with a second to spare. Nothing happens to wait for.
-    private static let pastTheFade = 5
+    /// past the remote mode's fade (`TVPlayerTiming.chromeFade`, 1.5 s under
+    /// `-UITestShortPlayerTimers`), with a second to spare. Nothing happens
+    /// to wait for.
+    private static let pastTheFade: TimeInterval = 2.5
 
     private func control(_ app: XCUIApplication, _ id: String) -> XCUIElement {
         app.buttons[A11yID.TV.Player.control(id)]
@@ -23,7 +26,7 @@ final class PlayerAccessibleTransportJourneyTests: TVUITestCase {
     }
 
     func test_opensOnPlayPause_pauses_andTheTransportNeverFades() {
-        let app = openPlayer(extraArguments: accessible)
+        let app = openPlayer(extraArguments: accessibleWithShortTimers)
         let playPause = control(app, "playPause")
         XCTAssertTrue(waitForFocus(playPause), "Play/Pause takes focus as the player opens")
         let playingLabel = playPause.label
@@ -33,7 +36,7 @@ final class PlayerAccessibleTransportJourneyTests: TVUITestCase {
         press(.select)
         XCTAssertTrue(poll(timeout: 3) { playPause.label == playingLabel })
         // Playing again, and past the fade the remote's mode would apply.
-        sleep(UInt32(Self.pastTheFade))
+        Thread.sleep(forTimeInterval: Self.pastTheFade)
         XCTAssertTrue(playPause.exists, "The transport stays up while playing")
         XCTAssertTrue(app.staticTexts[A11yID.TV.Player.elapsed].exists)
     }
@@ -77,18 +80,18 @@ final class PlayerAccessibleTransportJourneyTests: TVUITestCase {
         press(.select)
         XCTAssertTrue(poll(timeout: 5) { second.isSelected }, "The chosen track is marked selected")
         press(.menu)
-        XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Player.panel].waitForExistence(timeout: 2))
+        XCTAssertTrue(poll(timeout: 3) { !app.descendants(matching: .any)[A11yID.TV.Player.panel].exists }, "Menu closes the panel")
         XCTAssertTrue(waitForFocus(control(app, "playPause")), "Focus returns to Play/Pause")
         press(.menu)
         XCTAssertTrue(app.buttons[A11yID.TV.Player.showControls].waitForExistence(timeout: 3), "…then the controls hide")
         press(.menu)
-        XCTAssertFalse(app.buttons[A11yID.TV.Player.showControls].waitForExistence(timeout: 3), "…then the player closes")
+        XCTAssertTrue(poll(timeout: 5) { !app.buttons[A11yID.TV.Player.showControls].exists }, "…then the player closes")
     }
 
     /// Watching without the controls (Benjamin, 2026-10-08): Menu hides
     /// them, and Select, Up or Down brings them back with Play/Pause focused.
     func test_menuHidesTheControls_andSelectUpOrDownBringsThemBackOnPlayPause() {
-        let app = openPlayer(extraArguments: accessible)
+        let app = openPlayer(extraArguments: accessibleWithShortTimers)
         let playPause = control(app, "playPause")
         let show = app.buttons[A11yID.TV.Player.showControls]
         XCTAssertTrue(waitForFocus(playPause))
@@ -97,7 +100,7 @@ final class PlayerAccessibleTransportJourneyTests: TVUITestCase {
             press(.menu)
             XCTAssertTrue(waitForFocus(show), "Hidden, Show Player Controls holds focus")
             XCTAssertFalse(playPause.exists)
-            sleep(UInt32(Self.pastTheFade))
+            Thread.sleep(forTimeInterval: Self.pastTheFade)
             XCTAssertFalse(playPause.exists, "Nothing brings them back by itself")
             press(key)
             XCTAssertTrue(waitForFocus(playPause), "\(key) brings them back on Play/Pause")
@@ -121,7 +124,7 @@ final class PlayerAccessibleTransportJourneyTests: TVUITestCase {
         XCTAssertTrue(app.buttons[A11yID.TV.Player.nextUpPlayNow].exists)
         XCTAssertTrue(reachAboveTheIcons(app, close), "Up from the last icon reaches the card")
         press(.select)
-        XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Player.nextUpCard].waitForExistence(timeout: 2))
+        XCTAssertTrue(poll(timeout: 3) { !app.descendants(matching: .any)[A11yID.TV.Player.nextUpCard].exists }, "Close dismisses the card")
     }
 
     /// Up from the scrubber always lands on Play/Pause (Benjamin,

@@ -2322,6 +2322,135 @@ final class AssetDetailViewModelTests: XCTestCase {
     private func mediaItem(_ dto: BaseItemDto) -> MediaItem {
         MediaItem(dto: dto, images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok"))
     }
+
+    // MARK: - What a play link plays (#406)
+
+    /// Loads `item` with every other request answered empty, except those in
+    /// `answers`, keyed by path (and `ParentId` for `/Users/user-1/Items`).
+    private func loadedForLink(_ item: BaseItemDto, answers: [String: [BaseItemDto]] = [:]) async -> AssetDetailViewModel {
+        let viewModel = makeViewModel(itemID: item.id)
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path == "/Users/user-1/Items/\(item.id)" {
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: item)
+            }
+            if path == "/Playlists/\(item.id)/Users/user-1" {
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaylistUserPermissions(userId: "user-1", canEdit: false))
+            }
+            let key = path == "/Users/user-1/Items" ? "\(path)?ParentId=\(request.queryDictionary["ParentId"] ?? "")" : path
+            let items = answers[key] ?? []
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+        }
+        await viewModel.load()
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        return viewModel
+    }
+
+    func test_linkPlaybackTarget_videoPlaysItself() async {
+        let movie = await loadedForLink(BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaType: "Video"))
+        XCTAssertEqual(movie.linkPlaybackTarget?.id, "movie-1")
+        let episode = await loadedForLink(BaseItemDto(id: "ep-1", name: "Pilot", type: .episode, mediaType: "Video"))
+        XCTAssertEqual(episode.linkPlaybackTarget?.id, "ep-1")
+    }
+
+    func test_linkPlaybackTarget_nothingForAFolderOrAudio() async {
+        let folder = await loadedForLink(BaseItemDto(id: "folder-1", name: "Movies", type: .collectionFolder))
+        XCTAssertNil(folder.linkPlaybackTarget)
+        let album = await loadedForLink(BaseItemDto(id: "album-1", name: "Blue", type: .musicAlbum, mediaType: "Audio"))
+        XCTAssertNil(album.linkPlaybackTarget)
+    }
+
+    /// A show plays what its page's Play would: Next Up.
+    func test_linkPlaybackTarget_showPlaysItsPlayEpisode() async {
+        let next = BaseItemDto(id: "ep-4", name: "Four", type: .episode, mediaType: "Video")
+        let show = await loadedForLink(
+            BaseItemDto(id: "series-1", name: "The Wire", type: .series),
+            answers: ["/Shows/NextUp": [next]]
+        )
+        XCTAssertEqual(show.linkPlaybackTarget?.id, "ep-4")
+    }
+
+    /// A playlist plays its Play target (the first member not yet played);
+    /// its page queues the rest.
+    func test_linkPlaybackTarget_playlistPlaysItsPlayTarget() async {
+        let watched = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, userData: UserItemDataDto(played: true))
+        let unwatched = BaseItemDto(id: "movie-2", name: "Cars", type: .movie, userData: UserItemDataDto(played: false))
+        let playlist = await loadedForLink(
+            BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video"),
+            answers: ["/Playlists/playlist-1/Items": [watched, unwatched]]
+        )
+        XCTAssertEqual(playlist.linkPlaybackTarget?.id, "movie-2")
+    }
+
+    /// A collection plays its first title alone (Benjamin, 2026-11-11).
+    func test_linkPlaybackTarget_collectionPlaysItsFirstTitle() async {
+        let first = BaseItemDto(id: "movie-1", name: "Part One", type: .movie, mediaType: "Video")
+        let second = BaseItemDto(id: "movie-2", name: "Part Two", type: .movie, mediaType: "Video")
+        let collection = await loadedForLink(
+            BaseItemDto(id: "collection-1", name: "The Trilogy", type: .boxSet),
+            answers: ["/Users/user-1/Items?ParentId=collection-1": [first, second]]
+        )
+        XCTAssertEqual(collection.linkPlaybackTarget?.id, "movie-1")
+        let empty = await loadedForLink(BaseItemDto(id: "collection-2", name: "Nothing Yet", type: .boxSet))
+        XCTAssertNil(empty.linkPlaybackTarget)
+    }
+
+    // MARK: - The session a play link starts (#406)
+
+    private func playlistForLink() async -> AssetDetailViewModel {
+        let first = BaseItemDto(id: "movie-1", name: "Toy Story", type: .movie, userData: UserItemDataDto(played: false), mediaType: "Video")
+        let second = BaseItemDto(id: "movie-2", name: "Cars", type: .movie, userData: UserItemDataDto(played: false), mediaType: "Video")
+        return await loadedForLink(
+            BaseItemDto(id: "playlist-1", name: "Movie Night", type: .playlist, mediaType: "Video"),
+            answers: ["/Playlists/playlist-1/Items": [first, second]]
+        )
+    }
+
+    /// No overrides: the request is exactly what Play would make, with the
+    /// version remembered for the title.
+    func test_linkPlaybackRequest_plainLink_isWhatPlayWouldStart() async {
+        MediaVersionPreferenceStore(defaults: defaults).setPreferredMediaSourceID("v-remembered", forItem: "movie-1", userID: "user-1")
+        let movie = await loadedForLink(BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaType: "Video"))
+        XCTAssertEqual(
+            movie.linkPlaybackRequest(overrides: .init()),
+            PlaybackRequest(itemID: "movie-1", mediaSourceID: "v-remembered")
+        )
+    }
+
+    /// The link's version beats the remembered one, and its overrides ride along.
+    func test_linkPlaybackRequest_carriesTheLinksVersionAndOverrides() async {
+        MediaVersionPreferenceStore(defaults: defaults).setPreferredMediaSourceID("v-remembered", forItem: "movie-1", userID: "user-1")
+        let movie = await loadedForLink(BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, mediaType: "Video"))
+        let overrides = PlaybackLinkOverrides(start: .time(90), mediaSourceID: "v-linked", audioStreamIndex: 2, showsStats: true)
+        let request = movie.linkPlaybackRequest(overrides: overrides)
+        XCTAssertEqual(request?.mediaSourceID, "v-linked")
+        XCTAssertEqual(request?.linkOverrides, overrides)
+    }
+
+    /// `?playlist=` plays that member from the playlist's page, which queues
+    /// the rest after it.
+    func test_linkPlaybackRequest_playsTheNamedMember() async {
+        let playlist = await playlistForLink()
+        let request = playlist.linkPlaybackRequest(memberID: "movie-2", overrides: .init())
+        XCTAssertEqual(request?.itemID, "movie-2")
+        XCTAssertNil(request?.linkOverrides)
+        XCTAssertEqual(playlist.orderedPlaylistItems.map(\.id), ["movie-1", "movie-2"])
+    }
+
+    /// A title that isn't in the playlist plays alone, and the link says so.
+    func test_linkPlaybackRequest_aNonMemberPlaysAlone_withANotice() async {
+        let playlist = await playlistForLink()
+        let request = playlist.linkPlaybackRequest(memberID: "movie-9", overrides: .init(notices: ["Couldn't read the start time."]))
+        XCTAssertEqual(request?.itemID, "movie-9")
+        XCTAssertEqual(request?.linkOverrides?.notices, [
+            "Couldn't read the start time.", "That title isn't in this playlist, so it plays alone.",
+        ])
+    }
+
+    func test_linkPlaybackRequest_nothingToPlay_isNil() async {
+        let folder = await loadedForLink(BaseItemDto(id: "folder-1", name: "Movies", type: .collectionFolder))
+        XCTAssertNil(folder.linkPlaybackRequest(overrides: .init(start: .time(5))))
+    }
 }
 
 /// `DELETE` paths in the order they were sent. `MockURLProtocol.requestHandler`

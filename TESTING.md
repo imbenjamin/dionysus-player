@@ -195,6 +195,12 @@ Keychain as it's made.
   timing races; the first also freezes ambient motion
   (`UITestHarness.freezesAmbientMotion`), which otherwise keeps the tree
   moving.
+- `-UITestShortPlayerTimers` shortens the Apple TV transport's fade (4 s to
+  1.5 s) and the end-credits Next Up countdown (10 s to 5 s), for journeys
+  that wait one out to prove something doesn't happen
+  (`UITestConfiguration.shortensPlayerTimers`). Opt-in per journey: a
+  journey that presses its way around the transport or the card races the
+  shorter timers.
 - `-UITestScenario <name>` picks the stub's behaviour (below).
 - `-UITestSeedLongSearchHistory` fills Search's history to its cap (#244).
 - `-UITestSeedMissingSearchHistory` seeds one recent search for an item the
@@ -300,7 +306,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `manyUsers` | Six users, more than Who's Watching? fits in a row |
 | `librariesFailAtFirst` | `/Views` 500s for five seconds, then succeeds |
 | `thinDynamicRails` | Home's dynamic rails nearly all too thin, so it keeps loading |
-| `skipIntro` / `earlyCredits` | An intro from 0:00 to 83:20, listed twice (a copy ending 20s sooner first, as from two segment providers); credits from 0:05 (Next Up at once) |
+| `skipIntro` / `earlyCredits` | An intro from 0:00 to 83:20, listed twice (a copy ending 20s sooner first, as from two segment providers); credits from 0:05 on every episode and playlist member (Next Up at once, where something follows) |
 | `audioOffsetUnavailable` | The fake engine reports the audio offset unavailable (a server transcode's case), so the player hides its offset controls |
 | `rebuffering` | The fake engine stalls 2 s into playback, reporting `.buffering` for 3 s (the Apple TV's stall spinner) |
 | `slowSeek` | The fake engine holds every seek in `.seeking` for 3 s before it lands (the Apple TV's spinner on a long jump) |
@@ -495,7 +501,12 @@ it; everything in the modal is still audited.
    to hold still after a pause). A sleep stays only to prove something does
    *not* happen (a fade that shouldn't come, a repeat that should have
    stopped, the shell's three-second sidebar fallback): then it is a named
-   constant or has a comment that says what the duration proves. Polling
+   constant or has a comment that says what the duration proves, and a
+   player timer it waits out is shortened with `-UITestShortPlayerTimers`.
+   A wait for something to go is `poll { !element.exists }`, never
+   `XCTAssertFalse(element.waitForExistence(…))`, which returns at once
+   while the element is still on its way out and otherwise always takes
+   its whole timeout. Polling
    loops (`poll`, `awaitStillAfterTyping`) are not sleeps.
 7. **A tap straight after `typeText` goes through
    `awaitStillAfterTyping(keyboard:)`.** On the iPad, from iPadOS 27, the
@@ -508,6 +519,16 @@ it; everything in the modal is still audited.
    the field focused, and the pad comes back with the next dialog, eating
    that dialog's tap too: a button that opens a dialog over a field drops
    its focus first (`DownloadsQualityLadderView`'s Reset All).
+8. **A `dionysus://` link (#406) reaches a running app through
+   `XCUIDevice.shared.system.open`.** `XCUIApplication.open` relaunches the
+   app with the link (seen in its log), so the link lands during a cold
+   launch's restore: right for a cold-launch journey, wrong for anything
+   about the app already running (`DeepLinkJourneyTests.openLink`). A
+   toast can be gone before either returns, so read what it announced
+   under `-UITestSimulateVoiceOver` (`HomeScreen.lastAnnouncement`) rather
+   than the capsule. By hand, `Scripts/deeplink.sh '<link>' [udid]` opens
+   one on the booted Simulator (`xcrun simctl openurl`). The grammar is in
+   "Deep links for debugging and tests" below.
 
 **An intermittent failure may be a crash, not flake.** The tell is an empty
 `app.debugDescription` (`Query chain: Find: Target Application`) with
@@ -523,6 +544,66 @@ its first failure, so the plan's `retryOnFailure` never runs (Apple's known
 issue 108565878, [forum thread 809989](https://developer.apple.com/forums/thread/809989));
 until 2026-10-09 every iOS UI failure in CI was final. A retried failure shows
 as "Iteration 2 of 3" in the log.
+
+## Deep links for debugging and tests
+
+`dionysus://` links (#406) open any place, title or playback on both apps,
+so a debugging session or a journey can go straight to the screen it's
+about instead of tapping its way there. They exist for this: nothing in the
+app makes, copies or shares one, and they navigate and play, never change
+data (no sign-in, sign-out, delete, watched or favourite). How each app
+applies them is in `CLAUDE.md`, "Deep links".
+
+**Opening one by hand**, on a Simulator only:
+
+```sh
+Scripts/deeplink.sh 'dionysus://play/<itemID>?t=1:02:03&stats=1'   # the booted Simulator
+Scripts/deeplink.sh 'item/<seriesID>?season=2' <udid>                # the scheme is optional
+```
+
+Quote the link (`?` and `&` mean something to the shell). The script wraps
+`xcrun simctl openurl`; it never reaches a physical device. A link sent
+while the app is signed out is held through sign-in (10 minutes at most);
+one sent to a closed app opens it and applies once the session restores.
+
+**In a journey:** on iOS, `XCUIDevice.shared.system.open(url)` reaches the
+running app (`DeepLinkJourneyTests.openLink`, which also accepts the
+system's "Open in Dionysus?" prompt); `XCUIApplication.open` relaunches the
+app with it, which suits only a cold-launch journey ("Writing a journey",
+rule 8). On the Apple TV `app.open(url)` is what the journeys use. The stub
+server's ids are `UITestFixtureIdentity`'s (`primaryMovieID`, `seriesID`,
+`playlistID`, `moviesLibraryID`, `missingItemID` for a title that's gone…).
+A journey whose subject isn't the path to a page may open the page by link.
+
+**Ids** are Jellyfin's: on a real server, the web client's address bar
+(`#/details?id=…`) or `/Items`. A stream index is Jellyfin's
+`MediaStream.Index`, as `/Items/<id>/PlaybackInfo` reports it (not the
+engine's track id).
+
+| Link | Opens |
+|---|---|
+| `home`, `search?q=<text>`, `downloads` (iOS) | That tab; Search runs the query. On the Apple TV, `downloads` lands on Home and says why |
+| `profile[/<page>]` | Profile, or a page: `account`, `appearance`, `playback`, `playback/advanced`, `downloads` (iOS), `about`, `about/license`, `about/privacy` |
+| `quickconnect/approve?code=<6 digits>` | Quick Connect approval with the code filled in, never submitted |
+| `library/<libraryID>` | The library's grid; `sort=title\|dateAdded\|releaseDate`, `order=asc\|desc`, `genre=`, `studio=`, `filter=favorites\|unwatched\|watched` |
+| `item/<id>` | The title's page, pushed on Home; `season=<id or number>` (a show), `section=cast\|chapters\|details\|similar` |
+| `downloaded/<itemID>` (iOS) | The download's page, offline too |
+| `play/<id>` | Plays what the page's Play would, over that page: a show or season its next episode, a playlist its Play target with the rest queued, a collection its first title alone |
+| `play/<id>?…` | `t=<seconds or [h:]m:ss>` (`t=0` restarts), `chapter=<n>` (1-based), `source=<mediaSourceID>`, `audio=<index>`, `subtitle=<index or off>`, `stats=1`, `playlist=<id>` (that member, the rest queued), `offline=1` (iOS: the download) |
+| `play/<id>?mode=direct\|transcode&bitrate=<bps>` | **DEBUG builds only.** For that session, instead of Profile's Streaming and Max Bitrate. `transcode` allows the server to transcode (Allow Transcoding) but doesn't force it; a low `bitrate` does. A bitrate alone allows transcoding; with `mode=direct` it's ignored |
+| `server?url=<address>` | **DEBUG builds only**, and only with no server set up: server setup with the address filled in, past the welcome. Connects to nothing until you do |
+
+Any link also takes `server=<ServerConfiguration.id>` and `user=<userID>`,
+and is refused (with a toast) for a server or user other than the signed-in
+one; it never switches. Overrides apply to the one session or page they
+open and are never stored.
+
+**What goes wrong is said, never silent**: a link always lands somewhere
+sensible, and a toast (also a VoiceOver announcement, which journeys read)
+says what it couldn't do: an unreadable link or parameter, a title or
+library that can't be found, a season, section, chapter, track or version
+the title lacks. An unreadable parameter is skipped and the rest applies.
+Release builds don't read `mode`, `bitrate` or `server`.
 
 ## Where they run in CI
 
@@ -559,11 +640,14 @@ same on both versions (the 16, since the 17 can't run iOS 18), so a failure on
 one OS isn't a screen-size difference. Locally, Apple offers an iOS 18.2 runtime (`xcrun
 simctl runtime add <dmg>`); iPad (A16) needs 18.3, so use iPad (10th
 generation), the same 820×1180pt screen. Each environment runs with
-`fail-fast: false` and uploads a failed `.xcresult` as
+`fail-fast: false` and uploads its `.xcresult` as
 `ui-test-results-<plan>-<device>-iOS-<version>` (the Duo's,
-`ui-test-results-<plan>-iPhone-Duo-<pose>`), with a second bundle,
-`UITestResults-attempt-2.xcresult`, when the plan was run again after the
-test runner crashed (below).
+`ui-test-results-<plan>-iPhone-Duo-<pose>`; the Apple TV's,
+`tv-ui-test-results-<plan>-tvOS-<version>-part-<n>`) when it failed **or when
+a test passed only on a retry** (`build-and-test`'s `retried` output): a
+green job's bundle is the one place to see what the first attempt met. A
+second bundle, `UITestResults-attempt-2.xcresult`, comes with it when the
+plan was run again after the test runner crashed (below).
 
 **The iPhone Duo** runs on iOS 27.1, its only runtime; the image carries it
 and the `iPhone Duo` device type. One job per pose (`duo-poses`) boots it,
@@ -634,13 +718,16 @@ resolve cold until the next nightly. Every `xcodebuild` call passes
 `-test-execution-ordering` flag, so the order comes from `UnitTests-Random`
 and `TVUnitTests-Random`: copies of the unit plans with
 `"testExecutionOrdering": "random"` in `defaultOptions`, listed in `project.yml`
-and used nowhere else. It is **allowed to fail** (`continue-on-error`, no
+and used nowhere else. The hunt is **allowed to fail** (`continue-on-error`, no
 ruleset requires it) and never retries, which would hide what it hunts. When it
 reports a failure, open the job's summary: a test that fails in some orders
 but not the PR plans' is order-dependent, shared state to isolate; one that
 fails on a later iteration is flaky. Fix it, or file it with the log, rather
 than waiting. Once it has been green 14 nights running, consider random order
-for the PR plans too (a later decision, not made).
+for the PR plans too (a later decision, not made). **Change a unit plan and its copy
+together**: `Scripts/ci/test_random_plans.py`, in the PR's "CI scripts" job,
+fails when a pair differs in anything but the order and the configuration's id
+(TQ-26).
 
 - **Not tvOS 26.5, and not `macos-26`** (#319): on tvOS 26.x in CI the
   accessibility tree never shows a page the shell opens after launch. The
@@ -981,6 +1068,10 @@ the detail.
 | File | Pins |
 | --- | --- |
 | `App/AppStateTests` | The phase machine, sign-in and silent sign-in, sign-out, offline launch, and tvOS's Who's Watching? launches |
+| `Core/DeepLinks/DeepLinkTests` | `dionysus://` links (#406): every destination and parameter, start-time formats, what a malformed link or unreadable parameter does, DEBUG-only overrides, and that a built link parses back to itself (the Top Shelf's links unchanged) |
+| `Core/DeepLinks/DeepLinkLibraryTests` | A `dionysus://library` link's grid: the rail's query seeded with its sort, order, genre, studio and filter; finding the library among the user's (not music); what it couldn't read. Also `DeepLinkProfilePageTests`: which Profile page each path names |
+| `Core/DeepLinks/DeepLinkItemOptionsTests` | An item link's season (by id or number, Specials too) and what a page says for a season or section it doesn't have |
+| `Core/DeepLinks/DeepLinkRouterTests` | Whether a link applies now: waiting on a restoring session, holding it through sign-in (10 minutes at most, not across a server change), refusing it for another server or user, stopping once the user changes mid-apply; a `server?url=` link only with no server set up |
 | `Core/Downloads/DownloadFileStoreTests` | Download file paths, sidecars and cleanup |
 | `Core/Downloads/DownloadManagerTests` | Delete (cancelling the task), the queue, one background session, retry budget and error classification |
 | `Core/Downloads/DownloadManagerBackgroundTests` | Adopting in-flight transfers after a relaunch, answering a background relaunch's completion handler, trickplay sheets, a retry that succeeds |
@@ -1022,12 +1113,13 @@ the detail.
 | `Core/Playback/ASSSubtitleGeometryTests` | libass's frame, margins and font scale in both orientations |
 | `Core/Playback/AetherPlaybackEngineClassificationTests` | Playback errors classified as refused, rate-limited or transient |
 | `Core/Playback/AetherPlaybackEngineLoadOptionsTests` | The display context passed to the engine |
+| `Core/Playback/PlaybackLinkOverridesTests` | What a play link asks of its session (#406): its start, the engine track for Jellyfin's stream index, one toast for what it lacks, and (DEBUG-only) its mode and bitrate over the Streaming settings |
 | `Core/Playback/PlaybackSegmentTests` | Duplicate intro, recap and credits segments merged into one |
 | `Core/Playback/StreamFormatDescriptionTests` | Stream format labels for Playback Stats |
 | `Features/AssetDetails/AssetActionTargetsTests` | What Add to Playlist and Delete offer on a detail page, and their words (iOS and the Apple TV) |
 | `Features/AssetDetails/AddToPlaylistViewModelTests` | The Add to Playlist picker: editable destinations, adds, creating one |
-| `Features/AssetDetails/AssetDetailViewModelTests` | Detail pages by kind: loading, play targets, seasons, watched and favourite, deletion, playlists |
-| `Features/Collection/CollectionGridViewModelTests` | Grid queries, sorting and the cascading filters |
+| `Features/AssetDetails/AssetDetailViewModelTests` | Detail pages by kind: loading, play targets (a play link's too), seasons, watched and favourite, deletion, playlists |
+| `Features/Collection/CollectionGridViewModelTests` | Grid queries, sorting and the cascading filters, and the presets a query seeds them with |
 | `Features/Downloads/DownloadsRowCaptionTests` | A download row's caption |
 | `Features/Downloads/DownloadsViewModelTests` | Grouping and bulk actions on the Downloads tab |
 | `Features/Home/DynamicRailCandidateTests` | Which dynamic rails Home offers |
@@ -1040,7 +1132,7 @@ the detail.
 | `Features/Player/PlaybackStatsReportTests` | Playback Stats' rows |
 | `Features/Player/PlayerControlsOverlayTests` | The skip step |
 | `Features/Player/PlayerViewModelOfflineTests` | Offline playback of downloads |
-| `Features/Player/PlayerViewModelTests` | Resume, reporting, transport, tracks, versions, errors, the background reload and stopping while offline |
+| `Features/Player/PlayerViewModelTests` | Resume, reporting, transport, tracks, versions, errors, the background reload and stopping while offline; a play link's start, tracks, version, Playback Stats and (DEBUG-only) mode and bitrate, for its one session |
 | `Features/Player/SubtitleOverlayLayoutTests` | Subtitle metrics on phone and TV |
 | `Features/Profile/QuickConnectApprovalViewModelTests` | Approving another device's code |
 | `Features/Search/SearchViewModelTests` | Search and its history |
@@ -1053,6 +1145,7 @@ the detail.
 | `Shared/Components/OnboardingLayoutTests` | Onboarding's composition per measured device size |
 | `Shared/Components/ToastCenterTests` | Toasts |
 | `Shared/DeviceTiltObserverTests` | Tilt smoothing and the sensor's reference counting |
+| `Shared/Navigation/DeepLinkNavigationTests` | Where each `dionysus://` destination lands on iPhone and iPad: tab, Home's stack, Search's query, the play cue, the page cue for a season or section (not for an offline download), a library to find, Profile's page and Quick Connect's code, and what a link says it couldn't do |
 | `Shared/Navigation/TabBarTintTests` | Which tab bar placements let Home's hero pick the tab tint (iPad's top bar, not a Duo's) |
 
 ### Apple TV unit tests (`DionysusTVTests/`)
@@ -1121,6 +1214,7 @@ the detail.
 | `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), the Cast & Crew and Details tabs, deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
+| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a library's grid with its facets, Profile's License and Advanced, Quick Connect's code filled but not approved, a title's page, a show on the linked season, the Cast tab, a season or section the page doesn't have, playing over it (a show, the player closing first), a start time or chapter, tracks, Playback Stats, a playlist member with the rest queued, the downloaded copy, a missing or unplayable title, an unknown library or Profile page, Quick Connect turned off, another server, an unreadable link or start time, a missing chapter or download, a cold launch, a link held through sign-in; DEBUG-only: a bitrate `mode=direct` can't cap, a server link filling setup's address without connecting, and refused while signed in |
 | `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
 | `DownloadsJourneyTests` | Downloading to completion (an item, or a season at once), the row updating while open, bulk delete, cancelling a selection, and offline after a relaunch with `offline`: a downloaded movie and episode, and a show's page (one season flat, two as seasons) and a season's, each opened and played |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
@@ -1144,6 +1238,8 @@ the detail.
 | `AccountSwitchingJourneyTests` | Remembered accounts (a Quick Connect one too; refused, a password account opens its password screen and a Quick Connect one asks for a new code, `revokedSessions`), Forget This Account, Follow Apple TV Users, Select a User Every Relaunch |
 | `CollectionDetailJourneyTests` | Box sets and playlists, empty and loading |
 | `CollectionGridJourneyTests` | A library's grid: pills, sort, filters, Reset, returning from a detail page |
+| `DeepLinkPlacesJourneyTests` | `dionysus://` links to places (#406): Search's query, Profile and Home, Profile's License and Advanced, Quick Connect's code filled but not approved, a library's grid with its facets, an unknown library, Downloads landing on Home, a show's linked season focused, focus on the cast, chapters not shown; DEBUG-only: a server link filling Find Your Server's address without connecting, and refused while signed in |
+| `DeepLinkPlaybackJourneyTests` | `dionysus://play` links' parameters (#406): a start time or chapter, Playback Stats with the setting off, a playlist member with the rest queued, a playlist over its page |
 | `DetailJourneyTests` | Detail pages: Menu, the keep-alive cap, rows, Full Details, no backdrop, failures |
 | `HomeJourneyTests` | The hero, See All, rails loading, a failing Home |
 | `LaunchJourneyTests` | First launch to Welcome and Find Your Server |
@@ -1163,3 +1259,4 @@ the detail.
 | `ShowDetailJourneyTests` | A show's page: Play, season tabs, episodes, badges |
 | `SidebarJourneyTests` | The sidebar: open, close, choose, fold, retry |
 | `TileShapeJourneyTests` | Tile shapes on screen |
+| `TopShelfLinkJourneyTests` | `dionysus://item` and `play` links, as the Top Shelf opens them and typed without a server: over Home, over a playing title, a missing title, another server, and held through sign-in |

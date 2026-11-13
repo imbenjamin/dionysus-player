@@ -7,6 +7,15 @@ and CI. Design, decisions and milestones:
 done, 2026-10-18). Facts marked with a tvOS version were measured there; tvOS
 26 and 27 behave differently, and 26.0 is the floor.
 
+**Reach a screen by `dionysus://` link, not by remote presses**: on the
+Apple TV Simulator `Scripts/deeplink.sh '<link>' <udid>` chooses the
+sidebar row as a press would and opens a page, a library's filtered grid, a
+Profile page, a show's season or a section's first item focused, or
+playback at a time with Playback Stats showing, in one step; a journey uses
+`app.open(url)`. Every link is in `TESTING.md`, "Deep links for debugging
+and tests"; what the Apple TV does with each is under "Top Shelf" below.
+Downloads and chapters aren't on the Apple TV, and those links say so.
+
 **The icon can't be `dionysus.icon`**: actool compiles no tvOS icon from an
 Icon Composer file and wants an "App Icon & Top Shelf Image" brand-assets set.
 `DionysusTV/Resources/TVAssets.xcassets` is rendered from `dionysus.icon`'s
@@ -578,15 +587,42 @@ source that fails is left out and the rest shown.
   (`DateLastMediaAdded`), not its own `DateCreated`. Unscoped,
   `/Items/Latest` draws on every library, music and books included, and on
   the demo server it once answered four music albums.
-- **Its actions are deep links** (`TVDeepLink`, `TVDeepLinkRouter`,
-  `TVMainView.apply(_:)`): the display action (Select, More Info) opens the
+- **Its actions are deep links** (the shared `DeepLink` and `DeepLinkRouter`
+  in `Core/DeepLinks/`, applied by `TVMainView.apply(_:)`): the display action (Select, More Info) opens the
   title's page (`dionysus://item/<id>?server=<id>`), the play action (Play,
   Play/Pause) plays over that page (`dionysus://play/…`), so Menu lands on
-  the page. A link waits while the session restores and is dropped when
-  signed out or for another server. Applying one takes a few awaits, and
+  the page. A play link plays what the page's Play would
+  (`AssetDetailViewModel.linkPlaybackRequest`, shared with iOS: a playlist
+  its Play target with the rest queued, a collection its first title), with
+  the link's start, version, tracks and Playback Stats for that session
+  (`PlaybackLinkOverrides`). A link waits while the session restores, is
+  held through sign-in for up to 10 minutes, and is refused for another
+  server or user. Applying one takes a few awaits, and
   after each it stops unless the same user is still signed in
-  (`TVDeepLinkRouter.canFinish`): returning after a while, tvOS can hand the
+  (`DeepLinkRouter.canFinish`): returning after a while, tvOS can hand the
   app the link before Who's Watching? signs out.
+- **Links to places choose their sidebar row as a press would**
+  (`TVMainView.applyPlace`), then fill the page: Search's query (run at
+  once, as Search's page may not exist yet to see it change), a library's
+  grid built from the link (`DeepLinkLibrary`) in place of the fresh one the
+  row would start, and Profile's page as the cover its row opens
+  (`TVProfileView.open`: Advanced, License, Privacy Policy, Quick Connect
+  with the code filled, never approved). Profile's panes are all one page
+  here, so `profile/playback` simply opens Profile. Downloads aren't on the
+  Apple TV: those links land on Home and say so.
+- **An item link's season and section focus the page's item**
+  (`TVLinkedItemOptions`, held by the shell for the pushed page until the
+  page has applied it): Season N's tab, or a section's first item, which
+  scrolls the page there (`tvDetailLanding`). Set once, it lost to the
+  page's default claim and the shell's focus handoff, so it's set again
+  until it has held for half a second (three at most). **The link is
+  cleared only after that hold**: it keys the applying task, and clearing
+  it first cancelled the hold after one pass (#462). Chapters aren't on
+  the Apple TV's pages, and a link to them says so.
+- **`server?url=` (DEBUG builds only) is applied by `TVRootView`**, not the
+  shell: it fills Find Your Server's address field (past the welcome) and
+  focuses it, and only while no server is set up. With one, it's refused
+  (said by a toast only when signed in), since it never forgets a server.
 
 - **The text is drawn into the art.** tvOS 27 draws no text over a
   third-party carousel in either style (`.details` shows the bare image), so
@@ -636,6 +672,10 @@ source that fails is left out and the rest shown.
   `loadTopShelfContent()` override doesn't compile under Swift 6, so the
   provider uses the completion-handler one. Art is set at `.screenScale2x`
   only, the scale Apple TV renders (Sodalite).
+- **The provider only carries the reply**: the load and the carousel are
+  `TopShelfCarousel`'s, in `DionysusTV/TopShelf` so the app's unit tests run
+  it over the stub server (`TopShelfCarouselTests`, TQ-25). Put new shelf
+  logic there, not in `ContentProvider`, which no test reaches.
 - **Each target has its own privacy manifest** (root `CLAUDE.md`): the app's
   declares UserDefaults and system boot time (the player's `systemUptime`
   clocks), the extension's UserDefaults.

@@ -188,6 +188,10 @@ targets:
         # it here skips the manual "Does your app use encryption?" prompt
         # on every App Store Connect upload.
         ITSAppUsesNonExemptEncryption: false
+        # `dionysus://` links (DeepLink, #406): debugging and UI tests.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbenjamin.dionysusplayer.deeplink
+            CFBundleURLSchemes: [dionysus]
         # Static approximation of SplashView (App/SplashView.swift) for the
         # brief window before any app code runs — a system snapshot, not a
         # live view, so it can only offer a flat background colour + one
@@ -334,7 +338,7 @@ targets:
         NSLocalNetworkUsageDescription: "Dionysus looks for and connects to your Jellyfin media server on your local network."
         NSBonjourServices:
           - _jellyfin._tcp
-        # The Top Shelf's actions open the app here (TVDeepLink).
+        # `dionysus://` links (DeepLink); the Top Shelf's actions open the app here.
         CFBundleURLTypes:
           - CFBundleURLName: com.imbenjamin.dionysusplayer.deeplink
             CFBundleURLSchemes: [dionysus]
@@ -353,6 +357,8 @@ targets:
         excludes:
           - "**/CLAUDE.md"
       - path: DionysusTV/TopShelf
+      # The Top Shelf's actions are `DeepLink`s; Foundation only.
+      - path: DionysusPlayer/Core/DeepLinks
       - path: DionysusPlayer/Core/Networking
         excludes:
           - "ServerDiscovery.swift"
@@ -417,6 +423,7 @@ targets:
         includes:
           - "Support/**"
           - "App/AppStateTests.swift"
+          - "Core/DeepLinks/**"
           - "Core/Networking/**"
           - "Core/Models/**"
           - "Core/Playback/**"

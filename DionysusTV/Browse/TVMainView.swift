@@ -31,12 +31,17 @@ struct TVMainView: View {
     @State private var rememberedHomeTile: String?
     @State private var rememberedSearchResult: String?
     @State private var rememberedLibraryItems: [String: String] = [:]
+    /// The Profile page the last `dionysus://profile` link asked for (#406).
+    @State private var linkedProfilePage: LinkedProfilePage?
     /// One view model per pushed page, keyed by its path entry, kept while
     /// the entry is on the path: a page torn down by the keep-alive cap
     /// rebuilds from it without a refetch.
     @State private var detailModels: [UUID: AssetDetailViewModel] = [:]
     @State private var pushedGrids: [UUID: CollectionGridViewModel] = [:]
     @State private var rememberedPushedFocus: [UUID: String] = [:]
+    /// A `dionysus://item` link's season and section (#406), for the page it
+    /// pushed, until that page has applied them.
+    @State private var linkedItemOptions: [UUID: TVLinkedItemOptions] = [:]
     /// The path entry pushed beneath a player that's still up
     /// (`openDetailBeneathPlayer`). It counts as covered until the player
     /// closes: as it closes tvOS puts focus where it likes (Watched, not
@@ -212,7 +217,11 @@ struct TVMainView: View {
         switch entry.route {
         case .assetDetail:
             if let model = detailModels[entry.id] {
-                TVDetailPage(viewModel: model, client: client, userID: userID, rememberedFocus: focus, onBack: pop)
+                TVDetailPage(
+                    viewModel: model, client: client, userID: userID, rememberedFocus: focus,
+                    linkedOptions: Binding(get: { linkedItemOptions[entry.id] }, set: { linkedItemOptions[entry.id] = $0 }),
+                    onBack: pop
+                )
             }
         case .collection(let query):
             if let grid = pushedGrids[entry.id] {
@@ -250,18 +259,43 @@ struct TVMainView: View {
         }
     }
 
-    /// A Top Shelf link (M6): Home with its path dropped, the title's page
-    /// pushed over it, and for Play the player over that page, as the hero's
-    /// Play does, so Menu lands on the page. A player already up closes
-    /// first, reporting its stop.
-    private func apply(_ link: TVDeepLink) {
+    /// A link to a title (the Top Shelf's, M6): Home with its path dropped,
+    /// the title's page pushed over it, and for Play the player over that
+    /// page, playing what the page's Play would
+    /// (`AssetDetailViewModel.linkPlaybackRequest`), so Menu lands on the
+    /// page. A playlist member (`?playlist=`) plays over the playlist's page
+    /// with the rest queued. A player already up closes first, reporting its
+    /// stop. Places (Home, Search, Profile, a library) are `applyPlace`'s.
+    private func apply(_ link: DeepLink) {
         deepLinkApplied()
+        let itemID: String
+        /// For Play: the playlist member, if any, and what the link asks of
+        /// the session.
+        let playback: (memberID: String?, overrides: PlaybackLinkOverrides)?
+        /// For a title's page: the season and section to open.
+        var linked: TVLinkedItemOptions?
+        switch link.destination {
+        case .item(let id, let options):
+            (itemID, playback) = (id, nil)
+            let notices = link.issues.compactMap(\.itemNotice)
+            if !options.isEmpty || !notices.isEmpty { linked = TVLinkedItemOptions(options: options, notices: notices) }
+        case .play(let id, let options):
+            // `offline` asks for a download, which the Apple TV doesn't have.
+            itemID = options.playlistID ?? id
+            playback = (options.playlistID == nil ? nil : id, PlaybackLinkOverrides(options, issues: link.issues))
+        case .home, .search, .downloads, .downloaded, .profile, .quickConnectApproval, .library:
+            applyPlace(link.destination, issues: link.issues)
+            return
+        case .serverSetup:
+            ToastCenter.shared.post(.notice(DeepLink.cantOpenMessage))
+            return
+        }
         TVPlayerPresenter.dismissPlayer()
         if nav.destination != .home || !nav.path.isEmpty { select(.home) }
         Task { @MainActor in
-            // Asked after every await (`TVDeepLinkRouter.canFinish`).
+            // Asked after every await (`DeepLinkRouter.canFinish`).
             @MainActor func canFinish() -> Bool {
-                TVDeepLinkRouter.canFinish(appliedFor: userID, isSignedIn: appState.phase == .main, signedInUserID: appState.signedInUserID)
+                DeepLinkRouter.canFinish(appliedFor: userID, isSignedIn: appState.phase == .main, signedInUserID: appState.signedInUserID)
             }
             // The closing player has to leave the presented chain before
             // another can be presented, and Home has to rebuild before the push.
@@ -270,22 +304,33 @@ struct TVMainView: View {
             }
             try? await Task.sleep(for: .milliseconds(300))
             guard canFinish() else { return }
-            let dto = try? await client.item(userID: userID, itemID: link.itemID)
+            let dto = try? await client.item(userID: userID, itemID: itemID)
             guard canFinish() else { return }
             guard let dto else {
                 // Gone or not this user's: the page shows its own error and Retry.
-                open(.assetDetail(itemID: link.itemID, preloadedItem: nil))
+                open(.assetDetail(itemID: itemID, preloadedItem: nil))
                 return
             }
             let item = MediaItem(dto: dto, images: await client.makeImageURLBuilder())
-            let target = link.action == .play ? await TVHeroPlayTarget.resolve(item, client: client, userID: userID) : nil
+            guard let playback else {
+                open(.assetDetail(itemID: item.id, preloadedItem: item))
+                if let linked, let entry = nav.path.last { linkedItemOptions[entry.id] = linked }
+                return
+            }
+            let page = AssetDetailViewModel(client: client, userID: userID, itemID: item.id, preloadedItem: item)
+            await page.load()
             guard canFinish() else { return }
-            guard let target else {
+            guard page.loadState == .loaded,
+                  let request = page.linkPlaybackRequest(memberID: playback.memberID, overrides: playback.overrides)
+            else {
+                let notices = playback.overrides.notices + [String(localized: "Nothing to play here.")]
+                ToastCenter.shared.post(.notice(PlaybackLinkOverrides.combined(notices) ?? ""))
                 open(.assetDetail(itemID: item.id, preloadedItem: item))
                 return
             }
+            let queue = item.kind == .playlist ? page.orderedPlaylistItems : []
             var playbackEnded: (@MainActor (PlaybackSessionOutcome) -> Void)?
-            let presented = TVPlayerPresenter.present(PlaybackRequest(itemID: target), client: client, userID: userID) { outcome in
+            let presented = TVPlayerPresenter.present(request, queue: queue, client: client, userID: userID) { outcome in
                 playbackEnded?(outcome)
             }
             if presented {
@@ -294,6 +339,73 @@ struct TVMainView: View {
                 open(.assetDetail(itemID: item.id, preloadedItem: item))
             }
         }
+    }
+
+    /// A link to a place (#406): its sidebar row chosen as if by hand, so
+    /// the page starts as a choice starts it, then filled as the link asks:
+    /// Search's query, a library's sort and facets, Profile's page. Downloads
+    /// aren't on the Apple TV, so their links land on Home and say so. A
+    /// player already up closes first, reporting its stop.
+    private func applyPlace(_ destination: DeepLink.Destination, issues: [DeepLink.Issue]) {
+        TVPlayerPresenter.dismissPlayer()
+        Task { @MainActor in
+            for _ in 0..<40 where TVPlayerPresenter.isPlayerUp {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard canFinishLink() else { return }
+            switch destination {
+            case .home:
+                go(to: .home)
+            case .downloads, .downloaded:
+                go(to: .home)
+                ToastCenter.shared.post(.notice(DeepLink.noDownloadsMessage))
+            case .search(let query):
+                go(to: .search)
+                // Searched for as typed would be. Run here: Search's page
+                // may not be built yet to see the query change.
+                if let query {
+                    search.query = query
+                    search.queryChanged()
+                }
+            case .profile(let path):
+                go(to: .profile)
+                if let page = DeepLink.ProfilePage(path: path) {
+                    linkedProfilePage = LinkedProfilePage(page: page)
+                } else {
+                    ToastCenter.shared.post(.notice(DeepLink.ProfilePage.notFoundMessage))
+                }
+            case .quickConnectApproval(let code):
+                go(to: .profile)
+                linkedProfilePage = LinkedProfilePage(page: .quickConnect(code: code))
+            case .library(let id, let options):
+                await sidebar.loadIfNeeded()
+                guard canFinishLink() else { return }
+                guard let library = DeepLinkLibrary.library(id: id, in: libraries) else {
+                    ToastCenter.shared.post(.notice(DeepLinkLibrary.notFoundMessage))
+                    return
+                }
+                // In place of the grid choosing the row would start with.
+                libraryGrids[id] = CollectionGridViewModel(
+                    client: client, userID: userID, query: DeepLinkLibrary.query(for: library, options: options)
+                )
+                rememberedLibraryItems[id] = nil
+                go(to: .library(id))
+                let notices = issues.compactMap(\.libraryNotice)
+                if !notices.isEmpty { ToastCenter.shared.post(.notice(notices.joined(separator: " "))) }
+            case .item, .play, .serverSetup:
+                break
+            }
+        }
+    }
+
+    /// Chooses `row` unless the shell is on it already with nothing pushed.
+    private func go(to row: TVSidebarLayout.Row) {
+        if nav.destination != row || !nav.path.isEmpty { select(row) }
+    }
+
+    /// Asked after every await of a link (`DeepLinkRouter.canFinish`).
+    private func canFinishLink() -> Bool {
+        DeepLinkRouter.canFinish(appliedFor: userID, isSignedIn: appState.phase == .main, signedInUserID: appState.signedInUserID)
     }
 
     private func pop() {
@@ -321,6 +433,7 @@ struct TVMainView: View {
         detailModels[entry.id] = nil
         pushedGrids[entry.id] = nil
         rememberedPushedFocus[entry.id] = nil
+        linkedItemOptions[entry.id] = nil
     }
 
     /// The root page, built only while its row is the destination.
@@ -330,7 +443,7 @@ struct TVMainView: View {
         case .search:
             TVSearchView(viewModel: search, rememberedResultID: $rememberedSearchResult)
         case .profile:
-            TVProfileView()
+            TVProfileView(linkedPage: linkedProfilePage)
         case .library(let id):
             if let library = libraries.first(where: { $0.id == id }), let grid = libraryGrids[id] {
                 TVCollectionGridView(
@@ -420,6 +533,7 @@ struct TVMainView: View {
             detailModels = [:]
             pushedGrids = [:]
             rememberedPushedFocus = [:]
+            linkedItemOptions = [:]
         }
         let selection = withAnimation(TVMotion.moving(.easeOut(duration: 0.2), reduceMotion: reduceMotion)) { nav.select(row) }
         guard selection == .navigated else { return }

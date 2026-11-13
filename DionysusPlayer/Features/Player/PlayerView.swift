@@ -43,6 +43,9 @@ struct PlayerView: View {
     /// forward wherever it started. `PlayerViewModel.playbackQueue` covers how it
     /// takes over "what's next" resolution.
     var playbackQueue: [MediaItem] = []
+    /// What a `dionysus://play` link asked of this session (#406); see
+    /// `PlaybackLinkOverrides`.
+    var linkOverrides: PlaybackLinkOverrides? = nil
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -439,6 +442,11 @@ struct PlayerView: View {
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height }
             action: { isLandscapeWindow = $0 }
         .task { await setUpIfNeeded() }
+        // A link arriving mid-playback (#406) closes the player as its close
+        // button does, so the stop is reported (`PlayerCloseRequest`).
+        .onAppear { PlayerCloseRequest.shared.playerAppeared() }
+        .onDisappear { PlayerCloseRequest.shared.playerDisappeared() }
+        .onChange(of: PlayerCloseRequest.shared.token) { Task { await close() } }
         // Controls fade only while `.playing`; every other state cancels a
         // pending fade and forces them back on screen. That covers a mid-scrub
         // `.seeking` spell landing as a stale timer was about to fire, and
@@ -606,9 +614,11 @@ struct PlayerView: View {
             // explicitly; `resumeSeconds` alone can't, a first chapter being `0`.
             startFromBeginning: startFromBeginning || startSeconds != nil, mediaSourceID: mediaSourceID,
             downloadedItem: downloadedItem, downloadStore: downloadedItem != nil ? appState.downloadManager.store : nil,
-            playbackQueue: playbackQueue
+            playbackQueue: playbackQueue,
+            linkOverrides: linkOverrides
         )
         viewModel = newViewModel
+        if newViewModel.linkShowsStats { showPlaybackStats = true }
         await newViewModel.start(resumeSeconds: startSeconds)
     }
 
