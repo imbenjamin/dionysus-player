@@ -15,10 +15,24 @@ final class PlaybackStatsReportTests: XCTestCase {
 
     /// The rows and ids iOS's journeys read stay as they were.
     func test_video_keepsIOSsRowsInOrder() {
-        let section = PlaybackStatsReport.video(stats, sourceVideoStream: nil)
+        let section = PlaybackStatsReport.video(stats, sourceVideoStream: nil, versionLabel: nil)
         XCTAssertEqual(section.rows.prefix(4).map(\.label), ["Resolution", "Frame Rate", "Bitrate", "Codec"])
         XCTAssertEqual(section.rows.first { $0.label == "Codec" }?.value, "HEVC Main 10")
         XCTAssertTrue(section.rows.contains { $0.label == "Enhancement Layer" }, "Shown for a Dolby Vision source")
+    }
+
+    /// The version playing leads the Video section, only when the title has
+    /// more than one; its value carries one identifier on both platforms.
+    func test_statsReport_versionRowOnlyWithLabel() {
+        let withVersion = PlaybackStatsReport.video(stats, sourceVideoStream: nil, versionLabel: "1080p").rows
+        XCTAssertEqual(withVersion.first?.label, "Version")
+        XCTAssertEqual(withVersion.first?.value, "1080p")
+        XCTAssertEqual(withVersion.first?.valueIdentifier, A11yID.PlaybackStats.versionValue)
+        XCTAssertEqual(withVersion.dropFirst().first?.label, "Resolution")
+
+        let without = PlaybackStatsReport.video(stats, sourceVideoStream: nil, versionLabel: nil).rows
+        XCTAssertFalse(without.contains { $0.label == "Version" })
+        XCTAssertTrue(without.allSatisfy { $0.valueIdentifier == nil }, "Other rows keep each platform's own scheme")
     }
 
     func test_audioDecoder_hasItsOwnID() {

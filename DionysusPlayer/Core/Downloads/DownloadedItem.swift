@@ -123,6 +123,16 @@ final class DownloadedItem: Identifiable {
     @Attribute(.unique) var itemID: String
     var userID: String
     var mediaSourceID: String?
+    /// Which of the title's versions this is ("1080p", "Director's Cut"), as
+    /// the version question listed it when the download began (#289), and
+    /// shown as the Details tab's Version row. `nil` for a title with one
+    /// version, and for every row downloaded before versions could be
+    /// chosen: optional, so SwiftData adds the column by lightweight
+    /// migration and existing rows read `nil`. A label rather than only
+    /// `mediaSourceID` because the download plays offline, where the
+    /// server's other sources (and so `MediaVersion`'s labelling) are out of
+    /// reach.
+    var versionLabel: String?
     private var kindRaw: String
     var title: String
 
@@ -358,6 +368,7 @@ final class DownloadedItem: Identifiable {
         itemID: String,
         userID: String,
         mediaSourceID: String?,
+        versionLabel: String? = nil,
         kind: DownloadedItemKind,
         title: String,
         seriesID: String? = nil,
@@ -406,6 +417,7 @@ final class DownloadedItem: Identifiable {
         self.itemID = itemID
         self.userID = userID
         self.mediaSourceID = mediaSourceID
+        self.versionLabel = versionLabel
         self.kindRaw = kind.rawValue
         self.title = title
         self.seriesID = seriesID

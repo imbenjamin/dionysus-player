@@ -9,31 +9,35 @@ import SwiftUI
 /// with the current preference so "just tap Download" reproduces the
 /// normal one-tap behavior exactly.
 ///
+/// With two or more versions it also asks which to download (#289, D9),
+/// starting on the remembered playback pick, else the first; the sheet is
+/// then the answer, and no version question follows it.
+///
 /// Purely a picker + confirm/cancel — it doesn't resolve audio tracks or
 /// enqueue anything itself. `DownloadButton` runs its own existing
 /// `startResolving()`/prompt/enqueue flow afterward, with the chosen
-/// resolution/preset substituted for `DownloadPreferencesStore`'s.
+/// resolution/preset (and version) substituted for the defaults.
 struct AdvancedDownloadOptionsView: View {
     let itemTitle: String
-    let onDownload: (DownloadResolution, DownloadBitratePreset) -> Void
+    /// The chosen resolution, preset and version. The version is `nil` for a
+    /// title with only one, when there was nothing to pick.
+    let onDownload: (DownloadResolution, DownloadBitratePreset, String?) -> Void
 
-    /// Raw source specs `DownloadTranscodeCalculator.estimatedTotalBytes`
-    /// needs — the same fields `DownloadManager.enqueue` reads off the
-    /// item's `mediaSources`, passed down from `DownloadButton` rather than
-    /// fetched here (this sheet has no network access; a detail page's
-    /// `MediaItem` already carries this). All independently
-    /// optional/defaulted so an item missing some metadata just loses the
-    /// estimate (`estimatedSizeText` returns `nil`) rather than needing a
-    /// non-optional contract it can't always satisfy.
-    var sourceWidth: Int? = nil
-    var sourceHeight: Int? = nil
-    var sourceBitrate: Int? = nil
-    var isSourceHDR: Bool = false
-    var sourceVideoCodec: String? = nil
+    /// The item's sources, every version, passed down from `DownloadButton`
+    /// rather than fetched here (this sheet has no network access). Drives
+    /// the Version picker (#289, D9), shown with two or more, and the size
+    /// estimate, which reads the selected version's specs: the same fields
+    /// `DownloadManager.enqueue` reads off the source it downloads. Empty
+    /// just loses the estimate (`estimatedSizeText` returns `nil`).
+    let sources: [MediaSourceInfo]
     var runtimeTicks: Int64? = nil
 
     @State private var resolution: DownloadResolution
     @State private var preset: DownloadBitratePreset
+    /// The Version picker's selection, a `MediaVersion.id`; `nil` with no
+    /// picker. Choosing here is the answer: no version question follows the
+    /// sheet's Download.
+    @State private var versionID: String?
     @Environment(\.dismiss) private var dismiss
 
     /// A fresh read on every access, not cached — cheap (one `UserDefaults`
@@ -41,22 +45,25 @@ struct AdvancedDownloadOptionsView: View {
     /// immediately if this sheet was already on screen underneath it.
     private var ladder: DownloadQualityLadderStore { DownloadQualityLadderStore() }
 
+    /// `sources` as the picker lists them; empty with fewer than two.
+    private var versions: [MediaVersion] { MediaVersion.versions(of: sources) }
+
+    /// The selected version's source, or the only one.
+    private var selectedSource: MediaSourceInfo? { DownloadVersionChoice.source(for: versionID, in: sources) }
+    private var selectedVideoStream: MediaStream? { selectedSource?.mediaStreams?.first { $0.type == "Video" } }
+
     init(
         itemTitle: String, initialResolution: DownloadResolution, initialPreset: DownloadBitratePreset,
-        sourceWidth: Int? = nil, sourceHeight: Int? = nil, sourceBitrate: Int? = nil,
-        isSourceHDR: Bool = false, sourceVideoCodec: String? = nil, runtimeTicks: Int64? = nil,
-        onDownload: @escaping (DownloadResolution, DownloadBitratePreset) -> Void
+        sources: [MediaSourceInfo] = [], initialVersionID: String? = nil, runtimeTicks: Int64? = nil,
+        onDownload: @escaping (DownloadResolution, DownloadBitratePreset, String?) -> Void
     ) {
         self.itemTitle = itemTitle
-        self.sourceWidth = sourceWidth
-        self.sourceHeight = sourceHeight
-        self.sourceBitrate = sourceBitrate
-        self.isSourceHDR = isSourceHDR
-        self.sourceVideoCodec = sourceVideoCodec
+        self.sources = sources
         self.runtimeTicks = runtimeTicks
         self.onDownload = onDownload
         _resolution = State(initialValue: initialResolution)
         _preset = State(initialValue: initialPreset)
+        _versionID = State(initialValue: initialVersionID)
     }
 
     /// Recomputed on every access, which is what makes it live: SwiftUI
@@ -77,9 +84,12 @@ struct AdvancedDownloadOptionsView: View {
     /// absolute number isn't.
     private var estimatedTotalBytes: Int64? {
         DownloadTranscodeCalculator.estimatedTotalBytes(
-            resolution: resolution, preset: preset, isSourceHDR: isSourceHDR,
-            sourceWidth: sourceWidth, sourceHeight: sourceHeight, sourceBitrate: sourceBitrate,
-            sourceVideoCodec: sourceVideoCodec, runtimeTicks: runtimeTicks,
+            resolution: resolution, preset: preset, isSourceHDR: DownloadManager.isHDR(selectedVideoStream),
+            sourceWidth: selectedVideoStream?.width, sourceHeight: selectedVideoStream?.height,
+            // The video track's own bitrate first, as `DownloadManager.enqueue`
+            // caps by.
+            sourceBitrate: selectedVideoStream?.bitRate ?? selectedSource?.bitrate,
+            sourceVideoCodec: selectedVideoStream?.codec, runtimeTicks: runtimeTicks,
             videoBitrateLadder: ladder.videoBitrate(resolution:preset:)
         )
     }
@@ -96,6 +106,20 @@ struct AdvancedDownloadOptionsView: View {
         NavigationStack {
             List {
                 Section {
+                    // First: which file comes before how it's encoded. `.menu`
+                    // for the same reason as the two pickers below.
+                    if versions.count > 1 {
+                        Picker("Version", selection: $versionID) {
+                            ForEach(versions) { version in
+                                // The server's own name for it, not localized.
+                                Text(verbatim: version.label)
+                                    .accessibilityIdentifier(A11yID.AdvancedDownloadOptions.versionOption(version.id))
+                                    .tag(Optional(version.id))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .accessibilityIdentifier(A11yID.AdvancedDownloadOptions.versionPicker)
+                    }
                     // `.menu` style, not the default `List`-push style —
                     // the push loses a hit-testing fight against this
                     // sheet's own pan/resize gesture recognizer at a fixed
@@ -148,7 +172,7 @@ struct AdvancedDownloadOptionsView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Download", systemImage: "arrow.down.circle") {
-                        onDownload(resolution, preset)
+                        onDownload(resolution, preset, versions.count > 1 ? versionID : nil)
                         dismiss()
                     }
                     .toolbarTitleUnlessVertical()

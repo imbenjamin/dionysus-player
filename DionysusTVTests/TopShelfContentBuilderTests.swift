@@ -93,7 +93,7 @@ final class TopShelfContentBuilderTests: XCTestCase {
     func test_actions_areDeepLinksForThisServer() throws {
         let entry = try XCTUnwrap(build(resume: [movie("r1")]).first)
         XCTAssertEqual(DeepLink(url: entry.displayURL), DeepLink(.item(id: "r1", options: .init()), serverID: server))
-        XCTAssertEqual(DeepLink(url: entry.playURL), DeepLink(.play(id: "r1", options: .init()), serverID: server))
+        XCTAssertEqual(DeepLink(url: entry.playURL), DeepLink(.play(id: "r1", options: .init(fromTopShelf: true)), serverID: server))
     }
 
     func test_logo_isTheItemsOwn_elseItsShows_elseNone() throws {

@@ -10,6 +10,15 @@ struct DownloadedDetailTabsView: View {
         case cast = "Cast & Crew"
         case details = "Details"
         var id: String { rawValue }
+
+        /// Not `rawValue`, which is the English segment title.
+        var identifier: String {
+            switch self {
+            case .about: A11yID.Downloads.tab("about")
+            case .cast: A11yID.Downloads.tab("cast")
+            case .details: A11yID.Downloads.tab("details")
+            }
+        }
     }
 
     let item: DownloadedItem
@@ -49,7 +58,9 @@ struct DownloadedDetailTabsView: View {
             if availableTabs.count > 1 {
                 Picker("Section", selection: $selectedTab) {
                     ForEach(availableTabs) { tab in
-                        Text(tab.rawValue).tag(tab)
+                        Text(tab.rawValue)
+                            .accessibilityIdentifier(tab.identifier)
+                            .tag(tab)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -105,7 +116,10 @@ private struct DownloadedAboutTabContent: View {
 }
 
 /// The offline counterpart to `TechnicalDetailsView`, with no version picker: a
-/// download has only the version that was fetched.
+/// download has only the version that was fetched. A "Version" row says which
+/// that was when the title had several (`DownloadedItem.versionLabel`, #289),
+/// since its Resolution is the download's own and can't tell a 4K source's
+/// download from a 1080p one's.
 ///
 /// "Quality" comes from `item.bitrate`, the achieved bitrate, rather than
 /// `displayName(in: item.requestedResolution)`, which names the requested tier.
@@ -122,6 +136,11 @@ private struct DownloadedTechnicalDetailsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
+                // First, as the live tab's Version picker is: the rest
+                // describes this version's download.
+                if let versionLabel = item.versionLabel {
+                    SummaryRow(label: "Version", value: versionLabel, valueIdentifier: A11yID.Downloads.detailsVersionValue)
+                }
                 if let resolution = resolutionText { SummaryRow(label: "Resolution", value: resolution) }
                 SummaryRow(label: "Dynamic Range", value: item.isHDR ? "HDR10" : "SDR")
                 SummaryRow(label: "Quality", value: qualityText, accessibilityValue: qualityAccessibilityText)

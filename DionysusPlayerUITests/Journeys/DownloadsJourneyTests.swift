@@ -271,4 +271,205 @@ final class DownloadsJourneyTests: UITestCase {
         audioChoice.tap()
         detail.awaitDownloadCompletion()
     }
+
+    // MARK: - Versions (#289)
+
+    /// Under `multipleVersions`, movie 1 ("The Quiet Ascent") is a 4K HDR10
+    /// and a 1080p file, each with the fixture's two audio tracks.
+    private let quietAscent = UITestFixtureIdentity.primaryMovieID
+
+    private func openQuietAscent() -> AssetDetailScreen {
+        launch(scenario: "multipleVersions")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(quietAscent)
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        return detail
+    }
+
+    /// Opens the movie's downloaded page from the Downloads tab and checks
+    /// its Details tab's Version row reads `label`.
+    private func assertDownloadedVersion(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+        TabBar(app: app).downloads.tap()
+        let downloads = DownloadsScreen(app: app)
+        downloads.standaloneRow(itemID: quietAscent).awaitExistence("the download's row", file: file, line: line).tap()
+        assertOpenDownloadReadsVersion(label, file: file, line: line)
+    }
+
+    /// Checks the downloaded page on screen: its Details tab's Version row
+    /// reads `label`.
+    private func assertOpenDownloadReadsVersion(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+        let downloads = DownloadsScreen(app: app)
+        let details = downloads.detailTab("details")
+        details.awaitExistence("the downloaded page's Details tab", file: file, line: line)
+        // Swiped on the page's Play, never `app`, which on the Duo starts on
+        // the fold.
+        let play = app.buttons[A11yID.Downloads.playButton]
+        for _ in 0..<4 where !details.isHittable && play.isHittable { play.swipeUp() }
+        details.tap()
+        downloads.detailsVersionValue.awaitExistence("the Details tab's Version row", file: file, line: line)
+        XCTAssertEqual(downloads.detailsVersionValue.label, label, file: file, line: line)
+    }
+
+    /// Download asks which version first, then which audio track of it; the
+    /// download records the version, and its Details says which.
+    func test_download_multiVersionMovie_asksVersionThenAudio_andShowsVersionOnTheDownload() {
+        let detail = openQuietAscent()
+        detail.downloadButton.tap()
+
+        detail.versionOption("\(quietAscent)-4k").awaitExistence("the version question's 4K HDR10")
+        detail.versionOption("\(quietAscent)-1080p").tap()
+        let audioChoice = app.buttons["ENG EAC3"]
+        audioChoice.awaitExistence("the audio-track prompt, after the version")
+        audioChoice.tap()
+        detail.awaitDownloadCompletion()
+
+        assertDownloadedVersion("1080p")
+    }
+
+    /// Dismissing the version question starts nothing: no audio prompt, and
+    /// the button is back to its idle Download.
+    func test_download_cancelVersion_startsNothing() {
+        let detail = openQuietAscent()
+        detail.downloadButton.tap()
+        let option = detail.versionOption("\(quietAscent)-1080p")
+        option.awaitExistence("the version question")
+        // A tap above the popover dismisses it, as a person would.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        option.awaitDisappearance("the version question")
+
+        // Long enough for the audio prompt to have come had the dismissal
+        // carried on.
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        XCTAssertFalse(app.buttons["ENG EAC3"].exists, "No audio prompt after a cancelled version question")
+        XCTAssertTrue(detail.downloadButton.isEnabled, "The button is idle again")
+        XCTAssertFalse(detail.downloadButton.label.localizedCaseInsensitiveContains("Downloaded"))
+        XCTAssertFalse(detail.downloadButton.label.localizedCaseInsensitiveContains("Preparing"))
+    }
+
+    /// The long-press sheet picks the version itself (D9): its Download goes
+    /// straight to the audio prompt, with no version question in between,
+    /// and the download is the version the sheet chose.
+    func test_advancedOptions_hasVersionPicker_andSkipsTheDialog() {
+        let detail = openQuietAscent()
+        let sheet = detail.openAdvancedDownloadOptions()
+        sheet.selectVersion("\(quietAscent)-1080p")
+
+        sheet.downloadButton.tap()
+        let audioChoice = app.buttons["ENG EAC3"]
+        let deadline = Date().addingTimeInterval(UITestCase.defaultTimeout)
+        while !audioChoice.exists, Date() < deadline {
+            XCTAssertFalse(detail.anyVersionOption.exists, "No version question after the sheet")
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        audioChoice.awaitExistence("the audio-track prompt, after the sheet's Download")
+        audioChoice.tap()
+        detail.awaitDownloadCompletion()
+
+        assertDownloadedVersion("1080p")
+    }
+
+    // MARK: - Season versions (#289)
+
+    /// Under `multipleVersions`, the show's Season 1 episodes are each a 4K
+    /// HDR10 and a 1080p file; Season 2 is mixed (S2:E1 the same pair, S2:E2
+    /// Original and Extended Edition, S2:E3 one file).
+    private func openShowWithVersions() -> AssetDetailScreen {
+        launch(scenario: "multipleVersions")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.showsLibraryID)
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+        collection.card(UITestFixtureIdentity.seriesID).tap()
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        return detail
+    }
+
+    /// Season 1's episodes all have the same versions: one question, and its
+    /// answer is every episode's download.
+    func test_seasonDownload_matchingVersions_asksOnce() {
+        let detail = openShowWithVersions()
+        detail.seasonDownloadButton.awaitExistence("the season's download button").tap()
+
+        let hd = detail.bulkVersionOption(1)
+        hd.awaitExistence("the season's version question")
+        XCTAssertEqual(hd.label, "1080p", "The question lists the versions in the server's order")
+        hd.tap()
+        XCTAssertFalse(
+            detail.bulkRowPicker(UITestFixtureIdentity.episodeID(season: 1, episode: 1)).exists,
+            "Matching versions ask once, never per episode"
+        )
+        detail.awaitSeasonDownloaded()
+
+        TabBar(app: app).downloads.tap()
+        let downloads = DownloadsScreen(app: app)
+        downloads.showRow(seriesID: UITestFixtureIdentity.seriesID).awaitExistence("the show's row").tap()
+        for episode in 1...3 {
+            downloads.episodeRow(itemID: UITestFixtureIdentity.episodeID(season: 1, episode: episode))
+                .awaitExistence("Season 1, Episode \(episode) on the show's page").tap()
+            assertOpenDownloadReadsVersion("1080p")
+            app.navigationBackButton.tap()
+        }
+    }
+
+    /// Season 2's versions differ: a sheet lists only the episodes with a
+    /// choice, and each downloads the version picked for it.
+    func test_seasonDownload_differingVersions_asksPerEpisode() {
+        let detail = openShowWithVersions()
+        detail.selectSeason("season-2")
+        detail.seasonDownloadButton.awaitExistence("the season's download button").tap()
+
+        let e1 = UITestFixtureIdentity.episodeID(season: 2, episode: 1)
+        let e2 = UITestFixtureIdentity.episodeID(season: 2, episode: 2)
+        let e3 = UITestFixtureIdentity.episodeID(season: 2, episode: 3)
+        detail.bulkRowPicker(e1).awaitExistence("S2:E1's row in the sheet")
+        detail.bulkRowPicker(e2).awaitExistence("S2:E2's row in the sheet")
+        XCTAssertFalse(detail.bulkRowPicker(e3).exists, "A single-version episode has no row")
+        XCTAssertFalse(detail.bulkVersionOption(0).exists, "Differing versions never ask once")
+
+        detail.selectBulkVersion(episodeID: e2, versionID: "\(e2)-extended")
+        detail.bulkDownloadButton.tap()
+        detail.awaitSeasonDownloaded()
+
+        TabBar(app: app).downloads.tap()
+        let downloads = DownloadsScreen(app: app)
+        downloads.showRow(seriesID: UITestFixtureIdentity.seriesID).awaitExistence("the show's row").tap()
+        downloads.episodeRow(itemID: e2).awaitExistence("S2:E2 on the show's page").tap()
+        assertOpenDownloadReadsVersion("Extended Edition")
+    }
+
+    /// Dismissing either question downloads nothing: the button is back to
+    /// its idle Download Season.
+    func test_seasonDownload_cancel_startsNothing() {
+        let detail = openShowWithVersions()
+        detail.seasonDownloadButton.awaitExistence("the season's download button").tap()
+        let option = detail.bulkVersionOption(0)
+        option.awaitExistence("the season's version question")
+        // A tap above the popover dismisses it, as a person would.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        option.awaitDisappearance("the season's version question")
+        assertSeasonDownloadIdle(detail, "after the single question's dismissal")
+
+        detail.selectSeason("season-2")
+        detail.seasonDownloadButton.tap()
+        detail.bulkCancelButton.awaitExistence("the per-episode sheet's Cancel").tap()
+        detail.bulkRowPicker(UITestFixtureIdentity.episodeID(season: 2, episode: 1))
+            .awaitDisappearance("the per-episode sheet")
+        assertSeasonDownloadIdle(detail, "after the sheet's Cancel")
+    }
+
+    private func assertSeasonDownloadIdle(
+        _ detail: AssetDetailScreen, _ when: String, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        // Long enough for a download to have started had the dismissal
+        // carried on.
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        let button = detail.seasonDownloadButton
+        XCTAssertTrue(button.isEnabled, "The button is idle again \(when)", file: file, line: line)
+        XCTAssertFalse(button.label.localizedCaseInsensitiveContains("Downloading"), file: file, line: line)
+        XCTAssertFalse(button.label.localizedCaseInsensitiveContains("Downloaded"), file: file, line: line)
+    }
 }

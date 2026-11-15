@@ -32,8 +32,20 @@ enum TVPlayerPresenter {
         )
         let host = TVPlayerHostController(viewModel: viewModel)
         host.onClose = onClose
-        host.makeViewModel = { itemID, engine in
-            PlayerViewModel(client: client, userID: userID, itemID: itemID, engine: engine, playbackQueue: queue)
+        host.makeViewModel = { itemID, mediaSourceID, engine in
+            PlayerViewModel(
+                client: client, userID: userID, itemID: itemID, engine: engine,
+                mediaSourceID: mediaSourceID, playbackQueue: queue
+            )
+        }
+        // The next item's version (#289, D2), when the player had none to
+        // hand over, and the answer to its question.
+        host.decideNextVersion = { itemID, previousVersionLabel in
+            await MediaVersionResolver(client: client, userID: userID, preferences: MediaVersionPreferenceStore())
+                .continuation(forItemID: itemID, previousVersionLabel: previousVersionLabel)
+        }
+        host.rememberVersion = { mediaSourceID, itemID in
+            MediaVersionPreferenceStore().setPreferredMediaSourceID(mediaSourceID, forItem: itemID, userID: userID)
         }
         host.modalPresentationStyle = .fullScreen
         guard let presenter = presentedChain().last else { return false }

@@ -21,7 +21,7 @@ final class TVHeroPlayTargetTests: XCTestCase {
         }
         let movie = MediaItem(dto: BaseItemDto(id: "m1", name: "Arrival", type: .movie), images: images)
         let target = await TVHeroPlayTarget.resolve(movie, client: client(), userID: "u")
-        XCTAssertEqual(target, "m1")
+        XCTAssertEqual(target?.id, "m1")
     }
 
     /// The spike's bug: a series in the hero needs its Play to resolve an
@@ -34,7 +34,20 @@ final class TVHeroPlayTargetTests: XCTestCase {
         }
         let series = MediaItem(dto: BaseItemDto(id: "s1", name: "Pioneer One", type: .series), images: images)
         let target = await TVHeroPlayTarget.resolve(series, client: client(), userID: "u")
-        XCTAssertEqual(target, "e3")
+        XCTAssertEqual(target?.id, "e3")
+    }
+
+    /// The episode comes back whole, resume point included: the version
+    /// question (#289) plays the remembered version without asking when there
+    /// is one.
+    func test_aSeries_target_keepsTheEpisodesResumePoint() async {
+        MockURLProtocol.requestHandler = { request in
+            let episode = BaseItemDto(id: "e3", name: "Alone in the Night", type: .episode, userData: UserItemDataDto(playbackPositionTicks: 600_000_000))
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [episode], totalRecordCount: 1))
+        }
+        let series = MediaItem(dto: BaseItemDto(id: "s1", name: "Pioneer One", type: .series), images: images)
+        let target = await TVHeroPlayTarget.resolve(series, client: client(), userID: "u")
+        XCTAssertEqual(target?.canResume, true)
     }
 
     func test_aSeriesNeverStarted_playsItsFirstEpisode() async {
@@ -44,7 +57,7 @@ final class TVHeroPlayTargetTests: XCTestCase {
         }
         let series = MediaItem(dto: BaseItemDto(id: "s1", name: "Pioneer One", type: .series), images: images)
         let target = await TVHeroPlayTarget.resolve(series, client: client(), userID: "u")
-        XCTAssertEqual(target, "e1")
+        XCTAssertEqual(target?.id, "e1")
     }
 
     func test_aSeriesWithNoEpisodes_hasNothingToPlay() async {

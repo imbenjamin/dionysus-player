@@ -6,6 +6,9 @@ struct MovieDetailView: View {
     let viewModel: AssetDetailViewModel
     @Environment(AppState.self) private var appState
     @State private var playbackRequest: PlaybackRequest?
+    /// A Play, Resume or Restart waiting on its version (#289); see
+    /// `versionedPlayback(_:anchor:viewModel:play:)`.
+    @State private var versionedStart: VersionedPlaybackStart?
     /// Bumped from `fullScreenCover(onDismiss:)`: immediately, to pick up
     /// `applyOptimisticPlaybackPosition(_:)`'s guess already applied to
     /// `viewModel.item`, and again once `refreshItem()` finishes, for the server's
@@ -47,19 +50,17 @@ struct MovieDetailView: View {
                             HStack(spacing: 8) {
                                 PlayResumeButtonRow(
                                     item: item,
-                                    onPlay: { versionID in
-                                        if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
-                                        playbackRequest = PlaybackRequest(itemID: item.id, mediaSourceID: versionID)
+                                    onStart: {
+                                        versionedStart = .start(item, request: PlaybackRequest(itemID: item.id), anchor: .playButton)
                                     },
-                                    onResume: {
-                                        playbackRequest = PlaybackRequest(
-                                            itemID: item.id, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: item.id)
+                                    onRestart: {
+                                        versionedStart = .start(
+                                            item, request: PlaybackRequest(itemID: item.id, startFromBeginning: true), anchor: .restartButton
                                         )
                                     },
-                                    onRestart: { versionID in
-                                        if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: item.id) }
-                                        playbackRequest = PlaybackRequest(itemID: item.id, startFromBeginning: true, mediaSourceID: versionID)
-                                    }
+                                    versionHost: VersionedPlaybackHost(
+                                        start: $versionedStart, viewModel: viewModel, play: { playbackRequest = $0 }
+                                    )
                                 )
                                 // See `MediaItem.playbackProgressIdentity`: without
                                 // this, the progress bar and Play-vs-Resume label can

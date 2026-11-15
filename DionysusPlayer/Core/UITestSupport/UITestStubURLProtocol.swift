@@ -593,7 +593,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // `.noDeletePermission` fails nothing wholesale: the standard catalogue
         // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
         // which has the method.
-        case .standard, .emptyLibrary, .offline, .noDeletePermission, .folderlessSeasons, .noPlaylistEditPermission,
+        case .standard, .emptyLibrary, .offline, .noDeletePermission, .folderlessSeasons, .multipleVersions, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers,
@@ -855,7 +855,11 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return syntheticMP4(durationSeconds: runtimeSeconds(forVideoPath: path))
 
         case path.hasSuffix("/PlaybackInfo"):
-            return try encode(playbackInfo(forPath: path))
+            return try encode(playbackInfo(
+                forPath: path,
+                mediaSourceID: requestedMediaSourceID(query: query, request: request),
+                scenario: UITestConfiguration.scenario
+            ))
 
         // A single item. Checked before the collection route, which shares its
         // prefix.
@@ -1087,6 +1091,12 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
     /// Segments for the player scenarios; none otherwise.
     private static func mediaSegments(forItem itemID: String) -> [MediaSegmentDto] {
         let ticksPerSecond: Int64 = 10_000_000
+        if itemID == UITestConfiguration.earlyCreditsItemID {
+            return [MediaSegmentDto(
+                id: "outro-\(itemID)", itemId: itemID, type: .outro,
+                startTicks: 5 * ticksPerSecond, endTicks: 2880 * ticksPerSecond
+            )]
+        }
         switch UITestConfiguration.scenario {
         case .skipIntro:
             // Listed twice, the shorter first, as a server with two segment
@@ -1110,12 +1120,32 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         }
     }
 
-    private static func playbackInfo(forPath path: String) -> PlaybackInfoResponse {
+    /// The `MediaSourceId` a `/PlaybackInfo` request names: in the query, as
+    /// Jellyfin reads it, or in the JSON body, where `JellyfinAPIClient` sends
+    /// it. Matched case-insensitively on the key, as the server's binding is.
+    private static func requestedMediaSourceID(query: [URLQueryItem], request: URLRequest) -> String? {
+        if let fromQuery = query.first(where: { $0.name.caseInsensitiveCompare("MediaSourceId") == .orderedSame })?.value {
+            return fromQuery
+        }
+        guard let body = requestBody(of: request),
+              let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return nil }
+        return object.first { $0.key.caseInsensitiveCompare("MediaSourceId") == .orderedSame }?.value as? String
+    }
+
+    /// Every source of the item, or only the one `mediaSourceID` names, as
+    /// Jellyfin's `MediaInfoHelper` answers (id compared case-insensitively).
+    static func playbackInfo(
+        forPath path: String, mediaSourceID: String?, scenario: UITestScenario
+    ) -> PlaybackInfoResponse {
         let itemID = path.components(separatedBy: "/Items/").last?
             .components(separatedBy: "/").first ?? ""
-        let source = UITestFixtureLibrary.allItems[itemID]?.mediaSources?.first
+        var sources = UITestFixtureLibrary.allItems[itemID]
+            .map { UITestFixtureLibrary.mediaSources(for: $0, scenario: scenario) } ?? []
+        if let mediaSourceID {
+            sources = sources.filter { $0.id?.caseInsensitiveCompare(mediaSourceID) == .orderedSame }
+        }
         return PlaybackInfoResponse(
-            mediaSources: source.map { [$0] } ?? [],
+            mediaSources: sources,
             playSessionId: "uitest-play-session",
             errorCode: nil
         )

@@ -139,6 +139,36 @@ final class DeepLinkJourneyTests: UITestCase {
         AssetDetailScreen(app: app).playButton.awaitExistence("the title's page under the player")
     }
 
+    /// `from=topshelf` is the Apple TV's Top Shelf Play (#289). iOS has no
+    /// Top Shelf, so such a link plays as a plain one: the version
+    /// remembered from the page's question (1080p, not the server's default
+    /// 4K HDR10), with no question asked.
+    func testPlayLink_fromTopShelf_playsTheRememberedVersion_withoutAsking() {
+        let movie = UITestFixtureIdentity.primaryMovieID
+        launch(scenario: "multipleVersions")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(movie)
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.playButton.tap()
+        detail.versionOption("\(movie)-1080p").awaitExistence("the version question")
+        detail.versionOption("\(movie)-1080p").tap()
+        let player = PlayerScreen(app: app)
+        player.closeButton.awaitExistence("the player")
+        player.close()
+        player.closeButton.awaitDisappearance("the player")
+
+        openLink(link("play/\(movie)?from=topshelf&stats=1"))
+        let deadline = Date().addingTimeInterval(UITestCase.defaultTimeout)
+        while !player.closeButton.exists, Date() < deadline {
+            XCTAssertFalse(detail.anyVersionOption.exists, "No version question on the way to the player")
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        player.statsVersionValue.awaitExistence("Playback Stats' Version row")
+        XCTAssertEqual(player.statsVersionValue.label, "1080p")
+    }
+
     /// A show plays what its page's Play would.
     func testPlayLink_forAShow_playsAnEpisode() {
         launchAtHome()

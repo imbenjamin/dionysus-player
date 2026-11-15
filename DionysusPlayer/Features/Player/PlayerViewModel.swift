@@ -186,6 +186,39 @@ final class PlayerViewModel {
     /// reflects the real file rather than what was asked for.
     private(set) var activeMediaSourceID: String?
 
+    /// The label of the version playing ("1080p", "Director's Cut"), for
+    /// Playback Stats' Version row and for continuing in the same version on
+    /// the next item (#289). `nil` unless the title has more than one version.
+    ///
+    /// Read from the item's own `mediaSources`, never `playbackInfo`'s: a
+    /// `/PlaybackInfo` request naming a `MediaSourceId` answers with that one
+    /// source, and `MediaVersion.versions(of:)` labels by comparing them all
+    /// (an edition name is the difference between two filenames). Left `nil`
+    /// offline for now.
+    private(set) var activeVersionLabel: String?
+
+    /// `nextEpisode`'s versions, once known: from its own `mediaSources`, or
+    /// fetched when the listing it came from didn't carry them. `nil` until
+    /// then, and if that fetch fails.
+    private var nextItemVersions: (itemID: String, versions: [MediaVersion])?
+
+    /// What the next item should play, worked out the way a continuing
+    /// session should (`MediaVersionChoice.continuation`): its remembered pick,
+    /// else the version labelled as the one playing now, else ask. `nil` until
+    /// `nextEpisode` and its versions are known; the Apple TV's in-place
+    /// advance reads it before moving on.
+    ///
+    /// Computed rather than stored, so it is right whichever of the next
+    /// item's versions and this session's `activeVersionLabel` arrives last.
+    var nextItemVersionChoice: MediaVersionChoice? {
+        guard let nextEpisode, let nextItemVersions, nextItemVersions.itemID == nextEpisode.id else { return nil }
+        return .continuation(
+            versions: nextItemVersions.versions,
+            preferredSourceID: versionPreferenceStore.preferredMediaSourceID(forItem: nextEpisode.id, userID: userID),
+            previousLabel: activeVersionLabel
+        )
+    }
+
     /// The negotiated `PlaybackInfoResponse.playSessionId`, meaningful only in
     /// "Allow Transcoding" mode where the server allocates a session; `nil` in
     /// Direct Play Always. Reported with every start, progress and stop call so
@@ -218,6 +251,9 @@ final class PlayerViewModel {
     private let nextUpPreferenceStore: NextUpPreferenceStore
     private let streamPreferenceStore: StreamPreferenceStore
     private let spatialAudioStore: SpatialAudioStore
+    /// The remembered version picks, read for the next item's
+    /// `nextItemVersionChoice`.
+    private let versionPreferenceStore: MediaVersionPreferenceStore
     /// The Spatial Audio settings this session was loaded with, read once at
     /// `start()` (a change applies from the next title). Nil where the
     /// engine never renders: a server transcode and offline.
@@ -481,11 +517,13 @@ final class PlayerViewModel {
         streamPreferenceStore: StreamPreferenceStore = StreamPreferenceStore(),
         audioOffsetStore: AudioOffsetStore = AudioOffsetStore(),
         spatialAudioStore: SpatialAudioStore = SpatialAudioStore(),
+        versionPreferenceStore: MediaVersionPreferenceStore = MediaVersionPreferenceStore(),
         playbackQueue: [MediaItem] = [],
         linkOverrides: PlaybackLinkOverrides? = nil
     ) {
         self.client = client
         self.spatialAudioStore = spatialAudioStore
+        self.versionPreferenceStore = versionPreferenceStore
         self.userID = userID
         self.itemID = itemID
         self.engine = engine
@@ -667,6 +705,7 @@ final class PlayerViewModel {
                 linkNotices.append(String(localized: "This title has no such version, so the usual one is playing."))
             }
             activeMediaSourceID = source?.id
+            activeVersionLabel = mediaItem.mediaVersions.first { $0.id == source?.id }?.label
             activePlaySessionID = playbackInfo.playSessionId
             sourceVideoStream = source?.mediaStreams?.first { $0.type == "Video" }
             let audioStreams = source?.mediaStreams?.filter { $0.type == "Audio" } ?? []
@@ -970,6 +1009,7 @@ final class PlayerViewModel {
             guard let index = playbackQueue.firstIndex(where: { $0.id == item.id }),
                   index + 1 < playbackQueue.count else { return }
             nextEpisode = playbackQueue[index + 1]
+            loadNextItemVersions(for: playbackQueue[index + 1])
             return
         }
 
@@ -979,7 +1019,27 @@ final class PlayerViewModel {
             guard let dto = try? await self?.client.nextEpisode(
                 currentEpisodeID: item.id, seriesID: seriesID, seasonID: seasonID, userID: userID
             ) else { return }
-            self?.nextEpisode = MediaItem(dto: dto, images: images)
+            let next = MediaItem(dto: dto, images: images)
+            self?.nextEpisode = next
+            self?.loadNextItemVersions(for: next)
+        }
+    }
+
+    /// Fills `nextItemVersions` for `nextItemVersionChoice`. A season's
+    /// episode listing and a playlist's members come without `MediaSources`
+    /// (`defaultFields`), so those are fetched, the field alone; a failed
+    /// fetch leaves the choice `nil`, and each platform then decides afresh
+    /// (`MediaVersionResolver.continuation`, iOS's page and the Apple TV's
+    /// `decideNextVersion`), never playing the server's default unasked.
+    private func loadNextItemVersions(for next: MediaItem) {
+        if let sources = next.dto.mediaSources {
+            nextItemVersions = (next.id, MediaVersion.versions(of: sources))
+            return
+        }
+        let userID = self.userID
+        Task { [weak self] in
+            guard let dto = try? await self?.client.item(userID: userID, itemID: next.id, fields: "MediaSources") else { return }
+            self?.nextItemVersions = (next.id, MediaVersion.versions(of: dto.mediaSources ?? []))
         }
     }
 

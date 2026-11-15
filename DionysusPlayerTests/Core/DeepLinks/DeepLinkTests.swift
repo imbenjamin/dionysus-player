@@ -31,6 +31,26 @@ final class DeepLinkTests: XCTestCase {
                        [URLQueryItem(name: "server", value: "http://jf.local")])
     }
 
+    /// The Top Shelf's Play follows the page's version rule (#289), so its
+    /// links say where they came from; a plain play link never asks.
+    func test_parse_fromTopShelf() {
+        XCTAssertEqual(playOptions("dionysus://play/m1?from=topshelf")?.fromTopShelf, true)
+        XCTAssertEqual(playOptions("dionysus://play/m1")?.fromTopShelf, false)
+        XCTAssertEqual(playOptions("dionysus://play/m1?from=elsewhere")?.fromTopShelf, false)
+        XCTAssertEqual(parse("dionysus://play/m1?from=elsewhere")?.issues, [])
+    }
+
+    /// Built with `from=topshelf`, round-tripped, and a shelf link made
+    /// before it (an older install's cached carousel) still parses.
+    func test_build_topShelfLinkCarriesFrom() {
+        let link = DeepLink(.play(id: "abc123", options: .init(fromTopShelf: true)), serverID: "http://jf.local")
+        let items = URLComponents(url: link.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertTrue(items.contains(URLQueryItem(name: "from", value: "topshelf")), link.url.absoluteString)
+        XCTAssertEqual(DeepLink(url: link.url), link)
+        let old = parse("dionysus://play/abc123?server=http://jf.local")
+        XCTAssertEqual(old?.destination, .play(id: "abc123", options: .init()))
+    }
+
     // MARK: - Server and user
 
     func test_serverAndUser_areOptional_andEmptyMeansAbsent() {
@@ -209,6 +229,7 @@ final class DeepLinkTests: XCTestCase {
             .play(id: "m1", options: .init()),
             .play(id: "m1", options: .init(start: .time(90.5), mediaSourceID: "v", audioStreamIndex: 0, subtitle: .off, showsStats: true, prefersDownload: true, playlistID: "p")),
             .play(id: "m1", options: .init(start: .chapter(2), subtitle: .stream(4))),
+            .play(id: "m1", options: .init(fromTopShelf: true)),
         ]
         #if DEBUG
         destinations += [

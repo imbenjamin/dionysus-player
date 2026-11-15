@@ -32,12 +32,20 @@ struct PlaylistDetailView: View {
     let viewModel: AssetDetailViewModel
     @Environment(AppState.self) private var appState
     @State private var playbackRequest: PlaybackRequest?
-    /// Mirrors `ShowDetailView`'s `pendingNextEpisodeID`: `PlayerView`'s
+    /// Mirrors `ShowDetailView`'s `pendingNextEpisode`: `PlayerView`'s
     /// `onRequestNextItem` fires while this page's `.fullScreenCover` is
     /// still presented, and reassigning `playbackRequest` directly there
-    /// was unreliable live — so the id is stashed here and applied only
-    /// from `onDismiss`, once the cover has gone through `nil`.
-    @State private var pendingNextItemID: String?
+    /// was unreliable live — so the start (with the finished session's
+    /// version label and the player's decision about the next member's
+    /// version, #289) is stashed here and applied only from `onDismiss`, once
+    /// the cover has gone through `nil`.
+    @State private var pendingNextItem: VersionedPlaybackStart?
+    /// The Play button's start waiting on its version (#289), asked about
+    /// next to the button; see `versionedPlayback(_:anchor:viewModel:play:)`.
+    @State private var versionedStart: VersionedPlaybackStart?
+    /// The same for a row's Play and for auto-advance, asked about from the
+    /// page.
+    @State private var pageVersionedStart: VersionedPlaybackStart?
     /// See `MovieDetailView.refreshTrigger` — same fix: `viewModel` is a
     /// plain `let` here too, so a post-playback `viewModel.item`/
     /// `orderedPlaylistItems` change needs this `@State` mutation to force
@@ -63,9 +71,18 @@ struct PlaylistDetailView: View {
                                 item: item,
                                 targetEpisode: resumeTarget,
                                 titleOverride: resumeTarget.episodeLabel.map { "\(resumeTarget.railTitle) \($0)" } ?? resumeTarget.railTitle,
-                                onPlay: { _ in playbackRequest = PlaybackRequest(itemID: resumeTarget.id) },
-                                onResume: { playbackRequest = PlaybackRequest(itemID: resumeTarget.id) },
-                                onRestart: { _ in playbackRequest = PlaybackRequest(itemID: resumeTarget.id, startFromBeginning: true) }
+                                onStart: {
+                                    versionedStart = .start(resumeTarget, request: PlaybackRequest(itemID: resumeTarget.id), anchor: .playButton)
+                                },
+                                onRestart: {
+                                    versionedStart = .start(
+                                        resumeTarget, request: PlaybackRequest(itemID: resumeTarget.id, startFromBeginning: true),
+                                        anchor: .restartButton
+                                    )
+                                },
+                                versionHost: VersionedPlaybackHost(
+                                    start: $versionedStart, viewModel: viewModel, play: { playbackRequest = $0 }
+                                )
                             )
                             // See `MovieDetailView`'s identical `.id(...)`
                             // — without it, the progress bar/Play-vs-Resume
@@ -89,10 +106,22 @@ struct PlaylistDetailView: View {
                     if !viewModel.orderedPlaylistItems.isEmpty {
                         PlaylistItemList(
                             items: viewModel.orderedPlaylistItems,
-                            onPlayItem: { itemID in playbackRequest = PlaybackRequest(itemID: itemID) },
+                            // A row's Play resumes a part-watched member, so
+                            // it decides as Resume would (D1, D4).
+                            onPlayItem: { member in
+                                pageVersionedStart = .start(
+                                    member, request: PlaybackRequest(itemID: member.id),
+                                    anchor: .row(member.playlistItemID ?? member.id)
+                                )
+                            },
                             client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager,
                             viewModel: viewModel
                         )
+                        // Each row's Play asks its own question
+                        // (`versionQuestionAnchor(rowID:)`).
+                        .environment(\.versionedRowHost, VersionedPlaybackHost(
+                            start: $pageVersionedStart, viewModel: viewModel, play: { playbackRequest = $0 }
+                        ))
                     }
 
                     if !viewModel.similar.isEmpty {
@@ -121,16 +150,19 @@ struct PlaylistDetailView: View {
             }
             .duoVerticalPreferred()
         }
+        // A row's Play and auto-advance ask from here (#289): the list's rows
+        // aren't one anchor, and auto-advance has none.
+        .versionedPlayback($pageVersionedStart, anchor: .page, viewModel: viewModel) { playbackRequest = $0 }
         // A `dionysus://play` link (#406) plays what this page's Play would.
         .playsDeepLinkCue(viewModel) { playbackRequest = $0 }
         .fullScreenCover(
             item: $playbackRequest,
             onDismiss: {
                 // Only reached once `playbackRequest` has gone through
-                // `nil` — see `pendingNextItemID`'s doc comment for why.
-                if let pendingNextItemID {
-                    self.pendingNextItemID = nil
-                    playbackRequest = PlaybackRequest(itemID: pendingNextItemID)
+                // `nil` — see `pendingNextItem`'s doc comment for why.
+                if let pendingNextItem {
+                    self.pendingNextItem = nil
+                    pageVersionedStart = pendingNextItem
                     return
                 }
                 refreshTrigger = UUID()
@@ -144,7 +176,11 @@ struct PlaylistDetailView: View {
                 itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
                 startSeconds: request.startSeconds,
                 onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) },
-                onRequestNextItem: { pendingNextItemID = $0 },
+                onRequestNextItem: { itemID, previousVersionLabel, versionChoice in
+                    pendingNextItem = .continuation(
+                        versionChoice, request: PlaybackRequest(itemID: itemID, previousVersionLabel: previousVersionLabel)
+                    )
+                },
                 playbackQueue: viewModel.orderedPlaylistItems,
                 linkOverrides: request.linkOverrides
             )

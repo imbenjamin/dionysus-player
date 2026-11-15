@@ -98,7 +98,9 @@ enum TopShelfContentBuilder {
             image1x: image1x,
             image2x: image2x,
             displayURL: DeepLink(.item(id: item.id, options: .init()), serverID: serverID).url,
-            playURL: DeepLink(.play(id: item.id, options: .init()), serverID: serverID).url,
+            // `from=topshelf`: Play asks which version as the page's Play
+            // would (#289), where any other play link never asks.
+            playURL: DeepLink(.play(id: item.id, options: .init(fromTopShelf: true)), serverID: serverID).url,
             logoURL: logo.flatMap { images.url(itemID: $0.itemID, imageType: "Logo", tag: $0.tag, maxWidth: 800) },
             remainingText: remainingMinutes.map { String(localized: "\(durationText(minutes: $0)) remaining") },
             artworkKey: artworkKey(

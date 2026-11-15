@@ -44,6 +44,15 @@ enum UITestScenario: String {
     /// Jellyfin refuses it. Delete Season then goes episode by episode.
     case folderlessSeasons
 
+    /// `.standard`'s catalogue with several versions of some titles, as a
+    /// library holds when a title exists in more than one file: the first
+    /// movie in 4K HDR10 and 1080p, the second as the original and a Director's
+    /// Cut, every episode of Season 1 in 4K and 1080p, and Season 2 mixed (one
+    /// of each, an Original/Extended Edition pair, one single). `/PlaybackInfo`
+    /// answers every source, or only the one `MediaSourceId` names, as Jellyfin
+    /// does.
+    case multipleVersions
+
     /// `.standard`'s catalogue with every playlist's permissions lookup
     /// answering 404 — Jellyfin's "permissions not found" for a user who neither
     /// owns the playlist nor is shared on it — and any add or removal refused
@@ -320,6 +329,16 @@ enum UITestConfiguration {
     /// Opt-in per journey, since a shorter fade or countdown races any
     /// journey that presses its way around the transport or the card.
     static var shortensPlayerTimers: Bool { isActive && flag("UITestShortPlayerTimers") }
+
+    /// One item given `.earlyCredits`' end credits (from 0:05) on top of
+    /// another scenario's catalogue, so a journey reaches Next Up's advance
+    /// from it within seconds under, say, `.multipleVersions` (#289): the
+    /// fake engine's 1:30:00 is longer than an episode's runtime, so a link
+    /// can't start near its end. One item only, so the item advanced to
+    /// doesn't advance again mid-assertion.
+    static var earlyCreditsItemID: String? {
+        isActive ? UserDefaults.standard.string(forKey: "UITestEarlyCreditsItem") : nil
+    }
 
     /// The tvOS player's accessible transport, which otherwise needs
     /// VoiceOver or Switch Control running; XCUITest can run neither.

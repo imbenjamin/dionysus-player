@@ -311,9 +311,13 @@ final class DownloadManager: NSObject {
 
     /// `mediaSource`/`audioTrack`/`subtitleTracks` come from the caller's own
     /// `playbackInfo` fetch and prompts; this neither re-fetches nor re-prompts.
+    /// `versionLabel` names which of the title's versions `mediaSource` is,
+    /// recorded on the row (`DownloadedItem.versionLabel`); `nil` when the
+    /// title has only one.
     func enqueue(
         item: MediaItem,
         mediaSource: MediaSourceInfo,
+        versionLabel: String? = nil,
         audioTrack: MediaStream?,
         subtitleTracks: [MediaStream],
         resolution: DownloadResolution,
@@ -378,6 +382,7 @@ final class DownloadManager: NSObject {
             itemID: item.id,
             userID: userID,
             mediaSourceID: mediaSourceID,
+            versionLabel: versionLabel,
             kind: item.kind == .episode ? .episode : .movie,
             title: item.name,
             seriesID: item.dto.seriesId,
@@ -479,9 +484,14 @@ final class DownloadManager: NSObject {
         let item = MediaItem(dto: dto, images: images)
 
         let info = try await client.playbackInfo(itemID: itemID, userID: row.userID, mediaSourceID: row.mediaSourceID)
-        guard let mediaSource = info.mediaSources?.first(where: { $0.id == row.mediaSourceID }) ?? info.mediaSources?.first else {
+        let sameVersion = info.mediaSources?.first { $0.id == row.mediaSourceID }
+        guard let mediaSource = sameVersion ?? info.mediaSources?.first else {
             throw DownloadError.missingMediaSource
         }
+        // Read before `enqueue` replaces the row. Kept only when the same
+        // version is still there: the fallback is another file, which the
+        // old label would misname.
+        let versionLabel = sameVersion != nil ? row.versionLabel : nil
         let streams = mediaSource.mediaStreams ?? []
         let audioTracks = streams.filter { $0.type == "Audio" }
         // The originally chosen index if this negotiation still offers it,
@@ -493,7 +503,8 @@ final class DownloadManager: NSObject {
         let subtitleTracks = streams.filter { $0.type == "Subtitle" }
 
         try await enqueue(
-            item: item, mediaSource: mediaSource, audioTrack: audioTrack, subtitleTracks: subtitleTracks,
+            item: item, mediaSource: mediaSource, versionLabel: versionLabel,
+            audioTrack: audioTrack, subtitleTracks: subtitleTracks,
             resolution: row.requestedResolution, preset: row.requestedPreset,
             client: client, userID: row.userID
         )

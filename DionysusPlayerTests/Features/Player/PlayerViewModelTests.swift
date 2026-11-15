@@ -40,6 +40,7 @@ final class PlayerViewModelTests: XCTestCase {
         streamPreferenceStore: StreamPreferenceStore? = nil,
         audioOffsetStore: AudioOffsetStore? = nil,
         spatialAudioStore: SpatialAudioStore? = nil,
+        versionPreferenceStore: MediaVersionPreferenceStore? = nil,
         playbackQueue: [MediaItem] = [],
         linkOverrides: PlaybackLinkOverrides? = nil
     ) -> (PlayerViewModel, FakePlaybackEngine) {
@@ -52,6 +53,7 @@ final class PlayerViewModelTests: XCTestCase {
             streamPreferenceStore: streamPreferenceStore ?? StreamPreferenceStore(defaults: defaults),
             audioOffsetStore: audioOffsetStore ?? AudioOffsetStore(defaults: defaults),
             spatialAudioStore: spatialAudioStore ?? SpatialAudioStore(storage: defaults),
+            versionPreferenceStore: versionPreferenceStore ?? MediaVersionPreferenceStore(defaults: defaults),
             playbackQueue: playbackQueue,
             linkOverrides: linkOverrides
         )
@@ -206,8 +208,14 @@ final class PlayerViewModelTests: XCTestCase {
     /// A `MediaItem` wrapping a bare `BaseItemDto` — enough for
     /// `playbackQueue`-mode tests, which only need `id`/`kind` to exercise
     /// `loadNextUpItem(for:images:)`'s index lookup; no image URLs involved.
+    ///
+    /// Carries an empty `mediaSources`, so the next member's versions are
+    /// known without the fetch `nextItemVersionChoice` makes for a member
+    /// listed without them (which `stubStart` doesn't answer).
     private func makeMediaItem(id: String, name: String, kind: BaseItemKind) -> MediaItem {
-        MediaItem(dto: BaseItemDto(id: id, name: name, type: kind), images: ImageURLBuilder(baseURL: baseURL, accessToken: nil))
+        var dto = BaseItemDto(id: id, name: name, type: kind)
+        dto.mediaSources = []
+        return MediaItem(dto: dto, images: ImageURLBuilder(baseURL: baseURL, accessToken: nil))
     }
 
     /// `loadNextEpisode(for:images:)` resolves `nextEpisode` from a
@@ -1542,6 +1550,9 @@ final class PlayerViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: [itemDto, nextEpisodeDto], totalRecordCount: 2)
                 )
+            case "/Users/user-1/Items/\(nextEpisodeID)":
+                // The next episode's sources, for `nextItemVersionChoice`.
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: nextEpisodeDto)
             case "/MediaSegments/\(itemID)":
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: MediaSegmentDtoQueryResult(items: mediaSegments, totalRecordCount: mediaSegments.count)
@@ -2428,5 +2439,229 @@ final class PlayerViewModelTests: XCTestCase {
         await viewModel.start(resumeSeconds: 12)
         XCTAssertNotNil(retryBody)
         XCTAssertNil(retryBody?["DeviceProfile"])
+    }
+
+    // MARK: Versions (#289)
+
+    /// A source labelled by its picture, as `MediaVersion.versions(of:)`
+    /// labels one with no edition name: "4K HDR10", "1080p".
+    private func versionSource(_ id: String, width: Int, height: Int, range: String? = nil) -> MediaSourceInfo {
+        MediaSourceInfo(id: id, container: "mkv", mediaStreams: [
+            MediaStream(index: 0, type: "Video", width: width, height: height, videoRangeType: range)
+        ])
+    }
+
+    /// A source labelled by its filename: the base name reads "Original",
+    /// `"<base> - <edition>"` as the edition.
+    private func namedSource(_ id: String, name: String) -> MediaSourceInfo {
+        MediaSourceInfo(id: id, name: name, container: "mkv")
+    }
+
+    /// Answers the item with `itemDto` and `/PlaybackInfo` filtered by
+    /// `MediaSourceId`, as Jellyfin does: one source when one is asked for, so
+    /// the labels can only come from the item's own list. `others` answers
+    /// `/Users/user-1/Items/{id}` for further items; `episodes` the season's
+    /// listing.
+    ///
+    /// `failing` paths answer 500; a requested source the item doesn't list
+    /// gets every source back, the server's default first, which is the
+    /// premise of `PlayerViewModel`'s fall-back for a stale preference.
+    private func stubVersionedStart(
+        itemDto: BaseItemDto, others: [String: BaseItemDto] = [:], episodes: [BaseItemDto] = [],
+        failing: Set<String> = []
+    ) {
+        let itemID = itemDto.id
+        struct DecodedPlaybackInfoBody: Decodable { let MediaSourceId: String? }
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? "?"
+            switch path {
+            case "/Users/user-1/Items/\(itemID)":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
+            case "/Items/\(itemID)/PlaybackInfo":
+                let requested = try JSONDecoder().decode(DecodedPlaybackInfoBody.self, from: request.capturedHTTPBody ?? Data()).MediaSourceId
+                // Loops rather than closures: a closure written here is
+                // main-actor isolated, and the handler runs on CFNetwork's
+                // thread, where calling one traps.
+                var sources: [MediaSourceInfo] = []
+                for source in itemDto.mediaSources ?? [] where requested == nil || source.id == requested {
+                    sources.append(source)
+                }
+                if sources.isEmpty { sources = itemDto.mediaSources ?? [] }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: PlaybackInfoResponse(mediaSources: sources, playSessionId: "sess-1"))
+            case "/Sessions/Playing":
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            case "/MediaSegments/\(itemID)":
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: MediaSegmentDtoQueryResult(items: [], totalRecordCount: 0))
+            case "/Shows/series-1/Episodes" where !episodes.isEmpty:
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: episodes, totalRecordCount: episodes.count)
+                )
+            default:
+                if failing.contains(path) {
+                    VersionStubCounters.answeredFailures += 1
+                    return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+                }
+                for (id, other) in others where path == "/Users/user-1/Items/\(id)" {
+                    return try MockURLProtocol.encodedJSONResponse(for: request, value: other)
+                }
+                XCTFail("unexpected request to \(path)")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+    }
+
+    private func multiVersionMovie() -> BaseItemDto {
+        var dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
+        dto.mediaSources = [
+            versionSource("movie-1-4k", width: 3840, height: 2160, range: "HDR10"),
+            versionSource("movie-1-1080p", width: 1920, height: 1080)
+        ]
+        return dto
+    }
+
+    /// `/PlaybackInfo` answers only the source asked for, so the label is read
+    /// from the item's full list, by the id that played.
+    func test_start_multipleSources_setsActiveVersionLabel() async {
+        let (viewModel, _) = makeViewModel(itemID: "movie-1", mediaSourceID: "movie-1-1080p")
+        stubVersionedStart(itemDto: multiVersionMovie())
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(viewModel.activeMediaSourceID, "movie-1-1080p")
+        XCTAssertEqual(viewModel.activeVersionLabel, "1080p")
+    }
+
+    /// One version: nothing to name, so no Version row.
+    func test_start_singleSource_versionLabelNil() async {
+        var dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
+        dto.mediaSources = [versionSource("movie-1-only", width: 1920, height: 1080)]
+        let (viewModel, _) = makeViewModel(itemID: "movie-1")
+        stubVersionedStart(itemDto: dto)
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(viewModel.activeMediaSourceID, "movie-1-only")
+        XCTAssertNil(viewModel.activeVersionLabel)
+    }
+
+    /// Episode one playing in 1080p; episode two is listed without its
+    /// sources (the season listing doesn't ask for them), so they're fetched.
+    /// Counts the 500s `stubVersionedStart` answers for `failing` paths.
+    /// A plain static, not a closure: the handler runs on CFNetwork's thread.
+    private enum VersionStubCounters {
+        nonisolated(unsafe) static var answeredFailures = 0
+    }
+
+    private func startEpisodeOne(
+        nextSources: [MediaSourceInfo], preferences: MediaVersionPreferenceStore? = nil,
+        nextFetchFails: Bool = false
+    ) async -> PlayerViewModel {
+        var current = BaseItemDto(id: "ep-1", name: "One", type: .episode, seriesId: "series-1", seasonId: "season-1", indexNumber: 1)
+        current.mediaSources = [
+            versionSource("ep-1-4k", width: 3840, height: 2160, range: "HDR10"),
+            versionSource("ep-1-1080p", width: 1920, height: 1080)
+        ]
+        let listedNext = BaseItemDto(id: "ep-2", name: "Two", type: .episode, seriesId: "series-1", seasonId: "season-1", indexNumber: 2)
+        var fullNext = listedNext
+        fullNext.mediaSources = nextSources
+        let (viewModel, _) = makeViewModel(itemID: "ep-1", mediaSourceID: "ep-1-1080p", versionPreferenceStore: preferences)
+        VersionStubCounters.answeredFailures = 0
+        stubVersionedStart(
+            itemDto: current, others: ["ep-2": fullNext], episodes: [current, listedNext],
+            failing: nextFetchFails ? ["/Users/user-1/Items/ep-2"] : []
+        )
+        await viewModel.start()
+        if nextFetchFails {
+            // A failed fetch changes no state, so wait for the stub to have
+            // answered it, then for its answer to reach the view model: a
+            // fetch that succeeded is seen within this same wait (checked by
+            // answering it with the sources instead, which fails the test).
+            try? await waitUntil { viewModel.nextEpisode != nil && VersionStubCounters.answeredFailures > 0 }
+            try? await Task.sleep(for: .milliseconds(100))
+        } else {
+            try? await waitUntil { viewModel.nextItemVersionChoice != nil }
+        }
+        return viewModel
+    }
+
+    /// "1080p" stays "1080p" across episodes, whose ids all differ.
+    func test_nextItemVersionChoice_sameLabel_plays() async {
+        let viewModel = await startEpisodeOne(nextSources: [
+            versionSource("ep-2-4k", width: 3840, height: 2160, range: "HDR10"),
+            versionSource("ep-2-1080p", width: 1920, height: 1080)
+        ])
+        XCTAssertEqual(viewModel.nextEpisode?.id, "ep-2")
+        XCTAssertEqual(viewModel.nextItemVersionChoice, .play(mediaSourceID: "ep-2-1080p"))
+    }
+
+    /// The next item's remembered pick wins over the label.
+    func test_nextItemVersionChoice_rememberedPick_wins() async {
+        let preferences = MediaVersionPreferenceStore(defaults: defaults)
+        preferences.setPreferredMediaSourceID("ep-2-4k", forItem: "ep-2", userID: "user-1")
+        let viewModel = await startEpisodeOne(nextSources: [
+            versionSource("ep-2-4k", width: 3840, height: 2160, range: "HDR10"),
+            versionSource("ep-2-1080p", width: 1920, height: 1080)
+        ], preferences: preferences)
+        XCTAssertEqual(viewModel.nextItemVersionChoice, .play(mediaSourceID: "ep-2-4k"))
+    }
+
+    /// Editions share no label with "1080p": ask, with nothing marked.
+    func test_nextItemVersionChoice_noMatch_asks() async {
+        let viewModel = await startEpisodeOne(nextSources: [
+            namedSource("ep-2-original", name: "Two"),
+            namedSource("ep-2-extended", name: "Two - Extended Edition")
+        ])
+        XCTAssertEqual(viewModel.nextItemVersionChoice, .ask(versions: [
+            MediaVersion(id: "ep-2-original", label: "Original"),
+            MediaVersion(id: "ep-2-extended", label: "Extended Edition")
+        ], lastPlayedID: nil))
+    }
+
+    /// One version next: nothing to choose, the server's default plays.
+    func test_nextItemVersionChoice_singleVersionNext_plays() async {
+        let viewModel = await startEpisodeOne(nextSources: [versionSource("ep-2", width: 1920, height: 1080)])
+        XCTAssertEqual(viewModel.nextEpisode?.id, "ep-2")
+        XCTAssertEqual(viewModel.nextItemVersionChoice, .play(mediaSourceID: nil))
+    }
+
+    /// A queue member that already carries its sources is decided from them,
+    /// with no request (`stubVersionedStart` fails any other).
+    func test_nextItemVersionChoice_queueMemberWithSources_needsNoFetch() async {
+        var next = BaseItemDto(id: "movie-2", name: "Sicario", type: .movie)
+        next.mediaSources = [
+            versionSource("movie-2-4k", width: 3840, height: 2160, range: "HDR10"),
+            versionSource("movie-2-1080p", width: 1920, height: 1080)
+        ]
+        let images = ImageURLBuilder(baseURL: baseURL, accessToken: nil)
+        let queue = [MediaItem(dto: multiVersionMovie(), images: images), MediaItem(dto: next, images: images)]
+        let (viewModel, _) = makeViewModel(itemID: "movie-1", mediaSourceID: "movie-1-4k", playbackQueue: queue)
+        stubVersionedStart(itemDto: multiVersionMovie())
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.nextItemVersionChoice, .play(mediaSourceID: "movie-2-4k"))
+    }
+    /// The next item's sources can't be fetched: no choice is handed over
+    /// (the page then decides afresh), and Next Up itself still offers the
+    /// episode.
+    func test_nextItemVersionChoice_fetchFails_staysNil_andNextUpIsUnaffected() async {
+        let viewModel = await startEpisodeOne(nextSources: [], nextFetchFails: true)
+        XCTAssertEqual(viewModel.nextEpisode?.id, "ep-2")
+        XCTAssertNil(viewModel.nextItemVersionChoice)
+    }
+
+    /// A remembered id the item no longer lists falls back to the server's
+    /// default source, and the Version row names that one, not the request.
+    func test_start_requestedSourceMissing_versionLabelNamesTheServerDefault() async {
+        let (viewModel, _) = makeViewModel(itemID: "movie-1", mediaSourceID: "movie-1-gone")
+        stubVersionedStart(itemDto: multiVersionMovie())
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(viewModel.activeMediaSourceID, "movie-1-4k")
+        XCTAssertEqual(viewModel.activeVersionLabel, "4K HDR10")
     }
 }

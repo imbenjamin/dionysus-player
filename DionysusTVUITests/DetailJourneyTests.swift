@@ -295,4 +295,58 @@ final class DetailJourneyTests: TVUITestCase {
         XCTAssertTrue(app.buttons[A11yID.TV.Detail.watched].waitForExistence(timeout: 10))
         XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Detail.headerArt].exists)
     }
+
+    // MARK: Versions (#289)
+
+    /// Full Details for `itemID`, reached by a link to its page's Details
+    /// panel (the route there isn't what these test) and Select.
+    private func openFullDetails(_ itemID: String, scenario: String) -> XCUIApplication {
+        let app = launchAtHome(scenario: scenario)
+        app.open(URL(string: "dionysus://item/\(itemID)?section=details")!)
+        let details = app.buttons[A11yID.TV.Detail.details]
+        XCTAssertTrue(waitForFocus(details, timeout: 10), "The link focuses the Details panel")
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Detail.fullDetailsTitle].waitForExistence(timeout: 5))
+        return app
+    }
+
+    /// A title with two versions shows one at a time, under tabs that follow
+    /// focus as a tvOS tab bar does; Down reaches the sections and Up comes
+    /// back to the version on show, not the nearest tab.
+    func test_fullDetails_versionTabs_switchTheTechnicalSections() {
+        let movie = UITestFixtureIdentity.primaryMovieID
+        let app = openFullDetails(movie, scenario: "multipleVersions")
+        func section(_ id: String) -> XCUIElement { app.descendants(matching: .any)[A11yID.TV.Detail.fullDetailsSection(id)] }
+        let fourK = app.buttons[A11yID.TV.Detail.versionTab("\(movie)-4k")]
+        let hd = app.buttons[A11yID.TV.Detail.versionTab("\(movie)-1080p")]
+
+        XCTAssertTrue(waitForFocus(fourK), "Focus starts on the version on show, the first")
+        XCTAssertTrue(fourK.isSelected)
+        XCTAssertTrue(section("video.\(movie)-4k").exists)
+
+        press(.right)
+        XCTAssertTrue(waitForFocus(hd))
+        XCTAssertTrue(poll(timeout: 5) { section("video.\(movie)-1080p").exists }, "Focusing a tab shows its version")
+        XCTAssertFalse(section("video.\(movie)-4k").exists, "Only the version on show")
+        XCTAssertTrue(hd.isSelected)
+        XCTAssertFalse(fourK.isSelected)
+        let heading = app.staticTexts[A11yID.TV.Detail.fullDetailsSectionTitle("video.\(movie)-1080p")]
+        XCTAssertEqual(section("video.\(movie)-1080p").label, heading.label, "Named for its heading")
+        XCTAssertFalse(heading.label.contains("1080p"), "No version suffix: the tab says which")
+
+        press(.down)
+        XCTAssertTrue(poll(timeout: 5) { app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true AND identifier BEGINSWITH %@", "tv.detail.fullDetails.section.")).firstMatch.exists },
+                      "Down from the tabs reaches the sections")
+        for _ in 0..<4 where !hd.hasFocus { press(.up) }
+        XCTAssertTrue(waitForFocus(hd), "Up returns to the version on show")
+        XCTAssertTrue(hd.isSelected, "Coming back up didn't switch the version")
+    }
+
+    /// One version, no tabs: Full Details looks as it always did.
+    func test_fullDetails_singleVersion_hasNoTabs() {
+        let movie = UITestFixtureIdentity.primaryMovieID
+        let app = openFullDetails(movie, scenario: "standard")
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Detail.fullDetailsSection("video.default")].exists)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.detail.fullDetails.version.")).count, 0)
+    }
 }

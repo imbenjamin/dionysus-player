@@ -213,7 +213,12 @@ struct TVShowDetailView: View {
                         }
                     }
                 }
-                TVDetailsPanel(item: detailsItem, subject: detailsItem.kind == .episode ? detailsItem.numberedEpisodeName : nil, focus: $focus)
+                TVDetailsPanel(
+                    item: detailsItem,
+                    subject: detailsItem.kind == .episode ? detailsItem.numberedEpisodeName : nil,
+                    versionID: viewModel.preferredMediaSourceID(forPlayableItem: detailsItem.id),
+                    focus: $focus
+                )
             }
             .padding(.top, 60)
             .padding(.bottom, 160)

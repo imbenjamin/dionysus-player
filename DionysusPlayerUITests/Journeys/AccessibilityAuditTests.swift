@@ -286,6 +286,27 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen(underModal: true)
     }
 
+    /// A season download's per-episode version sheet (#289): `multipleVersions`'
+    /// Season 2 has episodes whose versions differ. Like the options sheet,
+    /// it leaves the page dimmed above it.
+    func testBulkVersionChoiceSheetHasNoAccessibilityIssues() throws {
+        launch(scenario: "multipleVersions")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.showsLibraryID)
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+        collection.card(UITestFixtureIdentity.seriesID).tap()
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.selectSeason("season-2")
+        detail.seasonDownloadButton.awaitExistence("the season's download button").tap()
+        detail.bulkRowPicker(UITestFixtureIdentity.episodeID(season: 2, episode: 2))
+            .awaitExistence("the per-episode version sheet")
+
+        try auditCurrentScreen(underModal: true)
+    }
+
     func testSearchHasNoAccessibilityIssues() throws {
         launch()
         HomeScreen(app: app).awaitLoaded()

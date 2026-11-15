@@ -160,4 +160,32 @@ final class DownloadedItemTests: XCTestCase {
         XCTAssertTrue(episode.isLandscapeShaped)
         XCTAssertFalse(DownloadTestHelpers.makeItem(itemID: "movie-1").isLandscapeShaped)
     }
+
+    // MARK: versionLabel (#289)
+
+    /// A row made without a version (every download before #289, and every
+    /// single-version title since) has none, so its Details shows no Version
+    /// row. Optional with no default value, which is what lets SwiftData add
+    /// the column to an existing store by lightweight migration: rows already
+    /// on a device read back `nil`.
+    @MainActor
+    func test_downloadedItem_versionLabelOptional_defaultsToNil() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        store.insert(DownloadTestHelpers.makeItem(itemID: "old-row"))
+        store.save()
+
+        let reloaded = try XCTUnwrap(store.item(itemID: "old-row"))
+        XCTAssertNil(reloaded.versionLabel)
+    }
+
+    @MainActor
+    func test_versionLabel_roundTripsThroughTheStore() throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let row = DownloadTestHelpers.makeItem(itemID: "versioned")
+        row.versionLabel = "Director's Cut"
+        store.insert(row)
+        store.save()
+
+        XCTAssertEqual(store.item(itemID: "versioned")?.versionLabel, "Director's Cut")
+    }
 }

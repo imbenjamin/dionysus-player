@@ -98,7 +98,7 @@ enum UITestFixtureLibrary {
                 played: spec.watched,
                 isFavorite: spec.favorite
             )
-            item.mediaSources = [mediaSource(for: item)]
+            item.mediaSources = mediaSources(for: item, scenario: UITestConfiguration.scenario)
             item.people = cast(seed: index)
             item.chapters = chapters(runtimeMinutes: 92 + index * 3)
             return item
@@ -159,7 +159,7 @@ enum UITestFixtureLibrary {
                 played: false,
                 isFavorite: false
             )
-            item.mediaSources = [mediaSource(for: item)]
+            item.mediaSources = mediaSources(for: item, scenario: UITestConfiguration.scenario)
             item.chapters = chapters(runtimeMinutes: 48)
             return item
         }
@@ -347,6 +347,66 @@ enum UITestFixtureLibrary {
     /// test predicting it.
     private static func studioID(_ name: String) -> String {
         "studio-" + name.lowercased().replacingOccurrences(of: " ", with: "-")
+    }
+
+    /// The sources an item carries. One in every scenario but
+    /// `.multipleVersions`, which gives some of the catalogue the several
+    /// versions a library holds when a title exists in more than one file, so
+    /// the version choice has something to offer on a movie, a whole season
+    /// (every episode alike) and a mixed one.
+    ///
+    /// Takes the scenario rather than reading it, so a unit test can ask for
+    /// either without touching the process's launch arguments. Source ids
+    /// extend the item's id (`movie-01-4k`) so a journey can name one.
+    static func mediaSources(for item: BaseItemDto, scenario: UITestScenario) -> [MediaSourceInfo] {
+        let single = mediaSource(for: item)
+        guard scenario == .multipleVersions else { return [single] }
+
+        /// The same file at another resolution and dynamic range: the video
+        /// stream is the only thing that differs, so audio and subtitle tracks
+        /// (and the journeys that pick them) behave as on any other source.
+        func resolutionVariant(id suffix: String, width: Int, height: Int, hdr: Bool) -> MediaSourceInfo {
+            var source = single
+            source.id = "\(item.id)-\(suffix)"
+            // Named as two files of one title are (a bracketed tag, no
+            // " - edition" suffix), so `MediaVersion` labels them by their
+            // video rather than finding a canonical name among them.
+            source.name = "\(item.name) [\(suffix)]"
+            source.mediaStreams = source.mediaStreams?.map { stream in
+                guard stream.type == "Video" else { return stream }
+                var video = stream
+                video.width = width
+                video.height = height
+                video.videoRange = hdr ? "HDR" : "SDR"
+                video.videoRangeType = hdr ? "HDR10" : "SDR"
+                return video
+            }
+            return source
+        }
+        let fourK = resolutionVariant(id: "4k", width: 3840, height: 2160, hdr: true)
+        let hd = resolutionVariant(id: "1080p", width: 1920, height: 1080, hdr: false)
+
+        /// A second cut named the way Jellyfin groups versions: the canonical
+        /// name, then `" - <edition>"`.
+        func edition(_ idSuffix: String, _ name: String) -> [MediaSourceInfo] {
+            var original = single
+            original.id = "\(item.id)-original"
+            var cut = single
+            cut.id = "\(item.id)-\(idSuffix)"
+            cut.name = "\(item.name) - \(name)"
+            return [original, cut]
+        }
+
+        switch item.id {
+        case UITestFixtureIdentity.movieID(1), "episode-s1e1", "episode-s1e2", "episode-s1e3", "episode-s2e1":
+            return [fourK, hd]
+        case UITestFixtureIdentity.movieID(2):
+            return edition("directors-cut", "Director's Cut")
+        case "episode-s2e2":
+            return edition("extended", "Extended Edition")
+        default:
+            return [single]
+        }
     }
 
     private static func mediaSource(for item: BaseItemDto) -> MediaSourceInfo {

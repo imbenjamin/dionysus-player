@@ -201,6 +201,13 @@ Keychain as it's made.
   (`UITestConfiguration.shortensPlayerTimers`). Opt-in per journey: a
   journey that presses its way around the transport or the card races the
   shorter timers.
+- `-UITestEarlyCreditsItem <itemID>` gives that one item `earlyCredits`'
+  end credits (from 0:05) under any scenario, so Next Up advances from it
+  about 15 s in (`UITestConfiguration.earlyCreditsItemID`). The fake engine
+  runs 1:30:00 whatever the title's runtime, so a link's `t=` can't start an
+  episode near its end. One item only, so the item advanced to doesn't
+  advance again mid-assertion (the Apple TV's auto-advance version
+  journeys, #289).
 - `-UITestScenario <name>` picks the stub's behaviour (below).
 - `-UITestSeedLongSearchHistory` fills Search's history to its cap (#244).
 - `-UITestSeedMissingSearchHistory` seeds one recent search for an item the
@@ -285,6 +292,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `offline` | Every request fails as unreachable |
 | `noDeletePermission` | `CanDelete: false` everywhere, `DELETE` refused |
 | `folderlessSeasons` | Made-up seasons, so Delete Season goes episode by episode |
+| `multipleVersions` | Several versions of some titles (movie 1 in 4K HDR10 and 1080p, movie 2 as Original and Director's Cut, Season 1 in 4K and 1080p, Season 2 mixed); `/PlaybackInfo` filters by `MediaSourceId` |
 | `noPlaylistEditPermission` | Every playlist's permission lookup 404s; adds and removals 403 |
 | `slowLogoImage` | Every logo held 18s from its own request, never cached or shared between views, so the watched view shows its fallback |
 | `slowSubtitleFonts` | The font attachments held, to prove fonts don't gate the script |
@@ -590,7 +598,8 @@ engine's track id).
 | `item/<id>` | The title's page, pushed on Home; `season=<id or number>` (a show), `section=cast\|chapters\|details\|similar` |
 | `downloaded/<itemID>` (iOS) | The download's page, offline too |
 | `play/<id>` | Plays what the page's Play would, over that page: a show or season its next episode, a playlist its Play target with the rest queued, a collection its first title alone |
-| `play/<id>?…` | `t=<seconds or [h:]m:ss>` (`t=0` restarts), `chapter=<n>` (1-based), `source=<mediaSourceID>`, `audio=<index>`, `subtitle=<index or off>`, `stats=1`, `playlist=<id>` (that member, the rest queued), `offline=1` (iOS: the download) |
+| `play/<id>?…` | `t=<seconds or [h:]m:ss>` (`t=0` restarts), `chapter=<n>` (1-based), `source=<mediaSourceID>`, `audio=<index>`, `subtitle=<index or off>`, `stats=1`, `playlist=<id>` (that member, the rest queued), `offline=1` (iOS: the download). A play link never asks which version: `source`, else the remembered pick, else the server's default |
+| `play/<id>?from=topshelf` | **The Apple TV's Top Shelf Play.** Asks which version as the page's Play would (#289): the question over the title's page when the title has no resume point, or nothing remembered is still listed. `source=` still wins. A shelf link without it (an older carousel) plays as a plain link, and so does any link with it on iOS, which has no Top Shelf |
 | `play/<id>?mode=direct\|transcode&bitrate=<bps>` | **DEBUG builds only.** For that session, instead of Profile's Streaming and Max Bitrate. `transcode` allows the server to transcode (Allow Transcoding) but doesn't force it; a low `bitrate` does. A bitrate alone allows transcoding; with `mode=direct` it's ignored |
 | `server?url=<address>` | **DEBUG builds only**, and only with no server set up: server setup with the address filled in, past the welcome. Connects to nothing until you do |
 
@@ -1073,6 +1082,7 @@ the detail.
 | `Core/DeepLinks/DeepLinkLibraryTests` | A `dionysus://library` link's grid: the rail's query seeded with its sort, order, genre, studio and filter; finding the library among the user's (not music); what it couldn't read. Also `DeepLinkProfilePageTests`: which Profile page each path names |
 | `Core/DeepLinks/DeepLinkItemOptionsTests` | An item link's season (by id or number, Specials too) and what a page says for a season or section it doesn't have |
 | `Core/DeepLinks/DeepLinkRouterTests` | Whether a link applies now: waiting on a restoring session, holding it through sign-in (10 minutes at most, not across a server change), refusing it for another server or user, stopping once the user changes mid-apply; a `server?url=` link only with no server set up |
+| `Core/Downloads/BulkVersionPlannerTests` | Whether a season download asks which version once, per episode or not at all (#289) |
 | `Core/Downloads/DownloadFileStoreTests` | Download file paths, sidecars and cleanup |
 | `Core/Downloads/DownloadManagerTests` | Delete (cancelling the task), the queue, one background session, retry budget and error classification |
 | `Core/Downloads/DownloadManagerBackgroundTests` | Adopting in-flight transfers after a relaunch, answering a background relaunch's completion handler, trickplay sheets, a retry that succeeds |
@@ -1080,12 +1090,14 @@ the detail.
 | `Core/Downloads/DownloadStoreTests` | SwiftData round-trips for downloads |
 | `Core/Downloads/DownloadSyncManagerTests` | Pushing offline watched and resume state on reconnect |
 | `Core/Downloads/DownloadTypesTests` | The quality ladder's bits-per-pixel rule (`DOWNLOADS.md`) |
+| `Core/Downloads/DownloadVersionChoiceTests` | A single download's version question: always with two or more, the remembered pick marked, the long-press sheet's starting choice, and asking after a sheet that offered no picker or whose pick is gone |
 | `Core/Downloads/DownloadedItemTests` | A download's estimated size |
 | `Core/Downloads/FileSizeTextTests` | File sizes shown and spoken |
 | `Core/Downloads/OfflineTrickplayThumbnailProviderTests` | Scrub thumbnails from downloaded trickplay sheets |
 | `Core/Models/LicenseDocumentTests` | The License page's text: the app's licence, then each bundled library's notices under its name; every library that ships has them |
 | `Core/Models/MediaCollectionRailTests` | A rail's tile shape, decided for the whole rail |
 | `Core/Models/MediaItemTests` | All display logic: dates, durations, labels, badges, versions, image URLs and fallbacks, optimistic updates, equality |
+| `Core/Models/MediaVersionChoiceTests` | When a play asks which version (the resume point decides, not the button), what it marks "(Last Played)", and what auto-advance carries over (#289) |
 | `Core/Models/SearchResultTests` | Search hints mapped for display |
 | `Core/Models/ServerConfigurationTests` | Parsing a typed server address |
 | `Core/Models/WatchBadgesTests` | Which corner badges a tile shows, on both platforms |
@@ -1120,6 +1132,8 @@ the detail.
 | `Features/AssetDetails/AssetActionTargetsTests` | What Add to Playlist and Delete offer on a detail page, and their words (iOS and the Apple TV) |
 | `Features/AssetDetails/AddToPlaylistViewModelTests` | The Add to Playlist picker: editable destinations, adds, creating one |
 | `Features/AssetDetails/AssetDetailViewModelTests` | Detail pages by kind: loading, play targets (a play link's too), seasons, watched and favourite, deletion, playlists |
+| `Features/AssetDetails/SeasonDownloadCoordinatorTests` | A season download's scan, question and queue: the answer applied, cancel (mid-scan too), one run at a time, an episode downloaded by hand meanwhile left alone, failed scans, bounded concurrency (iOS only) |
+| `Features/AssetDetails/VersionedPlaybackStartTests` | Resume and Restart playing the remembered version alike, asking when nothing remembered is listed, and a version auto-advance carried on remembered (iOS only) |
 | `Features/Collection/CollectionGridViewModelTests` | Grid queries, sorting and the cascading filters, and the presets a query seeds them with |
 | `Features/Downloads/DownloadsRowCaptionTests` | A download row's caption |
 | `Features/Downloads/DownloadsViewModelTests` | Grouping and bulk actions on the Downloads tab |
@@ -1163,6 +1177,7 @@ the detail.
 | `TVDetailFormatTests` | Detail-page text (time left, Play's title) |
 | `TVDetailHeaderArtTests` | The image beside a title with no backdrop |
 | `TVEpisodeLogoTests` | Which tiles carry a show's logo |
+| `TVFullDetailsSectionsTests` | The Apple TV's details for a title with one version and with several: version tabs and the summary's Versions row |
 | `TVHeroPagerTests` | When the hero's timer runs, and paging |
 | `TVHeroPlayTargetTests` | What Play on a series plays |
 | `TVKeyboardCommandTests` | The space bar as Play/Pause |
@@ -1204,6 +1219,7 @@ the detail.
 | `TVTileCaptionTests` | A caption's lift under a focused card |
 | `TVTileShapeTests` | Posters or landscape, per rail or grid |
 | `TVTransportLayoutTests` | The scrubber, buffered bar and preview |
+| `TVVersionPickerTests` | The "Choose a Version" page's focus and labels, what a decision does to a start, what auto-advance does with the player's own decision, and a version it carried on remembered |
 | `TVWhosWatchingLayoutTests` | Who's Watching? order |
 
 ### iOS journeys (`DionysusPlayerUITests/Journeys/`)
@@ -1217,10 +1233,11 @@ the detail.
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
 | `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a library's grid with its facets, Profile's License and Advanced, Quick Connect's code filled but not approved, a title's page, a show on the linked season, the Cast tab, a season or section the page doesn't have, playing over it (a show, the player closing first), a start time or chapter, tracks, Playback Stats, a playlist member with the rest queued, the downloaded copy, a missing or unplayable title, an unknown library or Profile page, Quick Connect turned off, another server, an unreadable link or start time, a missing chapter or download, a cold launch, a link held through sign-in; DEBUG-only: a bitrate `mode=direct` can't cap, a server link filling setup's address without connecting, and refused while signed in |
 | `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
-| `DownloadsJourneyTests` | Downloading to completion (an item, or a season at once), the row updating while open, bulk delete, cancelling a selection, and offline after a relaunch with `offline`: a downloaded movie and episode, and a show's page (one season flat, two as seasons) and a season's, each opened and played |
+| `DownloadsJourneyTests` | Downloading to completion (an item, or a season at once), a season's version question (once, per episode, cancelled), the row updating while open, bulk delete, cancelling a selection, and offline after a relaunch with `offline`: a downloaded movie and episode, and a show's page (one season flat, two as seasons) and a season's, each opened and played |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
 | `HeroLogoFallbackUITests` | The logo's text fallback timing |
 | `HomeJourneyTests` | The hero, See All, and a refresh scrolling rails back to their start |
+| `MediaVersionJourneyTests` | Choosing a version to play (#289): Play asking with the remembered version marked, Resume and Restart playing it silently, asking when nothing remembered is listed, auto-advance, an episode row's and a playlist row's Play, Playback Stats' Version row, and a plain play link never asking |
 | `OfflineErrorJourneyTests` | `serverError`, `unauthorized` and `offline`; Try Again loading Home once the server answers (`librariesFailAtFirst`) |
 | `PlacedSubtitleJourneyTests` | Subtitles the source places: `\an8` and `\pos` text cues, a bitmap cue on a canvas taller than the picture, and one on anamorphic video (`anamorphicVideo`), each by its frame |
 | `PlayerFeedbackJourneyTests` | The scrub bubble's trickplay still at either end (`scrubThumbnails`), "Reconnecting…" until playback resumes (`reconnecting`), the PiP button left out without PiP and, by tap, covering the player until PiP ends (`pictureInPicture`) |
@@ -1245,6 +1262,7 @@ the detail.
 | `HomeJourneyTests` | The hero, See All, rails loading, a failing Home |
 | `LaunchJourneyTests` | First launch to Welcome and Find Your Server |
 | `LoadingJourneyTests` | Home and a library loading slowly keep focus off the sidebar |
+| `MediaVersionJourneyTests` | Choosing a version on the Apple TV (#289): the "Choose a Version" page, Menu cancelling, the Home hero's and a playlist row's Play, auto-advance asking over the player, a plain link never asking and the Top Shelf's `from=topshelf` Play asking |
 | `MenuToLandingJourneyTests` | Menu back to a page's landing view |
 | `MoreActionsJourneyTests` | A detail page's ⋯: its menu, Add to Playlist, New Playlist, Delete and where each lands |
 | `OnboardingJourneyTests` | Find Your Server, Who's Watching?, Quick Connect, the password screen; a wrong password, Other without Quick Connect, and an unverifiable HTTPS server's HTTP fallback (the port, accepting, cancelling) |

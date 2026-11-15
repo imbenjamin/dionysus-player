@@ -333,8 +333,9 @@ extension UITestCase {
     }
 
     /// Opens the show's page from the Shows library and downloads every
-    /// season in `seasonIDs` through the season download button, which never
-    /// prompts. The first season is the one the page opens on.
+    /// season in `seasonIDs` through the season download button, which asks
+    /// nothing for a show without versions (any scenario but
+    /// `multipleVersions`). The first season is the one the page opens on.
     func downloadSeasons(_ seasonIDs: [String]) {
         let home = HomeScreen(app: app)
         home.awaitLoaded()

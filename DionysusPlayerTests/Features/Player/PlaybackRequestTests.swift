@@ -43,6 +43,17 @@ final class PlaybackRequestTests: XCTestCase {
         XCTAssertNil(PlaybackRequest(itemID: "item-1").mediaSourceID)
     }
 
+    /// The label of the version just watched, which the next episode's
+    /// request carries so the page can continue in it (#289).
+    func test_previousVersionLabel_defaultsToNil_andIsPartOfTheID() {
+        XCTAssertNil(PlaybackRequest(itemID: "ep-2").previousVersionLabel)
+        XCTAssertNotEqual(
+            PlaybackRequest(itemID: "ep-2", previousVersionLabel: "1080p").id,
+            PlaybackRequest(itemID: "ep-2", previousVersionLabel: "4K HDR10").id
+        )
+        XCTAssertNotEqual(PlaybackRequest(itemID: "ep-2").id, PlaybackRequest(itemID: "ep-2", previousVersionLabel: "1080p").id)
+    }
+
     /// A second link to the same title with another start presents afresh.
     func test_id_differsByLinkOverrides() {
         let plain = PlaybackRequest(itemID: "item-1")

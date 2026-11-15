@@ -9,6 +9,9 @@ struct CollectionDetailView: View {
     let viewModel: AssetDetailViewModel
     @Environment(AppState.self) private var appState
     @State private var playbackRequest: PlaybackRequest?
+    /// A row's Play waiting on its version (#289); see
+    /// `versionedPlayback(_:anchor:viewModel:play:)`.
+    @State private var versionedStart: VersionedPlaybackStart?
     /// See `MovieDetailView.refreshTrigger`'s doc comment — identical
     /// reasoning/fix: `viewModel` is held as a plain `let` here too, so a
     /// post-playback `viewModel.item`/`collectionItems` change needs this
@@ -59,9 +62,18 @@ struct CollectionDetailView: View {
                     if !viewModel.collectionItems.isEmpty {
                         CollectionItemList(
                             items: viewModel.collectionItems,
-                            onPlayItem: { itemID in playbackRequest = PlaybackRequest(itemID: itemID) },
+                            // A row's Play resumes a part-watched title, so
+                            // it decides as Resume would (D1, D4).
+                            onPlayItem: { member in
+                                versionedStart = .start(member, request: PlaybackRequest(itemID: member.id), anchor: .row(member.id))
+                            },
                             client: viewModel.apiClient, userID: viewModel.currentUserID, downloadManager: appState.downloadManager
                         )
+                        // Each row's Play asks its own question
+                        // (`versionQuestionAnchor(rowID:)`).
+                        .environment(\.versionedRowHost, VersionedPlaybackHost(
+                            start: $versionedStart, viewModel: viewModel, play: { playbackRequest = $0 }
+                        ))
                     }
 
                     if !viewModel.collections.isEmpty {
@@ -100,6 +112,7 @@ struct CollectionDetailView: View {
             }
             .duoVerticalPreferred()
         }
+        .versionedPlayback($versionedStart, anchor: .page, viewModel: viewModel) { playbackRequest = $0 }
         // A `dionysus://play` link (#406) plays what this page's Play would.
         .playsDeepLinkCue(viewModel) { playbackRequest = $0 }
         .fullScreenCover(

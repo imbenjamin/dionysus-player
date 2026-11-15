@@ -19,7 +19,7 @@ struct SeasonEpisodeList: View {
     /// Plays that episode directly, from the thumbnail's play button. Distinct
     /// from `onSelectEpisode`, which changes what the page shows without
     /// opening the player.
-    var onPlayEpisode: (String) -> Void
+    var onPlayEpisode: (MediaItem) -> Void
     /// Switches the page's hero/synopsis/Play button/tabs to that episode in
     /// place via `AssetDetailViewModel.selectEpisode(_:)`. Triggered by tapping
     /// a row's text rather than its thumbnail.
@@ -124,6 +124,9 @@ struct SeasonEpisodeList: View {
                         seriesID: seriesID, seasonID: selectedSeasonID, episodes: episodes,
                         client: client, userID: userID, downloadManager: appState.downloadManager
                     )
+                    // One button per season: a run belongs to the season it
+                    // started on, and ends when another is picked.
+                    .id(selectedSeasonID)
                     .layoutPriority(1)
                 }
             }
@@ -180,7 +183,7 @@ struct SeasonEpisodeList: View {
                 isCurrent: episode.id == currentEpisodeID,
                 thumbnailWidth: metrics.artworkWidth,
                 thumbnailHeight: metrics.artworkHeight,
-                onPlay: { onPlayEpisode(episode.id) },
+                onPlay: { onPlayEpisode(episode) },
                 onSelect: { onSelectEpisode(episode.id) },
                 client: appState.apiClient,
                 userID: appState.currentUser?.id ?? appState.sessionStore.credentials?.userID,
@@ -311,6 +314,10 @@ private struct EpisodeRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(thumbnailAccessibilityLabel)
+                .accessibilityIdentifier(A11yID.AssetDetail.episodePlayButton(episode.id))
+                // The version question points here, at the row tapped
+                // (`versionQuestionAnchor(rowID:)`), keyed as the page's start.
+                .versionQuestionAnchor(rowID: episode.id)
 
                 // The same component the detail page's Play/Resume row uses, at
                 // full parity, not a slimmed-down copy.

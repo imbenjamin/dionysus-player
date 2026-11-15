@@ -16,7 +16,9 @@ enum TVDetailFocus {
 /// `nil` when a show has nothing to play, where the Play button isn't
 /// drawn). `statusTarget` is what Watched and Favorite act on: the movie, or
 /// on a show the episode Play starts (Benjamin, 2026-10-25: Watched on a
-/// show's page marked every episode).
+/// show's page marked every episode). Play and Restart ask which version
+/// first when they should (`tvVersionedPlayback`, #289), so `play` is handed
+/// a request with its version filled in.
 struct TVDetailActions: View {
     let viewModel: AssetDetailViewModel
     let playTarget: MediaItem?
@@ -32,6 +34,8 @@ struct TVDetailActions: View {
     var statusWritten: ((_ itemID: String, _ favorite: Bool?, _ watched: Bool?) -> Void)?
     let focus: FocusState<String?>.Binding
     let play: (PlaybackRequest) -> Void
+    /// Play or Restart, waiting on its version (`tvVersionedPlayback`).
+    @State private var versionedStart: TVVersionedStart?
 
     private static func hasResume(_ target: MediaItem?) -> Bool {
         guard let target else { return false }
@@ -52,7 +56,9 @@ struct TVDetailActions: View {
                 let hasResume = Self.hasResume(playTarget)
                 Button {
                     guard let playTarget else { return }
-                    play(PlaybackRequest(itemID: playTarget.id, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: playTarget.id)))
+                    versionedStart = TVVersionedStart(
+                        item: playTarget, request: PlaybackRequest(itemID: playTarget.id), returnFocus: TVDetailFocus.play
+                    )
                 } label: {
                     HStack(spacing: 16) {
                         Image(systemName: "play.fill").accessibilityHidden(true)
@@ -70,7 +76,10 @@ struct TVDetailActions: View {
 
                 if hasResume, let playTarget {
                     Button {
-                        play(PlaybackRequest(itemID: playTarget.id, startFromBeginning: true, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: playTarget.id)))
+                        versionedStart = TVVersionedStart(
+                            item: playTarget, request: PlaybackRequest(itemID: playTarget.id, startFromBeginning: true),
+                            returnFocus: TVDetailFocus.restart
+                        )
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
                     }
@@ -119,6 +128,16 @@ struct TVDetailActions: View {
         // well to the right of Favorite, where tvOS found nothing above.
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+        // Play and Restart ask which version first when they should (#289):
+        // without a resume point always (the remembered one marked), with one
+        // only when nothing remembered is still listed.
+        .tvVersionedPlayback(
+            $versionedStart,
+            decide: { await viewModel.playbackDecision(for: $0, isResume: $1) },
+            remember: { viewModel.setPreferredMediaSourceID($0, forPlayableItem: $1) },
+            focus: focus,
+            play: play
+        )
     }
 }
 

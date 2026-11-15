@@ -87,7 +87,8 @@ final class TopShelfCarouselTests: XCTestCase {
         XCTAssertTrue(art.path.hasPrefix(directory.path))
         XCTAssertNil(item.imageURL(for: .screenScale1x), "2x only: setting both doubles the system's fetches")
         XCTAssertEqual(item.displayAction.flatMap { DeepLink(url: $0.url) }, DeepLink(.item(id: "m1", options: .init()), serverID: "http://jf.local"))
-        XCTAssertEqual(item.playAction.flatMap { DeepLink(url: $0.url) }, DeepLink(.play(id: "m1", options: .init()), serverID: "http://jf.local"))
+        // `from=topshelf`: the shelf's Play asks which version as the page's would (#289).
+        XCTAssertEqual(item.playAction.flatMap { DeepLink(url: $0.url) }, DeepLink(.play(id: "m1", options: .init(fromTopShelf: true)), serverID: "http://jf.local"))
     }
 
     /// Art that can't be drawn leaves the plain backdrop, never an empty frame.

@@ -139,6 +139,29 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    /// Full Details for a title with two versions (#289): its version tabs.
+    func test_fullDetails_withVersions() throws {
+        let app = launchAtHome(scenario: "multipleVersions")
+        app.open(URL(string: "dionysus://item/\(UITestFixtureIdentity.primaryMovieID)?section=details")!)
+        let details = app.buttons[A11yID.TV.Detail.details]
+        XCTAssertTrue(waitForFocus(details, timeout: 10))
+        press(.select)
+        let tab = app.buttons[A11yID.TV.Detail.versionTab("\(UITestFixtureIdentity.primaryMovieID)-4k")]
+        XCTAssertTrue(waitForFocus(tab))
+        try audit(app)
+    }
+
+    /// The version question (#289), asked by Play on an unwatched title with
+    /// two versions.
+    func test_versionPicker() throws {
+        let app = launchAtHome(scenario: "multipleVersions")
+        app.open(URL(string: "dionysus://item/\(UITestFixtureIdentity.primaryMovieID)")!)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Detail.play], timeout: 10))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.versionOption("\(UITestFixtureIdentity.primaryMovieID)-4k")], timeout: 10))
+        try audit(app)
+    }
+
     func test_boxSet() throws {
         let app = launchAtHome()
         openLibraryTile(UITestFixtureIdentity.boxSetID, inLibrary: UITestFixtureIdentity.boxSetsLibraryID, app)
