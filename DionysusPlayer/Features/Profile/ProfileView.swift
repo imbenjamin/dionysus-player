@@ -144,6 +144,9 @@ struct ProfileView: View {
     @State private var detailPath = NavigationPath()
     /// The one list's sections, for a link to scroll to.
     @State private var compactScrollTarget: LinkedProfileScroll?
+    /// A sub-page a link asked for in a pane other than the one showing,
+    /// pushed once that pane's stack has mounted (`push(_:in:)`).
+    @State private var pendingDetailSubpage: ProfileSubpage?
     /// A Quick Connect code a link asked to approve, for the Account rows.
     @State private var linkedQuickConnect: QuickConnectLink?
     /// The link last opened, so a change of layout doesn't open it again.
@@ -338,6 +341,13 @@ struct ProfileView: View {
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
                     .navigationDestination(for: ProfileSubpage.self) { $0.destination }
             }
+            // A task per stack, since `.id(pane)` below rebuilds it: a link's
+            // sub-page is pushed here, in an update after the stack mounted.
+            .task {
+                guard let subpage = pendingDetailSubpage else { return }
+                pendingDetailSubpage = nil
+                detailPath.append(subpage)
+            }
             .id(pane)
         }
         // `.balanced` is what actually keeps the sidebar beside the detail in
@@ -439,6 +449,25 @@ struct ProfileView: View {
     private func select(_ pane: ProfileSettingsPane?) {
         selectedPane = pane
         detailPath = NavigationPath()
+        pendingDetailSubpage = nil
+    }
+
+    /// Shows `pane` with `subpage` pushed on it, for a link.
+    ///
+    /// Changing the pane rebuilds the detail stack (`.id(pane)`), and on
+    /// iOS 18 a path filled in the same update never reaches the new stack:
+    /// the pane opened at its root (seen on an iPad on 18.6, where
+    /// `profile/about/license` showed About with License unpushed; iOS 27
+    /// pushed it). So for another pane the sub-page waits for the new
+    /// stack's task; for the pane already showing, the stack is live.
+    private func push(_ subpage: ProfileSubpage, in pane: ProfileSettingsPane) {
+        let isShowing = (selectedPane ?? .appearance) == pane
+        select(pane)
+        if isShowing {
+            detailPath.append(subpage)
+        } else {
+            pendingDetailSubpage = subpage
+        }
     }
 
     /// Opens a page a link asked for (#406): in the split layout its pane,
@@ -456,15 +485,9 @@ struct ProfileView: View {
             case .playback: select(.playback)
             case .downloads: select(.downloads)
             case .about: select(.about)
-            case .advancedPlayback:
-                select(.playback)
-                detailPath.append(ProfileSubpage.advancedPlayback)
-            case .license:
-                select(.about)
-                detailPath.append(ProfileSubpage.license)
-            case .privacyPolicy:
-                select(.about)
-                detailPath.append(ProfileSubpage.privacyPolicy)
+            case .advancedPlayback: push(.advancedPlayback, in: .playback)
+            case .license: push(.license, in: .about)
+            case .privacyPolicy: push(.privacyPolicy, in: .about)
             }
             return
         }

@@ -54,12 +54,27 @@ final class DeepLinkJourneyTests: UITestCase {
         collection.resetFiltersButton.awaitExistence("Reset, for the link's filters")
         collection.resetFiltersButton.tap()
         collection.card(UITestFixtureIdentity.partWatchedMovieID).awaitExistence("the whole library once reset")
-        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBackButton.tap()
         HomeScreen(app: app).awaitLoaded()
     }
 
     func testProfileLink_pushesAboutsLicense() {
         launchAtHome()
+        openLink(link("profile/about/license"))
+        app.staticTexts[A11yID.About.appLicense].awaitExistence("the app's licence")
+    }
+
+    func testProfileLink_pushesAboutsPrivacyPolicy() {
+        launchAtHome()
+        openLink(link("profile/about/privacy"))
+        app.staticTexts[A11yID.About.privacyPolicyText].awaitExistence("the privacy policy")
+    }
+
+    /// A second link for a page of the pane already showing pushes it too.
+    func testProfileLink_pushesAPageOfThePaneAlreadyShowing() {
+        launchAtHome()
+        openLink(link("profile/about"))
+        app.buttons[A11yID.Profile.licenseLink].awaitExistence("About's License row")
         openLink(link("profile/about/license"))
         app.staticTexts[A11yID.About.appLicense].awaitExistence("the app's licence")
     }
@@ -90,7 +105,7 @@ final class DeepLinkJourneyTests: UITestCase {
         launchAtHome()
         openLink(link("item/\(UITestFixtureIdentity.primaryMovieID)"))
         AssetDetailScreen(app: app).playButton.awaitExistence("the linked title's Play button")
-        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBackButton.tap()
         HomeScreen(app: app).awaitLoaded()
     }
 
