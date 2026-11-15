@@ -14,6 +14,8 @@ struct TVPlaylistDetailView: View {
     @FocusState private var focus: String?
     /// Bumped by Menu once scrolled: the page goes back to its top.
     @State private var topRequest = 0
+    /// A Play or a row's play, waiting on its version (`tvVersionedPlayback`).
+    @State private var versionedStart: TVVersionedStart?
 
     private var items: [MediaItem] { viewModel.orderedPlaylistItems }
 
@@ -31,7 +33,7 @@ struct TVPlaylistDetailView: View {
                         Text(verbatim: overview).lineLimit(3).frame(width: 900, alignment: .leading).foregroundStyle(.white.opacity(TVContrast.opacity(0.82, increased: contrast == .increased)))
                     }
                     if let target = viewModel.playlistResumeTarget {
-                        Button { play(target) } label: {
+                        Button { play(target, from: TVDetailFocus.play) } label: {
                             Label(TVDetailFormat.playTitle(target: target, isShow: false) ?? String(localized: "Play"), systemImage: "play.fill")
                                 .frame(minWidth: 320, alignment: .leading)
                         }
@@ -53,7 +55,7 @@ struct TVPlaylistDetailView: View {
                         TVShapedTile(
                             item: member, shape: shape, landscapeSize: TVTileMetrics.episode,
                             identifier: A11yID.TV.Detail.member(member.playlistItemID ?? member.id)
-                        ) { play(member) }
+                        ) { play(member, from: Self.key(member)) }
                         .focused($focus, equals: Self.key(member))
                     }
                 }
@@ -69,14 +71,29 @@ struct TVPlaylistDetailView: View {
         .scrollClipDisabled()
         .tvClaimsFocus($focus, ids: focusIDs, remembered: $rememberedFocus)
         .tvMenuReturnsToLanding($focus, landing: focusIDs.first, isAway: isBelowHeader) { topRequest += 1 }
+        // A member's versions are asked about as on its own page (#289, D1).
+        .tvVersionedPlayback(
+            $versionedStart,
+            decide: { await viewModel.playbackDecision(for: $0, isResume: $1) },
+            remember: { viewModel.setPreferredMediaSourceID($0, forPlayableItem: $1) },
+            focus: $focus,
+            play: present
+        )
     }
 
     private var focusIDs: [String] {
         (viewModel.playlistResumeTarget == nil ? [] : [TVDetailFocus.play]) + items.map(Self.key)
     }
 
-    private func play(_ member: MediaItem) {
-        TVPlayerPresenter.present(PlaybackRequest(itemID: member.id), queue: items, client: client, userID: userID) { outcome in
+    /// `member`, with the playlist as the queue, once its version is known.
+    /// `focusID` is the button pressed, which focus returns to if the
+    /// question is dismissed.
+    private func play(_ member: MediaItem, from focusID: String) {
+        versionedStart = TVVersionedStart(item: member, request: PlaybackRequest(itemID: member.id), returnFocus: focusID)
+    }
+
+    private func present(_ request: PlaybackRequest) {
+        TVPlayerPresenter.present(request, queue: items, client: client, userID: userID) { outcome in
             viewModel.applyOptimisticPlaybackPosition(outcome)
             Task { await viewModel.refreshItem() }
         }

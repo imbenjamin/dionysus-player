@@ -151,7 +151,9 @@ final class AssetDetailViewModel {
     /// `memberID` (`?playlist=`) plays that member, with the rest of this
     /// playlist after it as tapping its row does, or alone, with a notice,
     /// if it isn't one; otherwise `linkPlaybackTarget`. The link's version,
-    /// else the one remembered for the title. Nil where there's nothing to
+    /// else the one remembered for the title; for the Top Shelf's Play with
+    /// no version named, none, since the caller asks first
+    /// (`linkVersionDecision`) and fills it in. Nil where there's nothing to
     /// play. Read once `loadState` is `.loaded`.
     func linkPlaybackRequest(memberID: String? = nil, overrides: PlaybackLinkOverrides) -> PlaybackRequest? {
         var overrides = overrides
@@ -166,11 +168,24 @@ final class AssetDetailViewModel {
         } else {
             return nil
         }
+        let remembered = overrides.fromTopShelf ? nil : preferredMediaSourceID(forPlayableItem: targetID)
         return PlaybackRequest(
             itemID: targetID,
-            mediaSourceID: overrides.mediaSourceID ?? preferredMediaSourceID(forPlayableItem: targetID),
+            mediaSourceID: overrides.mediaSourceID ?? remembered,
             linkOverrides: overrides.isEmpty ? nil : overrides
         )
+    }
+
+    /// Whether a play link asks which version first (#289, D3), decided as
+    /// the page's own Play decides (`playbackDecision(for:isResume:)`): only
+    /// for the Top Shelf's Play (`fromTopShelf`) with no `source` named. Nil
+    /// for any other link, which never asks: `linkPlaybackRequest` has its
+    /// version already. Read once `loadState` is `.loaded`.
+    func linkVersionDecision(memberID: String? = nil, overrides: PlaybackLinkOverrides) async -> MediaVersionChoice? {
+        guard overrides.fromTopShelf, overrides.mediaSourceID == nil else { return nil }
+        let target = memberID.map { id in orderedPlaylistItems.first { $0.id == id } } ?? linkPlaybackTarget
+        guard let target else { return .play(mediaSourceID: nil) }
+        return await playbackDecision(for: target, isResume: target.canResume)
     }
 
     /// The id `refreshItem()` re-fetches to keep `item` current: `itemID` itself
@@ -217,6 +232,29 @@ final class AssetDetailViewModel {
     /// `preferredMediaSourceID(forPlayableItem:)`) continues the same one.
     func setPreferredMediaSourceID(_ mediaSourceID: String, forPlayableItem playableItemID: String) {
         versionPreferenceStore.setPreferredMediaSourceID(mediaSourceID, forItem: playableItemID, userID: userID)
+    }
+
+    /// Whether a person's Play, Resume or Restart of `item` plays a known
+    /// version or asks which (#289): every such start on this page, the main
+    /// button and every row alike, goes through here. A row's item has no
+    /// `MediaSources` and is fetched; a failed fetch plays the server's
+    /// default. `isResume` is whether `item` has a resume point
+    /// (`MediaItem.canResume`), for Restart as much as Resume. See
+    /// `MediaVersionResolver`.
+    func playbackDecision(for item: MediaItem, isResume: Bool) async -> MediaVersionChoice {
+        await versionResolver.decision(for: item, isResume: isResume)
+    }
+
+    /// The next item after auto-advance, when the player handed over no
+    /// decision of its own (`PlayerViewModel.nextItemVersionChoice` was still
+    /// `nil`): continues the version labelled `previousVersionLabel`, else
+    /// asks. See `MediaVersionResolver.continuation(forItemID:previousVersionLabel:)`.
+    func continuationDecision(forItemID itemID: String, previousVersionLabel: String?) async -> MediaVersionChoice {
+        await versionResolver.continuation(forItemID: itemID, previousVersionLabel: previousVersionLabel)
+    }
+
+    private var versionResolver: MediaVersionResolver {
+        MediaVersionResolver(client: client, userID: userID, preferences: versionPreferenceStore)
     }
 
     /// Guards on `loadState`, not `item`: a preloaded item makes `item` non-nil

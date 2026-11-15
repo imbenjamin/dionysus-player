@@ -33,7 +33,18 @@ struct PlayerView: View {
     /// re-present reliably, and leaves a wrong, unplayable item on screen.
     /// `playbackRequest` is set from `onDismiss`, once the cover has gone through
     /// `nil` — the path every ordinary Play tap takes.
-    var onRequestNextItem: ((String) -> Void)? = nil
+    ///
+    /// Also passes the label of the version this session played
+    /// (`PlayerViewModel.activeVersionLabel`, `nil` for a single-version
+    /// title), which the page puts in the next request's
+    /// `previousVersionLabel` so the next item can continue in it (#289),
+    /// and the player's own decision about the next item's version
+    /// (`PlayerViewModel.nextItemVersionChoice`), so the page needn't fetch
+    /// its sources again: `nil` when that fetch hadn't landed or failed, and
+    /// the page then decides afresh from the label.
+    var onRequestNextItem: ((
+        _ itemID: String, _ previousVersionLabel: String?, _ versionChoice: MediaVersionChoice?
+    ) -> Void)? = nil
     /// Non-nil plays this local copy instead of fetching `itemID` over the
     /// network. `itemID` should still be `downloadedItem.itemID`.
     var downloadedItem: DownloadedItem? = nil
@@ -677,7 +688,7 @@ struct PlayerView: View {
         }
         await viewModel?.stop()
         if let nextItemID {
-            onRequestNextItem?(nextItemID)
+            onRequestNextItem?(nextItemID, viewModel?.activeVersionLabel, viewModel?.nextItemVersionChoice)
         }
         dismiss()
     }

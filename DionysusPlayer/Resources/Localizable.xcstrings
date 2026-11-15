@@ -17,6 +17,9 @@
     "%@ (Default)" : {
 
     },
+    "%@ (Last Played)" : {
+
+    },
     "%@ (Previously selected)" : {
 
     },
@@ -599,6 +602,9 @@
     "Choose the speaker layout that matches your setup. 7.1.4 is the default and is recommended for AirPods. DTS:X offers 7.1.4 and 9.1.6." : {
 
     },
+    "Choose Versions" : {
+
+    },
     "Choose your server to continue." : {
 
     },
@@ -967,6 +973,9 @@
     "Download" : {
 
     },
+    "Download %lld Episodes" : {
+
+    },
     "Download Anyway" : {
 
     },
@@ -977,6 +986,9 @@
 
     },
     "Download Season" : {
+
+    },
+    "Download Season in Which Version?" : {
 
     },
     "Download failed." : {
@@ -1034,6 +1046,9 @@
 
     },
     "Episodes" : {
+
+    },
+    "Episodes with only one version aren't listed." : {
 
     },
     "Estimated Size" : {
@@ -2092,6 +2107,9 @@
 
     },
     "Version %lld" : {
+
+    },
+    "Versions" : {
 
     },
     "Video" : {

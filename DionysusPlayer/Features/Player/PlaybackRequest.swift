@@ -7,11 +7,10 @@ struct PlaybackRequest: Identifiable, Hashable {
     /// (drives the "Restart" button on the asset detail pages).
     var startFromBeginning: Bool = false
     /// The specific `mediaSources` entry to play (see `MediaItem
-    /// .mediaVersions`) — set by `PlayResumeButtonRow`'s version-choice
-    /// prompt for a fresh Play/Restart, or looked up from
-    /// `AssetDetailViewModel.preferredMediaSourceID(forPlayableItem:)` for a
-    /// Resume. `nil` for a single/no-version item, letting `PlayerViewModel`
-    /// fall back to the server's own default source.
+    /// .mediaVersions`) — filled in by `versionedPlayback(_:anchor:viewModel:play:)`
+    /// from the version question's answer or the remembered pick, or by a
+    /// `dionysus://` link. `nil` for a single/no-version item, letting
+    /// `PlayerViewModel` fall back to the server's own default source.
     var mediaSourceID: String?
     /// An explicit position to start playback at, overriding both
     /// `startFromBeginning` and the item's saved resume position — set only
@@ -23,6 +22,13 @@ struct PlaybackRequest: Identifiable, Hashable {
     /// version, tracks and Playback Stats, checked once the title has loaded.
     /// `nil` for everything a person starts.
     var linkOverrides: PlaybackLinkOverrides?
+    /// For the next episode or playlist member after auto-advance (#289): the
+    /// label of the version the finished session played
+    /// (`PlayerViewModel.activeVersionLabel`), so the page can continue in the
+    /// version labelled the same ("1080p" stays "1080p" though every
+    /// episode's ids differ). `nil` for everything a person starts, and after
+    /// a title with only one version.
+    var previousVersionLabel: String?
     /// Include every field in the identity so a different action right after
     /// another (e.g. Restart tapped right after a Resume, picking a
     /// different version on a second Play, or tapping a *second* chapter
@@ -36,6 +42,7 @@ struct PlaybackRequest: Identifiable, Hashable {
         // down.
         let start = startSeconds.map { String($0) } ?? ""
         let link = linkOverrides.map { String($0.hashValue) } ?? ""
-        return "\(itemID)-\(startFromBeginning)-\(mediaSourceID ?? "")-\(start)-\(link)"
+        let previousVersion = previousVersionLabel ?? ""
+        return "\(itemID)-\(startFromBeginning)-\(mediaSourceID ?? "")-\(start)-\(link)-\(previousVersion)"
     }
 }

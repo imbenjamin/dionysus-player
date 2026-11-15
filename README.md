@@ -148,6 +148,10 @@ If you are unsure, please use the Stable Releases link.
   still plays instead of failing outright. **Direct Play Always** (send the
   original file untouched, no negotiation) is also available for anyone
   who'd rather force it.
+- **Versions** — a title with several versions on the server (4K and
+  1080p, a Director's Cut) asks which to play, marking the one you played
+  last, and which to download. Resuming plays the version you were watching
+  without asking; the next episode carries your choice on by itself.
 - **Downloads** — see below; this is the differentiator.
 - **Spatial Audio** — TrueHD Atmos and DTS:X with their height channels;
   see below.

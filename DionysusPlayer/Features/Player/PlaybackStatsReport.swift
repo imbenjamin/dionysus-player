@@ -16,11 +16,17 @@ enum PlaybackStatsReport {
         /// Keys the value's accessibility identifier where the label isn't
         /// unique (Video and Audio both have a "Decoder").
         let id: String
+        /// The value's whole accessibility identifier, the same on both
+        /// platforms, overriding each renderer's own `id`-keyed scheme
+        /// (`A11yID.Player.statsValue`, `A11yID.TV.Player.statsValue`) so one
+        /// journey helper reads it on either app. `nil` for nearly every row.
+        let valueIdentifier: String?
 
-        init(_ label: String, _ value: String, id: String? = nil) {
+        init(_ label: String, _ value: String, id: String? = nil, valueIdentifier: String? = nil) {
             self.label = label
             self.value = value
             self.id = id ?? label
+            self.valueIdentifier = valueIdentifier
         }
     }
 
@@ -93,7 +99,10 @@ enum PlaybackStatsReport {
 // MARK: - Sections
 
 extension PlaybackStatsReport {
-    static func video(_ stats: PlaybackStats, sourceVideoStream stream: MediaStream?) -> Section {
+    /// `versionLabel` (`PlayerViewModel.activeVersionLabel`) leads the section
+    /// as "Version" when the title has more than one: everything below it
+    /// describes that file, so it says which one (#289).
+    static func video(_ stats: PlaybackStats, sourceVideoStream stream: MediaStream?, versionLabel: String?) -> Section {
         // `stats.videoSize`/`.frameRate`/`.bitrate` come from AetherEngine's
         // source probe, which never runs on the `nativeRemoteHLS` bypass
         // route — so all three stay `nil` for the life of such a session, not
@@ -115,6 +124,9 @@ extension PlaybackStatsReport {
             Row("Color", stats.colorDescription ?? StreamFormatDescription.color(stream) ?? "—"),
             Row("Source Color", stats.sourceColorFormat)
         ]
+        if let versionLabel {
+            rows.insert(Row("Version", versionLabel, valueIdentifier: A11yID.PlaybackStats.versionValue), at: 0)
+        }
         if stats.sourceColorFormat.hasPrefix("Dolby Vision") {
             rows.append(Row("Enhancement Layer", describeEnhancementLayer(stream?.videoRangeType)))
         }

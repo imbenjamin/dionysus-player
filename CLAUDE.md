@@ -462,6 +462,43 @@ never itself (`matchingItems`), so no combination offered can funnel to zero
 results. A new facet follows the same "exclude yourself, apply the rest"
 shape.
 
+### Versions (#289)
+
+**A title can have several Jellyfin versions (`MediaSources`: 4K and 1080p,
+a Director's Cut), and whether a play asks which is decided by the title's
+resume point, never by the button** (Benjamin, 2026-11-13). Resume and Restart
+are one title in two starts, so asking on one and not the other read as
+arbitrary. The rule is `MediaVersionChoice`, the pure part, and
+`MediaVersionResolver`, which applies it to a session:
+
+- Fewer than two versions never asks. With a resume point and a remembered
+  version still listed (`MediaVersionPreferenceStore`), Resume and Restart both
+  play it silently; with a resume point and nothing remembered (or the pick
+  gone) it asks once and remembers the answer. With no resume point, Play asks
+  and marks the remembered one "(Last Played)". Row plays (episode, collection
+  and playlist rows, the Apple TV's hero) follow the same rule.
+- **Auto-advance never makes the user wait for nothing.** A single version
+  plays; otherwise the remembered pick; otherwise the item just played's own
+  label ("4K HDR10") if the next one has it; otherwise it asks. A version it
+  carries on is remembered as if chosen, on both platforms, so a later Resume
+  of that episode doesn't ask about the version it was watched in. On iOS the
+  question waits on the page once the player closes; on the Apple TV it is
+  shown over the player, where Menu closes the player.
+- **`dionysus://` play links never ask**: they exist for tests and debugging,
+  so `source=`, else the remembered pick, else the server's default. The Top
+  Shelf's play links carry `from=topshelf` and follow the page's rule on the
+  Apple TV; iOS ignores it (`AssetDetailViewModel.linkVersionDecision`).
+- **iOS asks with a `confirmationDialog`** (`VersionChoiceDialog`); the Apple
+  TV with a full-screen page, since a tvOS dialog's buttons can't be given
+  identifiers and its focus can't be placed (`DionysusTV/CLAUDE.md`, "Choose
+  a Version"). Playback Stats' Version row and a download's Details show which
+  version a session or file is.
+- **Downloads ask differently** (iOS; `DOWNLOADS.md`): a single download always
+  asks with two or more versions, before the audio prompt; a season scans
+  every episode first and asks once if they share the same versions, else per
+  episode. A download isn't a resume, so neither saves a playback preference.
+  A collection's bulk download doesn't exist yet (#468).
+
 ### Deleting a season
 
 **A season with no folder of its own can't be deleted as a unit, by anyone.**

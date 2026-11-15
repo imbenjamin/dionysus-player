@@ -18,7 +18,9 @@ struct TVStatsPanel: View {
             if let stats {
                 HStack(alignment: .top, spacing: 36) {
                     column([
-                        PlaybackStatsReport.video(stats, sourceVideoStream: viewModel.sourceVideoStream),
+                        PlaybackStatsReport.video(
+                            stats, sourceVideoStream: viewModel.sourceVideoStream, versionLabel: viewModel.activeVersionLabel
+                        ),
                         PlaybackStatsReport.audio(stats, sourceAudioStream: viewModel.sourceAudioStream, readings: readings)
                     ])
                     column([
@@ -62,7 +64,7 @@ struct TVStatsPanel: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(row.label)
                     .accessibilityValue(row.value)
-                    .accessibilityIdentifier(A11yID.TV.Player.statsValue(row.id))
+                    .accessibilityIdentifier(row.valueIdentifier ?? A11yID.TV.Player.statsValue(row.id))
                 }
             }
         }

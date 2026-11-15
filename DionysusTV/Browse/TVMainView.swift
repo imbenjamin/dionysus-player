@@ -47,6 +47,11 @@ struct TVMainView: View {
     /// closes: as it closes tvOS puts focus where it likes (Watched, not
     /// Play), so the page claims its item as one coming back on show does.
     @State private var entryBeneathPlayer: UUID?
+    /// The Top Shelf's Play waiting on its version question (#289), asked
+    /// over the title's page, and that page's path entry and playlist queue
+    /// for the session the answer starts.
+    @State private var linkVersionStart: TVVersionedStart?
+    @State private var linkVersionPage: (entryID: UUID, queue: [MediaItem])?
     @State private var nav = TVShellNavigation()
     /// Holds the whole sidebar disabled while focus is on its way to the page,
     /// until the page says it has claimed it (`tvPageClaimedFocus`): on a
@@ -123,6 +128,17 @@ struct TVMainView: View {
         // "That worked" for an action whose own UI has gone (adding to a
         // playlist), as on iOS: over every page, beneath the player.
         .overlay(alignment: .top) { ToastHost() }
+        // The Top Shelf's Play, asking which version over the title's page
+        // (`apply(_:)`); decided before it's set, so `decide` is never asked.
+        .tvVersionedPlayback(
+            $linkVersionStart,
+            decide: { _, _ in .play(mediaSourceID: nil) },
+            remember: { [userID] mediaSourceID, itemID in
+                MediaVersionPreferenceStore().setPreferredMediaSourceID(mediaSourceID, forItem: itemID, userID: userID)
+            },
+            focus: nil,
+            play: presentLinkedPlayback
+        )
         .environment(\.tvSidebarExpanded, isExpanded)
         .environment(\.tvFocusHandoff, focusHandoff)
         .environment(\.tvRailReturn, railReturn)
@@ -321,7 +337,7 @@ struct TVMainView: View {
             await page.load()
             guard canFinish() else { return }
             guard page.loadState == .loaded,
-                  let request = page.linkPlaybackRequest(memberID: playback.memberID, overrides: playback.overrides)
+                  var request = page.linkPlaybackRequest(memberID: playback.memberID, overrides: playback.overrides)
             else {
                 let notices = playback.overrides.notices + [String(localized: "Nothing to play here.")]
                 ToastCenter.shared.post(.notice(PlaybackLinkOverrides.combined(notices) ?? ""))
@@ -329,6 +345,25 @@ struct TVMainView: View {
                 return
             }
             let queue = item.kind == .playlist ? page.orderedPlaylistItems : []
+            // The Top Shelf's Play follows the page's rule (#289, D3); any
+            // other link has its version already.
+            if let decision = await page.linkVersionDecision(memberID: playback.memberID, overrides: playback.overrides) {
+                guard canFinish() else { return }
+                switch TVVersionedStart.outcome(of: decision, request: request) {
+                case .play(let decided):
+                    request = decided
+                case .ask:
+                    // The page first, then the question over it, so Menu on
+                    // the question leaves the page, as Play's would.
+                    open(.assetDetail(itemID: item.id, preloadedItem: item))
+                    guard let entry = nav.path.last else { return }
+                    let target = playback.memberID.flatMap { id in page.orderedPlaylistItems.first { $0.id == id } }
+                        ?? page.linkPlaybackTarget
+                    linkVersionPage = (entry.id, queue)
+                    linkVersionStart = TVVersionedStart(title: target?.name ?? item.name, request: request, decided: decision)
+                    return
+                }
+            }
             var playbackEnded: (@MainActor (PlaybackSessionOutcome) -> Void)?
             let presented = TVPlayerPresenter.present(request, queue: queue, client: client, userID: userID) { outcome in
                 playbackEnded?(outcome)
@@ -338,6 +373,19 @@ struct TVMainView: View {
             } else {
                 open(.assetDetail(itemID: item.id, preloadedItem: item))
             }
+        }
+    }
+
+    /// The Top Shelf's Play once its question is answered: the player over
+    /// the title's page the link pushed, which shows where it stopped, as
+    /// the page's own Play does.
+    private func presentLinkedPlayback(_ request: PlaybackRequest) {
+        guard let linked = linkVersionPage else { return }
+        linkVersionPage = nil
+        let model = detailModels[linked.entryID]
+        TVPlayerPresenter.present(request, queue: linked.queue, client: client, userID: userID) { [weak model] outcome in
+            model?.applyOptimisticPlaybackPosition(outcome)
+            Task { await model?.refreshItem() }
         }
     }
 

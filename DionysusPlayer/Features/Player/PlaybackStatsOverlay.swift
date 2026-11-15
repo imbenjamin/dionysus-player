@@ -172,7 +172,7 @@ struct PlaybackStatsOverlay: View {
     @ViewBuilder
     private func pageContent(_ page: Int, _ stats: PlaybackStats) -> some View {
         let sections: [PlaybackStatsReport.Section] = switch page {
-        case 0: [PlaybackStatsReport.video(stats, sourceVideoStream: viewModel.sourceVideoStream)]
+        case 0: [PlaybackStatsReport.video(stats, sourceVideoStream: viewModel.sourceVideoStream, versionLabel: viewModel.activeVersionLabel)]
         case 1: [
             PlaybackStatsReport.audio(stats, sourceAudioStream: viewModel.sourceAudioStream, readings: readings),
             PlaybackStatsReport.playback(stats, state: viewModel.state, zoomMode: zoomMode)
@@ -187,19 +187,20 @@ struct PlaybackStatsOverlay: View {
             // A page's leading section has no top padding; the others do.
             ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
                 Text(section.title).bold().padding(.top, index == 0 ? 0 : 4)
-                ForEach(section.rows) { item in row(item.label, item.value, id: item.id) }
+                ForEach(section.rows) { item in row(item) }
             }
         }
     }
 
-    /// `id` keys the value's accessibility identifier where `label` alone
-    /// isn't unique across pages (Video and Audio both have a "Decoder").
-    private func row(_ label: String, _ value: String, id: String? = nil) -> some View {
+    /// The row's `id` keys the value's accessibility identifier where the
+    /// label alone isn't unique across pages (Video and Audio both have a
+    /// "Decoder"), unless it carries a cross-platform `valueIdentifier`.
+    private func row(_ item: PlaybackStatsReport.Row) -> some View {
         HStack(spacing: 6) {
-            Text("\(label):")
+            Text("\(item.label):")
                 .foregroundStyle(.white.opacity(0.6))
-            Text(value)
-                .accessibilityIdentifier(A11yID.Player.statsValue(id ?? label))
+            Text(item.value)
+                .accessibilityIdentifier(item.valueIdentifier ?? A11yID.Player.statsValue(item.id))
         }
     }
 }

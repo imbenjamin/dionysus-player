@@ -18,6 +18,13 @@ struct PlaybackLinkOverrides: Hashable, Sendable {
     var audioStreamIndex: Int?
     var subtitle: DeepLink.PlaybackOptions.Subtitle?
     var showsStats = false
+    /// The Top Shelf's Play (`DeepLink.PlaybackOptions.fromTopShelf`): the
+    /// version is asked about as the page's own Play would ask
+    /// (`AssetDetailViewModel.linkVersionDecision`) rather than taken from
+    /// the remembered pick. It's about starting, not something the session
+    /// applies, so it doesn't count towards `isEmpty`: a shelf link alone
+    /// still plays as Play would, track memory and all.
+    var fromTopShelf = false
     #if DEBUG
     /// DEBUG builds only: how this session negotiates with the server,
     /// instead of Profile's Streaming setting.
@@ -35,13 +42,14 @@ struct PlaybackLinkOverrides: Hashable, Sendable {
     init(
         start: DeepLink.PlaybackOptions.Start? = nil, mediaSourceID: String? = nil,
         audioStreamIndex: Int? = nil, subtitle: DeepLink.PlaybackOptions.Subtitle? = nil,
-        showsStats: Bool = false, notices: [String] = []
+        showsStats: Bool = false, fromTopShelf: Bool = false, notices: [String] = []
     ) {
         self.start = start
         self.mediaSourceID = mediaSourceID
         self.audioStreamIndex = audioStreamIndex
         self.subtitle = subtitle
         self.showsStats = showsStats
+        self.fromTopShelf = fromTopShelf
         self.notices = notices
     }
 
@@ -50,7 +58,8 @@ struct PlaybackLinkOverrides: Hashable, Sendable {
         self.init(
             start: options.start, mediaSourceID: options.mediaSourceID,
             audioStreamIndex: options.audioStreamIndex, subtitle: options.subtitle,
-            showsStats: options.showsStats, notices: issues.compactMap(\.playbackNotice)
+            showsStats: options.showsStats, fromTopShelf: options.fromTopShelf,
+            notices: issues.compactMap(\.playbackNotice)
         )
         #if DEBUG
         decisionMode = options.decisionMode.map {
@@ -66,8 +75,23 @@ struct PlaybackLinkOverrides: Hashable, Sendable {
     /// Whether the link names an audio or subtitle track.
     var choosesTracks: Bool { audioStreamIndex != nil || subtitle != nil }
 
+    /// These overrides as a plain link's: `fromTopShelf` dropped. iOS reads
+    /// every play link this way (`DeepLinkPlaybackCue`), having no Top Shelf,
+    /// so a shelf link plays the remembered version there, not the server's
+    /// default (`AssetDetailViewModel.linkPlaybackRequest` leaves the version
+    /// to a question while it's set).
+    var ignoringTopShelf: PlaybackLinkOverrides {
+        var plain = self
+        plain.fromTopShelf = false
+        return plain
+    }
+
     /// Nothing to apply or say: plays exactly as Play would.
-    var isEmpty: Bool { self == PlaybackLinkOverrides() }
+    var isEmpty: Bool {
+        var applied = self
+        applied.fromTopShelf = false
+        return applied == PlaybackLinkOverrides()
+    }
 
     // MARK: - Resolution
 

@@ -39,6 +39,36 @@ GET /Videos/{itemId}/stream.mp4
 The result is a single MP4 with one HEVC video track and one AAC-LC stereo audio
 track. Subtitles are fetched separately as sidecar files, not muxed in.
 
+**A title with several versions (#289) asks which to download before
+anything else**, since the audio and subtitle tracks the next prompts offer
+are that version's own (`DownloadVersionChoice`). A single download asks
+every time there are two or more, even when playback remembers a pick: a
+download isn't a resume, and the remembered version is only marked "(Last
+Played)". The long-press options sheet has a Version picker instead, starting
+on that pick, and nothing asks after it, unless the sheet couldn't offer one
+(its own `/PlaybackInfo` failed) or its pick is gone by the download's fetch:
+then the question follows the sheet, rather than the first version downloading
+unasked. The transcode reads the chosen
+source (`MediaSourceId`), and the row records the version's label
+(`DownloadedItem.versionLabel`) for the downloaded title's Details, since its
+own resolution can't say which file it came from.
+
+**A season download scans first, then asks at most once per tap**
+(`SeasonDownloadCoordinator`, `BulkVersionPlanner`). It fetches every
+episode's sources (bounded by `maxConcurrentDownloads`, and reused to enqueue,
+so still one `/PlaybackInfo` per episode), then leaves out the episodes with a
+single version, which download that one. If every remaining episode lists the
+same versions in the same order, one question ("Download Season in Which
+Version?") applies its label to each; if they differ, a sheet lists only those
+episodes, each with its own Version menu starting on the remembered playback
+pick, else the first. With no versions anywhere nothing is asked. Cancelling
+downloads nothing; a failed scan counts towards "N episodes couldn't be
+downloaded" and the rest carry on. Audio and subtitles are still auto-picked
+per episode. Each episode is checked again just before it's queued: one
+downloaded by hand while the season scanned or asked keeps that download, and
+isn't counted as a failure. Picking another season mid-scan ends the run
+(the button is keyed by the season). A collection's download (#468) is to reuse the same planner.
+
 This is a different path from **playback**, which is direct-play only
 (`streamURL`, `Static=true`) — the server hands over the original stream and
 AetherEngine decodes whatever it is. So the app both direct-plays *and*

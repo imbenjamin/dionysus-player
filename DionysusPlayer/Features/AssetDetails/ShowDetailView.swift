@@ -21,8 +21,16 @@ struct ShowDetailView: View {
     /// `onRequestNextItem` rather than opened immediately: setting
     /// `playbackRequest` while the current `.fullScreenCover` is still
     /// presented doesn't reliably work. Applied from `onDismiss` below, once
-    /// the cover has gone through `nil`.
-    @State private var pendingNextEpisodeID: String?
+    /// the cover has gone through `nil`. Held as the start it becomes, with
+    /// the finished session's version label and the player's decision about
+    /// the next episode's version (#289), so it asks only when it must.
+    @State private var pendingNextEpisode: VersionedPlaybackStart?
+    /// The Play button's start waiting on its version (#289), asked about
+    /// next to the button; see `versionedPlayback(_:anchor:viewModel:play:)`.
+    @State private var versionedStart: VersionedPlaybackStart?
+    /// The same for an episode row's Play and for auto-advance, asked about
+    /// from the page.
+    @State private var pageVersionedStart: VersionedPlaybackStart?
     @State private var selectedSeasonID: String?
     /// Same reasoning and fix as `MovieDetailView.refreshTrigger`, needed here
     /// for the same view shape (`viewModel` as a plain `let` plus `@State`).
@@ -93,9 +101,8 @@ struct ShowDetailView: View {
                             // `PlayResumeButtonRow`'s `targetEpisode`. That
                             // episode comes from a lightweight list fetch, not
                             // the detail page's `Fields=MediaSources` one, so
-                            // its `mediaVersions` is always empty and the
-                            // version-id argument stays `nil` — a known gap,
-                            // see `PlayResumeButtonRow`.
+                            // its versions are fetched when Play is tapped
+                            // (`MediaVersionResolver`).
                             //
                             // Episode content plays directly, like
                             // `MovieDetailView`: it has real `mediaVersions` to
@@ -108,25 +115,20 @@ struct ShowDetailView: View {
                                     PlayResumeButtonRow(
                                         item: item,
                                         targetEpisode: isEpisodeContent ? nil : viewModel.showPlaybackEpisode,
-                                        onPlay: { versionID in
-                                            let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
-                                            guard let targetID else { return }
-                                            if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: targetID) }
-                                            playbackRequest = PlaybackRequest(itemID: targetID, mediaSourceID: versionID)
+                                        onStart: {
+                                            guard let target = isEpisodeContent ? item : viewModel.showPlaybackEpisode else { return }
+                                            versionedStart = .start(target, request: PlaybackRequest(itemID: target.id), anchor: .playButton)
                                         },
-                                        onResume: {
-                                            let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
-                                            guard let targetID else { return }
-                                            playbackRequest = PlaybackRequest(
-                                                itemID: targetID, mediaSourceID: viewModel.preferredMediaSourceID(forPlayableItem: targetID)
+                                        onRestart: {
+                                            guard let target = isEpisodeContent ? item : viewModel.showPlaybackEpisode else { return }
+                                            versionedStart = .start(
+                                                target, request: PlaybackRequest(itemID: target.id, startFromBeginning: true),
+                                                anchor: .restartButton
                                             )
                                         },
-                                        onRestart: { versionID in
-                                            let targetID = isEpisodeContent ? item.id : viewModel.showPlaybackEpisode?.id
-                                            guard let targetID else { return }
-                                            if let versionID { viewModel.setPreferredMediaSourceID(versionID, forPlayableItem: targetID) }
-                                            playbackRequest = PlaybackRequest(itemID: targetID, startFromBeginning: true, mediaSourceID: versionID)
-                                        }
+                                        versionHost: VersionedPlaybackHost(
+                                            start: $versionedStart, viewModel: viewModel, play: { playbackRequest = $0 }
+                                        )
                                     )
                                     // See `MediaItem.playbackProgressIdentity`.
                                     // Covers both `item` and `showPlaybackEpisode`,
@@ -197,7 +199,13 @@ struct ShowDetailView: View {
                                 selectedSeasonID: $selectedSeasonID,
                                 refreshToken: viewModel.episodeListRefreshToken,
                                 currentEpisodeID: isEpisodeContent ? item.id : nil,
-                                onPlayEpisode: { episodeID in playbackRequest = PlaybackRequest(itemID: episodeID) },
+                                // A row's Play resumes a part-watched episode,
+                                // so it decides as Resume would (D1, D4).
+                                onPlayEpisode: { episode in
+                                    pageVersionedStart = .start(
+                                        episode, request: PlaybackRequest(itemID: episode.id), anchor: .row(episode.id)
+                                    )
+                                },
                                 onSelectEpisode: { episodeID in
                                     Task {
                                         await viewModel.selectEpisode(episodeID)
@@ -205,6 +213,11 @@ struct ShowDetailView: View {
                                     }
                                 }
                             )
+                            // Each row's Play asks its own question
+                            // (`versionQuestionAnchor(rowID:)`).
+                            .environment(\.versionedRowHost, VersionedPlaybackHost(
+                                start: $pageVersionedStart, viewModel: viewModel, play: { playbackRequest = $0 }
+                            ))
                             .id(DeepLinkPageAnchor.seasons)
                         }
 
@@ -319,6 +332,9 @@ struct ShowDetailView: View {
                 }
             }
         }
+        // An episode row's Play and auto-advance ask from here (#289): the
+        // list's rows aren't one anchor, and auto-advance has none.
+        .versionedPlayback($pageVersionedStart, anchor: .page, viewModel: viewModel) { playbackRequest = $0 }
         // A `dionysus://play` link (#406) plays what this page's Play would.
         .playsDeepLinkCue(viewModel) { playbackRequest = $0 }
         .fullScreenCover(
@@ -332,11 +348,11 @@ struct ShowDetailView: View {
                     refreshTrigger = UUID()
                 })
                 // Only reached once `playbackRequest` has gone through `nil`;
-                // see `pendingNextEpisodeID` for why `onRequestNextItem` can't
+                // see `pendingNextEpisode` for why `onRequestNextItem` can't
                 // set it directly.
-                if let pendingNextEpisodeID {
-                    self.pendingNextEpisodeID = nil
-                    playbackRequest = PlaybackRequest(itemID: pendingNextEpisodeID)
+                if let pendingNextEpisode {
+                    self.pendingNextEpisode = nil
+                    pageVersionedStart = pendingNextEpisode
                 }
             }
         ) { request in
@@ -344,7 +360,11 @@ struct ShowDetailView: View {
                 itemID: request.itemID, startFromBeginning: request.startFromBeginning, mediaSourceID: request.mediaSourceID,
                 startSeconds: request.startSeconds,
                 onPlaybackEnded: { viewModel.applyOptimisticPlaybackPosition($0) },
-                onRequestNextItem: { pendingNextEpisodeID = $0 },
+                onRequestNextItem: { itemID, previousVersionLabel, versionChoice in
+                    pendingNextEpisode = .continuation(
+                        versionChoice, request: PlaybackRequest(itemID: itemID, previousVersionLabel: previousVersionLabel)
+                    )
+                },
                 linkOverrides: request.linkOverrides
             )
         }

@@ -630,6 +630,23 @@ struct AssetDetailScreen: Screen {
         app.buttons[A11yID.AssetDetail.episodeRow(episodeID)]
     }
 
+    /// A show's episode row's thumbnail, which plays that episode.
+    func episodePlayButton(_ episodeID: String) -> XCUIElement {
+        app.buttons[A11yID.AssetDetail.episodePlayButton(episodeID)]
+    }
+
+    /// One button of the "Choose a Version" dialog, by the version's source
+    /// id (`A11yID.Versions.option(_:)`). Matched on the identifier alone:
+    /// `app.buttons[...]` would also match a label.
+    func versionOption(_ mediaSourceID: String) -> XCUIElement {
+        app.buttons.matching(identifier: A11yID.Versions.option(mediaSourceID)).firstMatch
+    }
+
+    /// Any of the dialog's version buttons, to tell whether it is up at all.
+    var anyVersionOption: XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", A11yID.Versions.option(""))).firstMatch
+    }
+
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
         playButton.awaitExistence("the detail page's play button", file: file, line: line)
     }
@@ -666,6 +683,11 @@ struct AssetDetailScreen: Screen {
     /// found by label.
     func playlistRow(_ playlistItemID: String) -> XCUIElement {
         app.buttons[A11yID.Playlist.row(playlistItemID)]
+    }
+
+    /// The row's thumbnail, which plays the member.
+    func playlistPlayButton(_ playlistItemID: String) -> XCUIElement {
+        app.buttons[A11yID.Playlist.playButton(playlistItemID)]
     }
 
     /// The row's `.contextMenu` "Remove from Playlist" action — the only
@@ -854,6 +876,10 @@ struct PlayerScreen: Screen {
         app.staticTexts[A11yID.Player.statsValue(rowLabel)]
     }
 
+    /// The stats panel's Version value, present only for a title with more
+    /// than one version (#289).
+    var statsVersionValue: XCUIElement { app.staticTexts[A11yID.PlaybackStats.versionValue] }
+
     /// The close button appearing means the controls overlay is up and
     /// drivable, not merely that the cover presented. Launched with
     /// `-UITestDisableControlAutoHide`, so it will not fade back out.
@@ -975,6 +1001,30 @@ extension AssetDetailScreen {
     /// `SeasonDownloadButton`, for the season the episode list shows.
     var seasonDownloadButton: XCUIElement { app.buttons[A11yID.AssetDetail.seasonDownloadButton] }
 
+    /// One option of a season download's single version question
+    /// ("Download Season in Which Version?"), by its label's position.
+    /// Matched on the identifier alone, as `versionOption(_:)` is.
+    func bulkVersionOption(_ index: Int) -> XCUIElement {
+        app.buttons.matching(identifier: A11yID.Versions.bulkOption(index)).firstMatch
+    }
+
+    /// `BulkVersionChoiceSheet`'s Version menu for one episode.
+    func bulkRowPicker(_ episodeID: String) -> XCUIElement {
+        app.buttons.matching(identifier: A11yID.Versions.bulkRowPicker(episodeID)).firstMatch
+    }
+
+    var bulkDownloadButton: XCUIElement { app.buttons[A11yID.Versions.bulkDownloadButton] }
+    var bulkCancelButton: XCUIElement { app.buttons[A11yID.Versions.bulkCancelButton] }
+
+    /// Picks `versionID` in the per-episode sheet's row for `episodeID`.
+    func selectBulkVersion(
+        episodeID: String, versionID: String, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        bulkRowPicker(episodeID).awaitExistence("\(episodeID)'s Version menu", file: file, line: line).tap()
+        app.buttons[A11yID.Versions.bulkRowOption(episodeID, versionID)]
+            .awaitExistence("the \(versionID) option", file: file, line: line).tap()
+    }
+
     /// Switches the episode list to `seasonID` through the season menu.
     func selectSeason(_ seasonID: String, file: StaticString = #filePath, line: UInt = #line) {
         app.buttons[A11yID.AssetDetail.seasonPicker]
@@ -991,6 +1041,15 @@ extension AssetDetailScreen {
         file: StaticString = #filePath, line: UInt = #line
     ) {
         seasonDownloadButton.awaitExistence("the season's download button", file: file, line: line).tap()
+        awaitSeasonDownloaded(timeout: timeout, file: file, line: line)
+    }
+
+    /// Waits for `seasonDownloadButton` to read Season Downloaded, once the
+    /// download has been started (and any version question answered).
+    func awaitSeasonDownloaded(
+        timeout: TimeInterval = UITestCase.defaultTimeout,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
         let downloaded = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label CONTAINS[c] %@", "Season Downloaded"),
             object: seasonDownloadButton
@@ -1034,6 +1093,13 @@ struct DownloadsScreen: Screen {
     func episodeRow(itemID: String) -> XCUIElement {
         app.descendants(matching: .any)[A11yID.Downloads.episodeRow(itemID)]
     }
+
+    /// A downloaded title's About/Cast & Crew/Details segment, by
+    /// `A11yID.Downloads.tab(_:)`'s name.
+    func detailTab(_ name: String) -> XCUIElement { app.buttons[A11yID.Downloads.tab(name)] }
+
+    /// The downloaded title's Details tab's Version value (#289).
+    var detailsVersionValue: XCUIElement { app.staticTexts[A11yID.Downloads.detailsVersionValue] }
 
     /// Selects every row and deletes them, confirming the dialog.
     ///
@@ -1318,11 +1384,20 @@ struct QualityLadderScreen: Screen {
 struct AdvancedDownloadOptionsScreen: Screen {
     let app: XCUIApplication
 
+    /// Shown only for a title with two or more versions (#289).
+    var versionPicker: XCUIElement { app.buttons[A11yID.AdvancedDownloadOptions.versionPicker] }
     var resolutionPicker: XCUIElement { app.buttons[A11yID.AdvancedDownloadOptions.resolutionPicker] }
     var qualityPicker: XCUIElement { app.buttons[A11yID.AdvancedDownloadOptions.qualityPicker] }
     var estimatedSize: XCUIElement { app.staticTexts[A11yID.AdvancedDownloadOptions.estimatedSize] }
     var downloadButton: XCUIElement { app.buttons[A11yID.AdvancedDownloadOptions.downloadButton] }
     var cancelButton: XCUIElement { app.buttons[A11yID.AdvancedDownloadOptions.cancelButton] }
+
+    /// Picks a Version from the picker's menu, by its source id.
+    func selectVersion(_ mediaSourceID: String, file: StaticString = #filePath, line: UInt = #line) {
+        versionPicker.awaitExistence("the sheet's Version picker", file: file, line: line).tap()
+        app.buttons[A11yID.AdvancedDownloadOptions.versionOption(mediaSourceID)]
+            .awaitExistence("the \(mediaSourceID) option", file: file, line: line).tap()
+    }
 
     /// Picks a Quality from the picker's menu.
     func selectQuality(_ preset: String, file: StaticString = #filePath, line: UInt = #line) {

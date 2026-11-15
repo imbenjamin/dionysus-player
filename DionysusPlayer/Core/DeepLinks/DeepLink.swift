@@ -21,6 +21,8 @@ import Foundation
 /// have: a shelf on someone's Apple TV can hold URLs an older version built.
 struct DeepLink: Equatable, Sendable {
     static let scheme = "dionysus"
+    /// `from=`'s value on the Top Shelf's play links (`PlaybackOptions.fromTopShelf`).
+    static let topShelfSource = "topshelf"
 
     var destination: Destination
     /// `ServerConfiguration.id` of the server the link was made for; nil
@@ -104,6 +106,12 @@ struct DeepLink: Equatable, Sendable {
         var decisionMode: DecisionMode?
         /// DEBUG builds only, in bits per second.
         var maxBitrate: Int?
+        /// `from=topshelf`: the Top Shelf's Play, which asks which version as
+        /// the page's own Play would (#289). Any other play link never asks:
+        /// it plays its `source`, else the remembered pick, else the server's
+        /// default. A shelf link made before this parameter still parses, as
+        /// a plain link.
+        var fromTopShelf = false
     }
 
     enum Issue: Equatable, Sendable {
@@ -209,6 +217,8 @@ extension DeepLink {
         options.showsStats = query.flag("stats")
         options.prefersDownload = query.flag("offline")
         options.playlistID = query.string("playlist")
+        // Any other value is ignored, as an unknown parameter is.
+        options.fromTopShelf = query.string("from") == Self.topShelfSource
         #if DEBUG
         options.decisionMode = query.value("mode", issue: .unknownMode, PlaybackOptions.DecisionMode.init(rawValue:))
         options.maxBitrate = query.value("bitrate", issue: .unreadableBitrate) { Int($0).flatMap { $0 > 0 ? $0 : nil } }
@@ -347,6 +357,7 @@ extension DeepLink {
                 ("playlist", options.playlistID),
                 ("mode", options.decisionMode?.rawValue),
                 ("bitrate", options.maxBitrate.map(String.init)),
+                ("from", options.fromTopShelf ? Self.topShelfSource : nil),
             ]
         case .serverSetup(let address):
             host = "server"

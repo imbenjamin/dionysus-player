@@ -21,7 +21,7 @@ struct CollectionItemList: View {
     /// from tapping the row's text, which pushes its detail page via
     /// `NavigationLink` — there's no swap-in-place here, see
     /// `CollectionItemRow`.
-    var onPlayItem: (String) -> Void
+    var onPlayItem: (MediaItem) -> Void
     /// The same trio `PlaylistItemList` documents: `CollectionDetailView`
     /// resolves these once and passes them down. `nil` omits the per-item
     /// download button rather than showing one that can't resolve
@@ -73,7 +73,7 @@ struct CollectionItemList: View {
     private func itemRows(metrics: DetailRowGridMetrics) -> some View {
         ForEach(items) { item in
             CollectionItemRow(
-                item: item, onPlay: { onPlayItem(item.id) },
+                item: item, onPlay: { onPlayItem(item) },
                 posterWidth: metrics.artworkWidth, posterHeight: metrics.artworkHeight,
                 client: client, userID: userID, downloadManager: downloadManager
             )
@@ -161,6 +161,9 @@ private struct CollectionItemRow: View {
                 // `Button`: just a label, since a plain `Button` already reads as
                 // one element with the `.isButton` trait.
                 .accessibilityLabel(String(localized: "Play \(item.name)"))
+                // The version question points here, at the row tapped
+                // (`versionQuestionAnchor(rowID:)`), keyed as the page's start.
+                .versionQuestionAnchor(rowID: item.id)
 
                 // The same component the detail page's Play/Resume row uses, at
                 // full parity. Every item here is a Movie, so

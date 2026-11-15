@@ -449,6 +449,12 @@ targets:
           - "Features/Profile/SettingsLayoutTests.swift"
           # iOS Home's hero carousel; the Apple TV's hero is its own.
           - "Features/Home/HeroCarouselPagingTests.swift"
+          # iOS's version question (`VersionChoiceDialog.swift`); the Apple
+          # TV asks on a page of its own.
+          - "Features/AssetDetails/VersionedPlaybackStartTests.swift"
+          # iOS's season download (`SeasonDownloadCoordinator`): downloads
+          # don't exist on tvOS.
+          - "Features/AssetDetails/SeasonDownloadCoordinatorTests.swift"
       # TV-only unit tests.
       - path: DionysusTVTests
     dependencies:

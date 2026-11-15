@@ -200,9 +200,11 @@ enum A11yID {
         /// A show's episode list row — its title/overview half (`onSelect`,
         /// which switches the page's own content to that episode in place,
         /// not a push), keyed by the episode's item id like every other
-        /// media tile. The thumbnail half (`onPlay`) carries no identifier
-        /// of its own; nothing here drives it directly.
+        /// media tile. The thumbnail half (`onPlay`) is `episodePlayButton`.
         static func episodeRow(_ episodeID: String) -> String { "assetDetail.episodeRow.\(episodeID)" }
+        /// A show's episode row's thumbnail, which plays that episode
+        /// (asking which version first when it has several, #289).
+        static func episodePlayButton(_ episodeID: String) -> String { "assetDetail.episodePlayButton.\(episodeID)" }
 
         /// The page's own `DownloadButton` (its `.prominent` style) — one identifier covers every
         /// one of its states (idle/resolving/downloading/downloaded), the
@@ -309,6 +311,10 @@ enum A11yID {
         /// `removeMenuItem(_:)`.
         static func row(_ playlistItemID: String) -> String { "playlist.row.\(playlistItemID)" }
 
+        /// A playlist member row's thumbnail, which plays it (`row(_:)` is the
+        /// text beside it, which opens the member's page). Keyed like `row(_:)`.
+        static func playButton(_ playlistItemID: String) -> String { "playlist.playButton.\(playlistItemID)" }
+
         /// A playlist member row's `.contextMenu` "Remove from Playlist"
         /// action — the *only* removal path (see `PlaylistItemList
         /// .onRemove`'s doc comment for why a hand-rolled swipe gesture
@@ -411,6 +417,37 @@ enum A11yID {
         static func chapterOption(_ index: Int) -> String { "player.chapterPicker.option.\(index)" }
     }
 
+    /// Playback Stats rows read by journeys on both apps, with one identifier
+    /// on iOS's overlay and the Apple TV's panel alike
+    /// (`PlaybackStatsReport.Row.valueIdentifier`). Every other row keeps its
+    /// platform's own `statsValue` scheme.
+    enum PlaybackStats {
+        /// The Video section's "Version" value: the label of the version
+        /// playing, shown only for a title with more than one (#289).
+        static let versionValue = "playbackStats.value.version"
+    }
+
+    /// The "Choose a Version" question (#289).
+    enum Versions {
+        /// One version's button, keyed by its `MediaVersion.id` (the
+        /// `MediaSourceInfo.id`), so a test picks a version without reading
+        /// its label, which may carry "(Last Played)".
+        static func option(_ versionID: String) -> String { "versions.option.\(versionID)" }
+        /// A season download's single question (every episode has the same
+        /// versions): one option per label, keyed by its position in the
+        /// list, since each episode's sources have ids of their own.
+        static func bulkOption(_ index: Int) -> String { "versions.bulkOption.\(index)" }
+        /// `BulkVersionChoiceSheet`'s row for one episode: its Version menu.
+        static func bulkRowPicker(_ episodeID: String) -> String { "versions.bulkRow.\(episodeID)" }
+        /// One version in a row's menu, by the episode and the version's
+        /// `MediaVersion.id`.
+        static func bulkRowOption(_ episodeID: String, _ versionID: String) -> String {
+            "versions.bulkRow.\(episodeID).\(versionID)"
+        }
+        static let bulkDownloadButton = "versions.bulkDownloadButton"
+        static let bulkCancelButton = "versions.bulkCancelButton"
+    }
+
     enum Downloads {
         static let list = "downloads.list"
         static let emptyState = "downloads.emptyState"
@@ -431,6 +468,12 @@ enum A11yID {
         static let cancelSelectionButton = "downloads.cancelSelectionButton"
         static let deleteSelectedButton = "downloads.deleteSelectedButton"
         static let selectAllButton = "downloads.selectAllButton"
+        /// A downloaded title's About/Cast & Crew/Details segment:
+        /// `about`, `cast` or `details`.
+        static func tab(_ name: String) -> String { "downloads.detail.tab.\(name)" }
+        /// The Details tab's Version value: which version was downloaded
+        /// (#289), shown when the title had more than one.
+        static let detailsVersionValue = "downloads.detail.versionValue"
     }
 
     enum Profile {
@@ -493,6 +536,10 @@ enum A11yID {
     /// The sheet a long press on a detail page's Download button opens
     /// (`AdvancedDownloadOptionsView`).
     enum AdvancedDownloadOptions {
+        /// The Version picker, shown for a title with two or more (#289).
+        static let versionPicker = "advancedDownload.version"
+        /// A Version menu option, by its `MediaVersion.id`.
+        static func versionOption(_ versionID: String) -> String { "advancedDownload.version.\(versionID)" }
         static let resolutionPicker = "advancedDownload.resolution"
         static let qualityPicker = "advancedDownload.quality"
         /// A Quality menu option, by `DownloadBitratePreset`'s raw value.
@@ -678,6 +725,9 @@ enum A11yID {
             /// named for its heading (M5), and that heading.
             static func fullDetailsSection(_ id: String) -> String { "tv.detail.fullDetails.section.\(id)" }
             static func fullDetailsSectionTitle(_ id: String) -> String { "tv.detail.fullDetails.sectionTitle.\(id)" }
+            /// A version's tab in Full Details, by `MediaVersion.id` (#289);
+            /// only a title with more than one version has them.
+            static func versionTab(_ versionID: String) -> String { "tv.detail.fullDetails.version.\(versionID)" }
             /// Which episode a show page's Details describe.
             static let detailsSubject = "tv.detail.details.subject"
             static func season(_ seasonID: String) -> String { "tv.detail.season.\(seasonID)" }
@@ -717,6 +767,11 @@ enum A11yID {
         }
         /// `TVConfirmation`'s Cancel, wherever it asks.
         static let confirmationCancel = "tv.confirmation.cancel"
+        /// `TVVersionPickerPage`'s heading, "Choose a Version" (#289).
+        static let versionPickerTitle = "tv.versions.title"
+        /// One version's button on `TVVersionPickerPage`, keyed by its
+        /// `MediaVersion.id`, since its label may carry "(Last Played)".
+        static func versionOption(_ versionID: String) -> String { "tv.versions.option.\(versionID)" }
         enum Profile {
             static let name = "tv.profile.name"
             static let server = "tv.profile.server"

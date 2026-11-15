@@ -80,7 +80,11 @@ private struct DeepLinkCuePlayer: ViewModifier {
             return
         case .loaded:
             guard let cue = center.take(for: viewModel.itemID) else { return }
-            guard let request = viewModel.linkPlaybackRequest(memberID: cue.memberID, overrides: cue.overrides) else {
+            // `from=topshelf` is the Apple TV's (#289): iOS has no Top Shelf,
+            // so such a link plays as a plain one, the remembered version
+            // and all, rather than leaving the version unasked.
+            let overrides = cue.overrides.ignoringTopShelf
+            guard let request = viewModel.linkPlaybackRequest(memberID: cue.memberID, overrides: overrides) else {
                 let notices = cue.overrides.notices + [String(localized: "Nothing to play here.")]
                 ToastCenter.shared.post(.notice(PlaybackLinkOverrides.combined(notices) ?? ""))
                 return

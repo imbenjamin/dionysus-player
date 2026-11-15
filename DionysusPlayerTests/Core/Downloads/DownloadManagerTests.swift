@@ -216,6 +216,116 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNil(store.item(itemID: "track-1"))
     }
 
+    // MARK: enqueue(...) and retry(...) — the version a download is (#289)
+
+    /// A manager whose video transfer is stubbed out and whose side fetches
+    /// answer from `MockURLProtocol`, as `DownloadManagerExtrasTests` does, so
+    /// `enqueue` runs to the end. `answer` gets each request; anything it
+    /// returns `nil` for gets a 404.
+    private func makeRunnableManager(
+        store: DownloadStore, answer: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)?
+    ) -> DownloadManager {
+        MockURLProtocol.requestHandler = { request in
+            try answer(request) ?? MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+        }
+        return DownloadManager(store: store, startVideoDownloadOverride: { _, _, _ in }, fetchSession: MockURLProtocol.makeSession())
+    }
+
+    private func source(_ id: String, width: Int) -> MediaSourceInfo {
+        MediaSourceInfo(id: id, mediaStreams: [MediaStream(index: 0, type: "Video", codec: "h264", width: width, height: width * 9 / 16)])
+    }
+
+    func test_enqueue_storesVersionLabel() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = makeRunnableManager(store: store) { _ in nil }
+        defer { manager.delete(itemID: "movie-v") }
+        let item = MediaItem(
+            dto: BaseItemDto(id: "movie-v", name: "Versions", type: .movie),
+            images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok")
+        )
+
+        try await manager.enqueue(
+            item: item, mediaSource: source("movie-v-1080p", width: 1920), versionLabel: "1080p",
+            audioTrack: nil, subtitleTracks: [], resolution: .hd1080p, preset: .normal, client: makeClient(), userID: "user-1"
+        )
+
+        let row = try XCTUnwrap(store.item(itemID: "movie-v"))
+        XCTAssertEqual(row.mediaSourceID, "movie-v-1080p")
+        XCTAssertEqual(row.versionLabel, "1080p")
+    }
+
+    /// A single-version title records no label: there was nothing to choose,
+    /// and its Details shows no Version row.
+    func test_enqueue_withoutAVersionLabel_storesNil() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = makeRunnableManager(store: store) { _ in nil }
+        defer { manager.delete(itemID: "movie-v") }
+        let item = MediaItem(
+            dto: BaseItemDto(id: "movie-v", name: "One Version", type: .movie),
+            images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok")
+        )
+
+        try await manager.enqueue(
+            item: item, mediaSource: source("src-1", width: 1920),
+            audioTrack: nil, subtitleTracks: [], resolution: .hd1080p, preset: .normal, client: makeClient(), userID: "user-1"
+        )
+
+        XCTAssertNil(try XCTUnwrap(store.item(itemID: "movie-v")).versionLabel)
+    }
+
+    /// A retry redownloads the version the row was, and keeps saying which:
+    /// `enqueue` replaces the row, so the label has to be carried across.
+    func test_retry_keepsSourceAndLabel() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let failed = DownloadTestHelpers.makeItem(itemID: "item-1", status: .failed)
+        failed.mediaSourceID = "item-1-1080p"
+        failed.versionLabel = "1080p"
+        store.insert(failed)
+        let dto = BaseItemDto(id: "item-1", name: "Test Movie", type: .movie)
+        let info = PlaybackInfoResponse(mediaSources: [source("item-1-4k", width: 3840), source("item-1-1080p", width: 1920)])
+        let manager = makeRunnableManager(store: store) { request in
+            switch request.url?.path {
+            case "/Items/item-1/PlaybackInfo": try MockURLProtocol.encodedJSONResponse(for: request, value: info)
+            case "/Users/user-1/Items/item-1": try MockURLProtocol.encodedJSONResponse(for: request, value: dto)
+            default: nil
+            }
+        }
+        defer { manager.delete(itemID: "item-1") }
+
+        try await manager.retry(itemID: "item-1", client: makeClient())
+
+        let row = try XCTUnwrap(store.item(itemID: "item-1"))
+        XCTAssertNotEqual(row.status, .failed, "The retry ran to a fresh row")
+        XCTAssertEqual(row.mediaSourceID, "item-1-1080p", "The same version, not the server's first")
+        XCTAssertEqual(row.versionLabel, "1080p")
+    }
+
+    /// The version is gone from the server, so the retry falls back to the
+    /// first source, which the old label doesn't describe.
+    func test_retry_versionGone_fallsBackWithoutTheLabel() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let failed = DownloadTestHelpers.makeItem(itemID: "item-1", status: .failed)
+        failed.mediaSourceID = "item-1-1080p"
+        failed.versionLabel = "1080p"
+        store.insert(failed)
+        let dto = BaseItemDto(id: "item-1", name: "Test Movie", type: .movie)
+        let info = PlaybackInfoResponse(mediaSources: [source("item-1-4k", width: 3840)])
+        let manager = makeRunnableManager(store: store) { request in
+            switch request.url?.path {
+            case "/Items/item-1/PlaybackInfo": try MockURLProtocol.encodedJSONResponse(for: request, value: info)
+            case "/Users/user-1/Items/item-1": try MockURLProtocol.encodedJSONResponse(for: request, value: dto)
+            default: nil
+            }
+        }
+        defer { manager.delete(itemID: "item-1") }
+
+        try await manager.retry(itemID: "item-1", client: makeClient())
+
+        let row = try XCTUnwrap(store.item(itemID: "item-1"))
+        XCTAssertEqual(row.mediaSourceID, "item-1-4k")
+        XCTAssertNil(row.versionLabel, "\"1080p\" would describe a file this isn't")
+    }
+
     // MARK: retry(itemID:client:) — the one-tap "redownload a failed item"
     // action. Only the branches
     // that don't require `enqueue()`'s own network-heavy internals

@@ -134,7 +134,7 @@ struct TVMovieDetailView: View {
                         }
                     }
                 }
-                TVDetailsPanel(item: item, focus: $focus)
+                TVDetailsPanel(item: item, versionID: viewModel.preferredMediaSourceID(forPlayableItem: item.id), focus: $focus)
             }
             .padding(.top, 60)
             .padding(.bottom, 160)

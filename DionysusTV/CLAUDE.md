@@ -348,6 +348,32 @@ with iOS's `AssetActionsButton`) on the shared `AssetDetailViewModel` and
   only their labels. `MoreActionsJourneyTests` reads focus through
   `isFocused` and finds submenu rows by identifier or the stub's titles.
 
+**Versions (#289): "Choose a Version" is a page, not a dialog**
+(`TVVersionPickerPage`): a full-screen cover in `TVConfirmation`'s shape,
+the title beneath the heading and one wide button a version, the remembered
+one marked "(Last Played)" and focused, else the first. A tvOS
+`confirmationDialog` is a system sheet whose buttons can't be given
+identifiers on tvOS 27 (as a `Menu`'s submenu rows can't), and which says
+nothing about where focus starts. When it asks is iOS's rule, shared
+(`MediaVersionChoice`).
+
+- **Every user-started play asks through `tvVersionedPlayback`**: Play and
+  Restart (`TVDetailActions`), a playlist's Play and rows, and the Home hero,
+  which has no detail view model and decides through `MediaVersionResolver`
+  directly (`TVHeroPlayTarget` returns the item, for its resume point). Menu
+  plays nothing and returns focus to the button that asked; an answer plays
+  from the cover's `onDismiss`. A decision that lands after the page was
+  covered or torn down is dropped: nothing plays without a fresh press.
+- **Auto-advance asks over the player** (`TVPlayerHostController
+  .advanceToNextItem`): the player's own `nextItemVersionChoice`, else
+  decided afresh (`decideNextVersion`; nil is never "play the default").
+  To ask, the host pauses, drops the Next Up card and presents the page with
+  UIKit over its top controller (a SwiftUI cover would take Menu); a choice
+  plays in place, Menu closes the player.
+- **The Top Shelf's Play carries `from=topshelf`** and follows the page's
+  rule (`AssetDetailViewModel.linkVersionDecision`), asked over the title's
+  page from `TVMainView`; every other play link never asks.
+
 **A title with no backdrop shows its poster or thumb beside the title**
 (Benjamin, 2026-10-02; `TVDetailHeaderArt`): a movie's, box set's or
 playlist's poster; a show's or episode's thumb, failing that an episode's
@@ -814,7 +840,8 @@ Checked by screenshot on the tvOS 26.5 Simulator, each setting alone (M5).
   Fades stay, the hero's page turn included.
 - **Under Increase Contrast, translucent white over artwork is drawn solid**
   (`TVContrast.opacity`: the hero's, a box set's and a playlist's overview,
-  the sidebar's server name, a grid poster's caption, Search's edge chevron);
+  the sidebar's server name, a grid poster's caption, Search's edge chevron,
+  Full Details' unselected version tabs);
   `.secondary` brightens by itself. Hand-made translucency doesn't, so new
   text drawn that way goes through `TVContrast` too.
 - Bold Text clipped nothing.

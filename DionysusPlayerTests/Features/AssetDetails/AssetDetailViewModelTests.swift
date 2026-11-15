@@ -1908,6 +1908,131 @@ final class AssetDetailViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.preferredMediaSourceID(forPlayableItem: "series-1"))
     }
 
+    // MARK: playbackDecision(for:isResume:) (#289)
+
+    /// Two sources labelled by filename ("Original", "Director's Cut"), so the
+    /// expected versions don't depend on stream metadata.
+    private func twoNamedSources() -> [MediaSourceInfo] {
+        [
+            MediaSourceInfo(id: "movie-1-original", name: "Arrival", container: "mkv"),
+            MediaSourceInfo(id: "movie-1-cut", name: "Arrival - Director's Cut", container: "mkv")
+        ]
+    }
+
+    private var twoNamedVersions: [MediaVersion] {
+        [MediaVersion(id: "movie-1-original", label: "Original"), MediaVersion(id: "movie-1-cut", label: "Director's Cut")]
+    }
+
+    /// A row's item comes from a listing without `MediaSources`, so its
+    /// versions are unknown until the item is fetched: the decision fetches
+    /// it rather than playing the server's default without asking.
+    func test_playbackDecision_listItemWithoutSources_fetchesFullItem() async {
+        var full = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
+        full.mediaSources = twoNamedSources()
+        MockURLProtocol.requestHandler = { request in
+            guard request.url?.path == "/Users/user-1/Items/movie-1" else {
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: full)
+        }
+        let listed = MediaItem(dto: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie), images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok"))
+        let viewModel = makeViewModel(itemID: "collection-1")
+
+        let decision = await viewModel.playbackDecision(for: listed, isResume: false)
+
+        XCTAssertEqual(decision, .ask(versions: twoNamedVersions, lastPlayedID: nil))
+        let query = MockURLProtocol.lastRequest?.url?.query ?? ""
+        XCTAssertTrue(query.contains("MediaSources"), "the fetch must ask for the item's sources")
+    }
+
+    /// The fetch failing doesn't block playback: the server picks, as it did
+    /// before versions were asked about.
+    func test_playbackDecision_fetchFails_playsServerDefault() async {
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+        }
+        let listed = MediaItem(dto: BaseItemDto(id: "movie-1", name: "Arrival", type: .movie), images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok"))
+        let viewModel = makeViewModel(itemID: "collection-1")
+
+        let decision = await viewModel.playbackDecision(for: listed, isResume: false)
+
+        XCTAssertEqual(decision, .play(mediaSourceID: nil))
+    }
+
+    /// A resume continues the remembered version without asking, decided
+    /// from the sources the item already carries (no request).
+    func test_playbackDecision_resume_usesStoredPreference() async {
+        MockURLProtocol.requestHandler = { request in
+            XCTFail("unexpected request to \(request.url?.path ?? "?")")
+            return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+        }
+        var dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie)
+        dto.mediaSources = twoNamedSources()
+        let item = MediaItem(dto: dto, images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok"))
+        let viewModel = makeViewModel(itemID: "movie-1", preloadedItem: item)
+        viewModel.setPreferredMediaSourceID("movie-1-cut", forPlayableItem: "movie-1")
+
+        let decision = await viewModel.playbackDecision(for: item, isResume: true)
+
+        XCTAssertEqual(decision, .play(mediaSourceID: "movie-1-cut"))
+    }
+
+    /// Restart on a part-watched title decides as Resume does: the title's
+    /// resume point, not the button, is what counts (Benjamin, 2026-11-13),
+    /// so the remembered version plays without asking.
+    func test_playbackDecision_restartWithResumePoint_playsTheRememberedPick() async {
+        MockURLProtocol.requestHandler = { request in
+            XCTFail("unexpected request to \(request.url?.path ?? "?")")
+            return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+        }
+        var dto = BaseItemDto(
+            id: "movie-1", name: "Arrival", type: .movie,
+            userData: UserItemDataDto(playbackPositionTicks: 600 * 10_000_000, playedPercentage: 20, played: false)
+        )
+        dto.mediaSources = twoNamedSources()
+        let item = MediaItem(dto: dto, images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok"))
+        let viewModel = makeViewModel(itemID: "movie-1", preloadedItem: item)
+        viewModel.setPreferredMediaSourceID("movie-1-cut", forPlayableItem: "movie-1")
+
+        XCTAssertTrue(item.canResume)
+        let decision = await viewModel.playbackDecision(for: item, isResume: item.canResume)
+
+        XCTAssertEqual(decision, .play(mediaSourceID: "movie-1-cut"))
+    }
+
+    /// Auto-advance with nothing the player could hand over (its own fetch
+    /// hadn't landed): the page decides afresh, continuing the label just
+    /// played.
+    func test_continuationDecision_fetchesSources_andMatchesThePreviousLabel() async {
+        var full = BaseItemDto(id: "ep-2", name: "Two", type: .episode)
+        full.mediaSources = [
+            MediaSourceInfo(id: "ep-2-4k", container: "mkv", mediaStreams: [MediaStream(index: 0, type: "Video", width: 3840, height: 2160, videoRangeType: "HDR10")]),
+            MediaSourceInfo(id: "ep-2-1080p", container: "mkv", mediaStreams: [MediaStream(index: 0, type: "Video", width: 1920, height: 1080)])
+        ]
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(for: request, value: full)
+        }
+        let viewModel = makeViewModel(itemID: "series-1")
+
+        let decision = await viewModel.continuationDecision(forItemID: "ep-2", previousVersionLabel: "1080p")
+
+        XCTAssertEqual(decision, .play(mediaSourceID: "ep-2-1080p"))
+    }
+
+    /// The continuation's fetch failing plays the server's default rather
+    /// than stalling the advance.
+    func test_continuationDecision_fetchFails_playsServerDefault() async {
+        MockURLProtocol.requestHandler = { request in
+            MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+        }
+        let viewModel = makeViewModel(itemID: "series-1")
+
+        let decision = await viewModel.continuationDecision(forItemID: "ep-2", previousVersionLabel: "1080p")
+
+        XCTAssertEqual(decision, .play(mediaSourceID: nil))
+    }
+
     // MARK: delete()
 
     /// Serves whatever `load()` asks for while establishing a show/episode
@@ -2450,6 +2575,71 @@ final class AssetDetailViewModelTests: XCTestCase {
     func test_linkPlaybackRequest_nothingToPlay_isNil() async {
         let folder = await loadedForLink(BaseItemDto(id: "folder-1", name: "Movies", type: .collectionFolder))
         XCTAssertNil(folder.linkPlaybackRequest(overrides: .init(start: .time(5))))
+    }
+
+    // MARK: - A play link's version question (#289)
+
+    private func twoVersionMovieForLink(userData: UserItemDataDto? = nil) async -> AssetDetailViewModel {
+        var dto = BaseItemDto(id: "movie-1", name: "Arrival", type: .movie, userData: userData, mediaType: "Video")
+        dto.mediaSources = twoNamedSources()
+        return await loadedForLink(dto)
+    }
+
+    /// The Top Shelf's Play follows the page's rule: a title with no resume
+    /// point asks, the remembered pick marked, and the request leaves the
+    /// version to that answer. `fromTopShelf` alone gives the session nothing
+    /// to apply.
+    func test_linkPlayback_fromTopShelf_freshStart_asks() async {
+        MediaVersionPreferenceStore(defaults: defaults).setPreferredMediaSourceID("movie-1-cut", forItem: "movie-1", userID: "user-1")
+        let movie = await twoVersionMovieForLink()
+        let overrides = PlaybackLinkOverrides(fromTopShelf: true)
+
+        let request = movie.linkPlaybackRequest(overrides: overrides)
+        let decision = await movie.linkVersionDecision(overrides: overrides)
+
+        XCTAssertEqual(request?.itemID, "movie-1")
+        XCTAssertNil(request?.mediaSourceID, "the question's answer fills it in")
+        XCTAssertNil(request?.linkOverrides)
+        XCTAssertEqual(decision, .ask(versions: twoNamedVersions, lastPlayedID: "movie-1-cut"))
+    }
+
+    /// From the Top Shelf, a title with a resume point plays its remembered
+    /// version, as Resume on its page does.
+    func test_linkPlayback_fromTopShelf_resume_playsTheRememberedPick() async {
+        MediaVersionPreferenceStore(defaults: defaults).setPreferredMediaSourceID("movie-1-cut", forItem: "movie-1", userID: "user-1")
+        let movie = await twoVersionMovieForLink(userData: UserItemDataDto(playbackPositionTicks: 600_000_000, played: false))
+
+        let decision = await movie.linkVersionDecision(overrides: PlaybackLinkOverrides(fromTopShelf: true))
+
+        XCTAssertEqual(decision, .play(mediaSourceID: "movie-1-cut"))
+    }
+
+    /// iOS has no Top Shelf and reads a shelf link as a plain one
+    /// (`ignoringTopShelf`, in `DeepLinkPlaybackCue`): the remembered
+    /// version plays, never the server's default, and nothing asks.
+    func test_linkPlayback_fromTopShelf_ignoredOnIOS_playsTheRememberedPick() async {
+        MediaVersionPreferenceStore(defaults: defaults).setPreferredMediaSourceID("movie-1-cut", forItem: "movie-1", userID: "user-1")
+        let movie = await twoVersionMovieForLink()
+        let overrides = PlaybackLinkOverrides(fromTopShelf: true).ignoringTopShelf
+
+        XCTAssertFalse(overrides.fromTopShelf)
+        XCTAssertEqual(movie.linkPlaybackRequest(overrides: overrides), PlaybackRequest(itemID: "movie-1", mediaSourceID: "movie-1-cut"))
+        let decision = await movie.linkVersionDecision(overrides: overrides)
+        XCTAssertNil(decision)
+    }
+
+    /// A plain play link never asks (D3): the remembered pick, else the
+    /// server's default. So does a Top Shelf link naming a `source`.
+    func test_linkPlayback_plainLink_neverAsks() async {
+        MediaVersionPreferenceStore(defaults: defaults).setPreferredMediaSourceID("movie-1-cut", forItem: "movie-1", userID: "user-1")
+        let movie = await twoVersionMovieForLink()
+
+        let plain = await movie.linkVersionDecision(overrides: .init())
+        let named = await movie.linkVersionDecision(overrides: PlaybackLinkOverrides(mediaSourceID: "movie-1-original", fromTopShelf: true))
+
+        XCTAssertNil(plain)
+        XCTAssertNil(named)
+        XCTAssertEqual(movie.linkPlaybackRequest(overrides: .init())?.mediaSourceID, "movie-1-cut")
     }
 }
 

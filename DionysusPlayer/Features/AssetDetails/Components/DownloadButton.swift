@@ -1,17 +1,20 @@
 import SwiftUI
 
 /// Starts an offline download of `item`, placed near `PlayResumeButtonRow` on
-/// the detail page. Fetches `playbackInfo` for the item's audio/subtitle tracks
-/// (not on the detail page's own dto), prompts for an audio track when there's
-/// more than one, warns if proceeding would leave the download without its
-/// default/forced subtitle track (image-based tracks can't go offline — see
+/// the detail page. Fetches `playbackInfo` for the item's sources and their
+/// audio/subtitle tracks (not on the detail page's own dto), asks which
+/// version to download when there are two or more (#289,
+/// `DownloadVersionChoice`), prompts for an audio track of that version when
+/// it has more than one, warns if proceeding would leave the download without
+/// its default/forced subtitle track (image-based tracks can't go offline — see
 /// `JellyfinAPIClient.isImageBasedSubtitleCodec`), then hands off to
-/// `DownloadManager.enqueue`.
+/// `DownloadManager.enqueue`. Version first, because the tracks belong to it.
 ///
 /// Quality and resolution come from `DownloadPreferencesStore` by default; a
 /// long-press on the idle button presents `AdvancedDownloadOptionsView` to
-/// override them for this one download (`overrideResolution`/`overridePreset`).
-/// The rest of the flow is identical either way.
+/// override them, and pick the version, for this one download
+/// (`advancedOverride`). The rest of the flow is identical either way, but
+/// for the version question, which the sheet has already answered.
 struct DownloadButton: View {
     /// Which chrome this renders with. The state logic below is identical
     /// either way; only the visual weight differs.
@@ -39,9 +42,22 @@ struct DownloadButton: View {
 
     private let preferences = DownloadPreferencesStore()
     private let trackPreferenceStore = TrackPreferenceStore()
+    /// Only read, for the version playback last used: the question marks it
+    /// "(Last Played)" and the sheet starts on it. A download never writes
+    /// it, since that pick is about what plays.
+    private let versionPreferenceStore = MediaVersionPreferenceStore()
 
     @State private var isResolving = false
     @State private var pendingResolution: PendingDownload?
+    /// The version question while it's up, over `versionSources`, the
+    /// `playbackInfo` answer it was built from, whose chosen entry carries on
+    /// to the audio prompt without a second fetch.
+    @State private var versionQuestion: PendingVersionChoice?
+    @State private var versionSources: [MediaSourceInfo] = []
+    /// What the sheet lists: the page's own `mediaSources` when it has them,
+    /// else a `playbackInfo` fetch made as the hold recognizes (a list row's
+    /// item comes without them).
+    @State private var sheetSources: [MediaSourceInfo] = []
     @State private var isShowingAudioPrompt = false
     @State private var isShowingSubtitleWarning = false
     @State private var isShowingError = false
@@ -51,16 +67,28 @@ struct DownloadButton: View {
     /// `.sensoryFeedback(_:trigger:)` fires on any change of its trigger.
     @State private var advancedOptionsHapticTrigger = false
     /// Set by `AdvancedDownloadOptionsView`'s "Download" action, read and
-    /// cleared by `enqueue(mediaSource:audioTrack:subtitleTracks:)` in place of
+    /// cleared by `enqueue(_:audioTrack:)` in place of
     /// `preferences.resolution`/`.bitratePreset`. `nil` otherwise, so a plain
     /// tap falls through to the device-wide preference.
-    @State private var overrideResolution: DownloadResolution?
-    @State private var overridePreset: DownloadBitratePreset?
+    @State private var advancedOverride: AdvancedOverride?
+
+    /// The sheet's one-off choices.
+    private struct AdvancedOverride {
+        var resolution: DownloadResolution
+        var preset: DownloadBitratePreset
+        /// The sheet's Version picker; `nil` when it showed none, which
+        /// leaves the version to the question after the sheet
+        /// (`DownloadVersionChoice.decide`).
+        var mediaSourceID: String?
+    }
 
     /// What's been resolved from `playbackInfo` so far, waiting on the
     /// audio-track prompt before `beginDownload(audioTrack:)` can enqueue.
     private struct PendingDownload {
         var mediaSource: MediaSourceInfo
+        /// Which version `mediaSource` is, for the row; `nil` for a title
+        /// with one.
+        var versionLabel: String?
         var audioTracks: [MediaStream]
         var subtitleTracks: [MediaStream]
         /// Set by `resolveAudioTrack(_:)` once the track is known, whether
@@ -161,6 +189,24 @@ struct DownloadButton: View {
                     .buttonStyle(.plain)
             }
         }
+        // The playback question's own dialog, so both read the same. Cancel
+        // starts nothing and leaves the button idle.
+        .versionChoiceDialog($versionQuestion) { mediaSourceID in
+            let sources = versionSources
+            versionSources = []
+            guard case .download(let chosenID, let label) = DownloadVersionChoice.answer(mediaSourceID, sources: sources),
+                  let source = DownloadVersionChoice.source(for: chosenID, in: sources) else { return }
+            continueResolving(with: source, versionLabel: label)
+        }
+        // A question dismissed unanswered (an answer has already emptied
+        // `versionSources`, its action running before the dismissal): drop
+        // the sheet's one-off choices too, now that a question can follow
+        // the sheet, or the next plain tap would download with them.
+        .onChange(of: versionQuestion == nil) { _, isGone in
+            guard isGone, !versionSources.isEmpty else { return }
+            versionSources = []
+            advancedOverride = nil
+        }
         .confirmationDialog(
             "Choose an Audio Track", isPresented: $isShowingAudioPrompt, titleVisibility: .visible
         ) {
@@ -176,21 +222,19 @@ struct DownloadButton: View {
             // the overrides dangling — the bug `presentError` describes.
             Button("Cancel", role: .cancel) {
                 pendingResolution = nil
-                overrideResolution = nil
-                overridePreset = nil
+                advancedOverride = nil
             }
         }
         .alert("Subtitle Track Unavailable Offline", isPresented: $isShowingSubtitleWarning) {
             Button("Download Anyway") {
                 if let pendingResolution {
-                    Task { await enqueue(mediaSource: pendingResolution.mediaSource, audioTrack: pendingResolution.chosenAudioTrack, subtitleTracks: pendingResolution.subtitleTracks) }
+                    Task { await enqueue(pendingResolution, audioTrack: pendingResolution.chosenAudioTrack) }
                 }
             }
             // Same reset, same reason, as the audio-track dialog's Cancel.
             Button("Cancel", role: .cancel) {
                 pendingResolution = nil
-                overrideResolution = nil
-                overridePreset = nil
+                advancedOverride = nil
             }
         } message: {
             Text("This title's default subtitle track can't be included in offline downloads. The download will have no subtitles unless you choose one manually later.")
@@ -205,29 +249,42 @@ struct DownloadButton: View {
                 itemTitle: advancedOptionsTitle,
                 initialResolution: preferences.resolution,
                 initialPreset: preferences.bitratePreset,
-                sourceWidth: sourceVideoStream?.width,
-                sourceHeight: sourceVideoStream?.height,
-                sourceBitrate: sourceVideoStream?.bitRate ?? sourceMediaSource?.bitrate,
-                isSourceHDR: DownloadManager.isHDR(sourceVideoStream),
-                sourceVideoCodec: sourceVideoStream?.codec,
+                sources: sheetSources,
+                initialVersionID: DownloadVersionChoice.initialSheetSelection(
+                    versions: MediaVersion.versions(of: sheetSources),
+                    rememberedSourceID: versionPreferenceStore.preferredMediaSourceID(forItem: item.id, userID: userID)
+                ),
                 runtimeTicks: item.dto.runTimeTicks
-            ) { resolution, preset in
-                overrideResolution = resolution
-                overridePreset = preset
+            ) { resolution, preset, mediaSourceID in
+                advancedOverride = AdvancedOverride(resolution: resolution, preset: preset, mediaSourceID: mediaSourceID)
                 startResolving()
             }
         }
     }
 
-    /// The item's detail-page media source, reused for the Advanced Options
-    /// size estimate. `item.dto.mediaSources` is already populated by the
-    /// `detailFields` fetch that loaded this page, so this needs no fetch of
-    /// its own — unlike `startResolving()`'s `playbackInfo` call, which exists
-    /// for the audio/subtitle tracks the dto lacks. Both can be stale only if
-    /// the source changed server-side since the page loaded, acceptable for an
-    /// estimate.
-    private var sourceMediaSource: MediaSourceInfo? { item.dto.mediaSources?.first }
-    private var sourceVideoStream: MediaStream? { sourceMediaSource?.mediaStreams?.first { $0.type == "Video" } }
+    /// Presents the sheet once it knows the item's versions. A detail page's
+    /// `item.dto.mediaSources` is already populated by the `detailFields`
+    /// fetch that loaded it, so needs no fetch of its own; a list row's item
+    /// (`defaultFields`) has none, and without them the sheet couldn't offer
+    /// a Version picker, leaving a question to come after its Download. Both
+    /// can be stale only if the sources changed server-side since, which
+    /// `DownloadVersionChoice.decide` absorbs: a pick no longer listed, or a
+    /// sheet that couldn't offer one, asks after the sheet.
+    private func openAdvancedOptions() {
+        if let sources = item.dto.mediaSources, !sources.isEmpty {
+            sheetSources = sources
+            isShowingAdvancedOptions = true
+            return
+        }
+        withAnimation { isResolving = true }
+        Task {
+            defer { withAnimation { isResolving = false } }
+            // A failed fetch still opens the sheet, with no Version picker or
+            // estimate: its resolution and quality don't need them.
+            sheetSources = (try? await client.playbackInfo(itemID: item.id, userID: userID).mediaSources) ?? []
+            isShowingAdvancedOptions = true
+        }
+    }
 
     /// "S1:E4 · Pilot" for an episode, the plain title otherwise
     /// (`MediaItem.numberedEpisodeName`).
@@ -297,7 +354,7 @@ struct DownloadButton: View {
                 LongPressGesture(minimumDuration: 0.5).onEnded { _ in
                     guard !isBusy else { return }
                     advancedOptionsHapticTrigger.toggle()
-                    isShowingAdvancedOptions = true
+                    openAdvancedOptions()
                 }
             )
             // The medium-weight impact UIKit fires for its own long-press
@@ -358,27 +415,46 @@ struct DownloadButton: View {
             defer { withAnimation { isResolving = false } }
             do {
                 let info = try await client.playbackInfo(itemID: item.id, userID: userID)
-                guard let mediaSource = info.mediaSources?.first else {
-                    presentError(DownloadError.missingMediaSource.errorDescription ?? "")
-                    return
-                }
-                let streams = mediaSource.mediaStreams ?? []
-                let audioTracks = streams.filter { $0.type == "Audio" }
-                let subtitleTracks = streams.filter { $0.type == "Subtitle" }
-                var resolution = PendingDownload(mediaSource: mediaSource, audioTracks: audioTracks, subtitleTracks: subtitleTracks)
-                resolution.rememberedAudioTrackIndex = Self.rememberedAudioTrackIndex(
-                    among: audioTracks, storedPreference: trackPreferenceStore.selection(forItem: item.id, userID: userID)?.audioTrack
+                let sources = info.mediaSources ?? []
+                let decision = DownloadVersionChoice.decide(
+                    sources: sources,
+                    preselectedSourceID: advancedOverride?.mediaSourceID,
+                    rememberedSourceID: versionPreferenceStore.preferredMediaSourceID(forItem: item.id, userID: userID)
                 )
-                pendingResolution = resolution
-
-                if audioTracks.count > 1 {
-                    isShowingAudioPrompt = true
-                } else {
-                    resolveAudioTrack(audioTracks.first)
+                switch decision {
+                case .noSource:
+                    presentError(DownloadError.missingMediaSource.errorDescription ?? "")
+                case .download(let mediaSourceID, let versionLabel):
+                    guard let source = DownloadVersionChoice.source(for: mediaSourceID, in: sources) else { return }
+                    continueResolving(with: source, versionLabel: versionLabel)
+                case .ask(let versions, let lastPlayedID):
+                    versionSources = sources
+                    versionQuestion = PendingVersionChoice(versions: versions, lastPlayedID: lastPlayedID)
                 }
             } catch {
                 presentError((error as? LocalizedError)?.errorDescription ?? String(localized: "Couldn't fetch playback info for this item."))
             }
+        }
+    }
+
+    /// The audio prompt and subtitle warning, over the version being
+    /// downloaded: its own tracks, never another version's.
+    private func continueResolving(with mediaSource: MediaSourceInfo, versionLabel: String?) {
+        let streams = mediaSource.mediaStreams ?? []
+        let audioTracks = streams.filter { $0.type == "Audio" }
+        let subtitleTracks = streams.filter { $0.type == "Subtitle" }
+        var resolution = PendingDownload(
+            mediaSource: mediaSource, versionLabel: versionLabel, audioTracks: audioTracks, subtitleTracks: subtitleTracks
+        )
+        resolution.rememberedAudioTrackIndex = Self.rememberedAudioTrackIndex(
+            among: audioTracks, storedPreference: trackPreferenceStore.selection(forItem: item.id, userID: userID)?.audioTrack
+        )
+        pendingResolution = resolution
+
+        if audioTracks.count > 1 {
+            isShowingAudioPrompt = true
+        } else {
+            resolveAudioTrack(audioTracks.first)
         }
     }
 
@@ -415,16 +491,14 @@ struct DownloadButton: View {
         return String(localized: "\(title) (Previously selected)")
     }
 
-    /// Also resets `pendingResolution`/`overrideResolution`/`overridePreset`,
-    /// otherwise only cleared in
-    /// `enqueue(mediaSource:audioTrack:subtitleTracks:)`'s `defer`: an
+    /// Also resets `pendingResolution`/`advancedOverride`, otherwise only
+    /// cleared in `enqueue(_:audioTrack:)`'s `defer`: an
     /// advanced-options attempt that aborted before reaching it would leave
     /// them on this view's `@State`, and a later plain tap would reuse that
     /// stale override instead of the device-wide preference.
     private func presentError(_ message: String) {
         pendingResolution = nil
-        overrideResolution = nil
-        overridePreset = nil
+        advancedOverride = nil
         errorMessage = message
         isShowingError = true
     }
@@ -442,20 +516,22 @@ struct DownloadButton: View {
         }
 
         Task {
-            await enqueue(mediaSource: pendingResolution.mediaSource, audioTrack: audioTrack, subtitleTracks: pendingResolution.subtitleTracks)
+            await enqueue(pendingResolution, audioTrack: audioTrack)
         }
     }
 
-    private func enqueue(mediaSource: MediaSourceInfo, audioTrack: MediaStream?, subtitleTracks: [MediaStream]) async {
-        // `overrideResolution`/`overridePreset` only carry a value between
+    private func enqueue(_ pending: PendingDownload, audioTrack: MediaStream?) async {
+        // `advancedOverride` only carries a value between
         // `AdvancedDownloadOptionsView`'s "Download" action and this call.
         // Cleared regardless of outcome, so a later plain tap doesn't reuse a
         // stale one-off choice.
-        defer { pendingResolution = nil; overrideResolution = nil; overridePreset = nil }
+        defer { pendingResolution = nil; advancedOverride = nil }
         do {
             try await downloadManager.enqueue(
-                item: item, mediaSource: mediaSource, audioTrack: audioTrack, subtitleTracks: subtitleTracks,
-                resolution: overrideResolution ?? preferences.resolution, preset: overridePreset ?? preferences.bitratePreset,
+                item: item, mediaSource: pending.mediaSource, versionLabel: pending.versionLabel,
+                audioTrack: audioTrack, subtitleTracks: pending.subtitleTracks,
+                resolution: advancedOverride?.resolution ?? preferences.resolution,
+                preset: advancedOverride?.preset ?? preferences.bitratePreset,
                 client: client, userID: userID
             )
         } catch {

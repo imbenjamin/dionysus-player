@@ -21,6 +21,10 @@ struct TVHomeView: View {
     @State private var isBelowHero = false
     /// Bumped by Menu below the hero: the page scrolls back to its top.
     @State private var topRequest = 0
+    /// The hero's Play, waiting on its version (`tvVersionedPlayback`), and
+    /// the hero title it was pressed on, whose page opens beneath the player.
+    @State private var heroStart: TVVersionedStart?
+    @State private var heroStartTitle: MediaItem?
 
     private var heroItem: MediaItem? {
         viewModel.heroItems.indices.contains(pager.index) ? viewModel.heroItems[pager.index] : viewModel.heroItems.first
@@ -98,6 +102,21 @@ struct TVHomeView: View {
         .tvMenuReturnsToLanding($focus, landing: heroItem == nil ? nil : TVHeroView.playFocus, isAway: isBelowHero) {
             topRequest += 1
         }
+        // The hero's Play asks which version as a detail page's does (#289,
+        // D1). Home has no detail view model, so it decides through the
+        // resolver both share.
+        .tvVersionedPlayback(
+            $heroStart,
+            decide: { [client, userID] item, isResume in
+                await MediaVersionResolver(client: client, userID: userID, preferences: MediaVersionPreferenceStore())
+                    .decision(for: item, isResume: isResume)
+            },
+            remember: { [userID] mediaSourceID, itemID in
+                MediaVersionPreferenceStore().setPreferredMediaSourceID(mediaSourceID, forItem: itemID, userID: userID)
+            },
+            focus: $focus,
+            play: presentHero
+        )
     }
 
     @ViewBuilder
@@ -210,15 +229,25 @@ struct TVHomeView: View {
                 open(.assetDetail(itemID: item.id, preloadedItem: item))
                 return
             }
-            // Leaving the player lands on the title's page, over Home
-            // (Benjamin, 2026-10-04). Home refreshes when Menu brings it back.
-            // Pushed only once the player is up: the page counts as covered
-            // until the player closes.
-            var detailPlaybackEnded: (@MainActor (PlaybackSessionOutcome) -> Void)?
-            let presented = TVPlayerPresenter.present(PlaybackRequest(itemID: target), client: client, userID: userID) { outcome in
-                detailPlaybackEnded?(outcome)
-            }
-            if presented { detailPlaybackEnded = openDetailBeneathPlayer(item) }
+            heroStartTitle = item
+            heroStart = TVVersionedStart(
+                item: target, request: PlaybackRequest(itemID: target.id), returnFocus: TVHeroView.playFocus
+            )
         }
+    }
+
+    /// The hero's Play, its version known.
+    private func presentHero(_ request: PlaybackRequest) {
+        guard let item = heroStartTitle else { return }
+        heroStartTitle = nil
+        // Leaving the player lands on the title's page, over Home
+        // (Benjamin, 2026-10-04). Home refreshes when Menu brings it back.
+        // Pushed only once the player is up: the page counts as covered
+        // until the player closes.
+        var detailPlaybackEnded: (@MainActor (PlaybackSessionOutcome) -> Void)?
+        let presented = TVPlayerPresenter.present(request, client: client, userID: userID) { outcome in
+            detailPlaybackEnded?(outcome)
+        }
+        if presented { detailPlaybackEnded = openDetailBeneathPlayer(item) }
     }
 }

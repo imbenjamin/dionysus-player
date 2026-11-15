@@ -37,6 +37,16 @@ final class PlaybackLinkOverridesTests: XCTestCase {
         XCTAssertFalse(overrides.choosesTracks)
     }
 
+    /// The Top Shelf's `from=topshelf` is about starting (#289), nothing the
+    /// session applies: carried, but still empty, and dropped by
+    /// `ignoringTopShelf` (iOS reads every link that way).
+    func test_aTopShelfLink_isEmpty_andCanBeReadAsPlain() {
+        let overrides = PlaybackLinkOverrides(DeepLink.PlaybackOptions(fromTopShelf: true))
+        XCTAssertTrue(overrides.fromTopShelf)
+        XCTAssertTrue(overrides.isEmpty)
+        XCTAssertEqual(overrides.ignoringTopShelf, PlaybackLinkOverrides())
+    }
+
     // MARK: - Start
 
     func test_aTime_startsThere_unlessItsPastTheEnd() {

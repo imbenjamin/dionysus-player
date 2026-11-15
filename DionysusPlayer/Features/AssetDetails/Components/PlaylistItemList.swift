@@ -24,7 +24,7 @@ struct PlaylistItemList: View {
     /// Plays that item, joining the same Up Next chain as every other row and
     /// the page's Play/Resume button (see `PlaylistDetailView`). Distinct from
     /// tapping the row's text, which pushes into its detail page.
-    var onPlayItem: (String) -> Void
+    var onPlayItem: (MediaItem) -> Void
     /// `nil` (no live session) omits every row's `DownloadButton` overlay, like
     /// `SeasonEpisodeList.EpisodeRow`.
     var client: JellyfinAPIClient?
@@ -101,7 +101,7 @@ struct PlaylistItemList: View {
     private func itemRows(metrics: DetailRowGridMetrics) -> some View {
         ForEach(items, id: \.playlistItemID) { item in
             PlaylistItemRow(
-                item: item, onPlay: { onPlayItem(item.id) },
+                item: item, onPlay: { onPlayItem(item) },
                 thumbnailWidth: metrics.artworkWidth, thumbnailHeight: metrics.artworkHeight,
                 client: client, userID: userID, downloadManager: downloadManager,
                 canRemove: viewModel.canEditPlaylist,
@@ -236,6 +236,10 @@ private struct PlaylistItemRow: View {
                 // A plain `Button` already reads as one VoiceOver element with
                 // the `.isButton` trait, so only a label is needed.
                 .accessibilityLabel(String(localized: "Play \(item.railTitle)"))
+                .accessibilityIdentifier(A11yID.Playlist.playButton(item.playlistItemID ?? item.id))
+                // The version question points here, at the row tapped
+                // (`versionQuestionAnchor(rowID:)`), keyed as the page's start.
+                .versionQuestionAnchor(rowID: item.playlistItemID ?? item.id)
 
                 // The same component the detail page's Play/Resume row uses, at
                 // full parity, not a slimmed-down copy. `item.episodeLabel` is

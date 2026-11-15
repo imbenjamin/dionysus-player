@@ -300,15 +300,122 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         ).run(commands)
     }
 
-    /// Builds the player for another item, for Next Up, on the engine
-    /// playing now. Set by `TVPlayerPresenter`, which holds the client, user
-    /// and queue.
-    var makeViewModel: ((String, PlaybackEngine) -> PlayerViewModel)?
+    /// Builds the player for another item and version (`nil`: the server's
+    /// default), for Next Up, on the engine playing now. Set by
+    /// `TVPlayerPresenter`, which holds the client, user and queue.
+    var makeViewModel: ((_ itemID: String, _ mediaSourceID: String?, PlaybackEngine) -> PlayerViewModel)?
+    /// The next item's version decided afresh, continuing the label just
+    /// played (`MediaVersionResolver.continuation`), for when the player had
+    /// no decision to hand over. Set by `TVPlayerPresenter`.
+    var decideNextVersion: ((_ itemID: String, _ previousVersionLabel: String?) async -> MediaVersionChoice)?
+    /// Stores the next item's version as its remembered pick
+    /// (`MediaVersionPreferenceStore`): the one chosen on the question, or the
+    /// one auto-advance carried on (see `advance(to:mediaSourceID:)`).
+    var rememberVersion: ((_ mediaSourceID: String, _ itemID: String) -> Void)?
+    /// The version question, while it's up over the player.
+    private weak var versionQuestion: UIViewController?
+    /// Set from Play Now (or the countdown) until the next item plays or the
+    /// player closes: a decision fetching, or the question up.
+    private var isChoosingNextVersion = false
 
     /// Play Now, or the countdown reaching zero: the next item plays in this
-    /// player, without dismissing (spec, The host). The finished item is
-    /// reported as iOS reports it, so Home and the page beneath are current.
+    /// player, without dismissing (spec, The host), once its version is known
+    /// (#289, D2): the player's own decision when it has one
+    /// (`PlayerViewModel.nextItemVersionChoice`), else decided afresh, and
+    /// when that's to ask, the question over the paused player.
     private func advanceToNextItem() {
+        guard let next = viewModel.nextEpisode else { return close() }
+        guard !isChoosingNextVersion else { return }
+        switch TVNextItemVersionStep(handedOver: viewModel.nextItemVersionChoice) {
+        case .play(let mediaSourceID):
+            advance(to: next, mediaSourceID: mediaSourceID)
+        case .ask(let versions, let lastPlayedID):
+            askVersion(for: next, PendingVersionChoice(versions: versions, lastPlayedID: lastPlayedID))
+        case .decideAfresh:
+            isChoosingNextVersion = true
+            let deciding = session
+            let previousLabel = viewModel.activeVersionLabel
+            Task { @MainActor [weak self] in
+                let choice = await self?.decideNextVersion?(next.id, previousLabel) ?? .play(mediaSourceID: nil)
+                // Menu closed the player meanwhile: nothing more to do.
+                guard let self, self.session === deciding, !deciding.hasEnded else { return }
+                self.isChoosingNextVersion = false
+                switch choice {
+                case .play(let mediaSourceID):
+                    self.advance(to: next, mediaSourceID: mediaSourceID)
+                case .ask(let versions, let lastPlayedID):
+                    self.askVersion(for: next, PendingVersionChoice(versions: versions, lastPlayedID: lastPlayedID))
+                }
+            }
+        }
+    }
+
+    /// The question over the player, which pauses beneath it and drops its
+    /// Next Up card. A choice is remembered and plays in place; Menu closes
+    /// the player, as Menu on the Next Up card does. Presented with UIKit
+    /// over whatever is on top (the accessible transport's layer, under
+    /// VoiceOver), never a SwiftUI cover, which would take Menu for itself.
+    ///
+    /// UIKit can refuse the presentation (whatever is on top mid-dismiss, the
+    /// host leaving the window), and the pause, the stopped input and the
+    /// busy flag would then hold the player for good. So a refusal is tried
+    /// once more after a moment, and if that's refused too the player is
+    /// given back as it was: playing, the input running, Next Up free to
+    /// advance again. Never "play the default": that would skip the question.
+    private func askVersion(for next: MediaItem, _ choice: PendingVersionChoice, isRetry: Bool = false) {
+        isChoosingNextVersion = true
+        viewModel.dismissNextUp()
+        viewModel.pause()
+        input.stop()
+        let page = TVVersionPickerPage(
+            title: next.name, choice: choice,
+            onChoose: { [weak self] mediaSourceID in self?.versionChosen(mediaSourceID, for: next) },
+            onCancel: { [weak self] in self?.close() }
+        )
+        let question = UIHostingController(rootView: page)
+        question.modalPresentationStyle = .overFullScreen
+        question.view.backgroundColor = .clear
+        if TVOverPlayerPresentation.present(question, over: self) {
+            versionQuestion = question
+            return
+        }
+        let asking = session
+        guard !isRetry else { return giveBackPlayer() }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self, self.session === asking, !asking.hasEnded else { return }
+            self.askVersion(for: next, choice, isRetry: true)
+        }
+    }
+
+    /// The question couldn't be shown: playback carries on as before it was
+    /// asked, and Play Now or the countdown can try again.
+    private func giveBackPlayer() {
+        isChoosingNextVersion = false
+        input.reset()
+        input.start()
+        viewModel.play()
+    }
+
+    /// Remembered by `advance(to:mediaSourceID:)`, as every concrete version is.
+    private func versionChosen(_ mediaSourceID: String, for next: MediaItem) {
+        versionQuestion?.dismiss(animated: true)
+        versionQuestion = nil
+        advance(to: next, mediaSourceID: mediaSourceID)
+        input.start()
+    }
+
+    /// The next item on this engine.
+    ///
+    /// A concrete version is remembered as the next item's pick, whether the
+    /// question chose it or auto-advance carried it on (the remembered pick,
+    /// or the label just watched), as iOS's `VersionedPlaybackRun` does:
+    /// otherwise a later Resume of that episode, with nothing remembered,
+    /// asks about the version it was watched in. `nil` (one version, the
+    /// server's default) remembers nothing. Internal for its unit test.
+    func advance(to next: MediaItem, mediaSourceID: String?) {
+        isChoosingNextVersion = false
+        if let mediaSourceID { rememberVersion?(mediaSourceID, next.id) }
         // The next item plays on this engine, its `load()` replacing this
         // one's. A new engine handed AVKit a new `AVPlayer`, which breaks
         // AVKit's Now Playing registration (AetherEngine issue #15): on the
@@ -316,7 +423,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         // player, and a stop between the two sent the TV through its default
         // mode, a black flash (Benjamin, 2026-10-16). The same engine keeps
         // both the player and the mode across the seam.
-        guard let next = viewModel.nextEpisode, let nextViewModel = makeViewModel?(next.id, engine) else { return close() }
+        guard let nextViewModel = makeViewModel?(next.id, mediaSourceID, engine) else { return close() }
         // Before `end()`, as iOS's `tearDown` does: a late time update during
         // the stop could otherwise reach zero again and advance twice.
         viewModel.dismissNextUp()
@@ -433,6 +540,40 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
             view.subviews.forEach(walk)
         }
         walk(root)
+    }
+}
+
+/// Presents a controller over the player, on top of whatever the player has
+/// presented already (the accessible transport's layer, under VoiceOver), and
+/// says whether UIKit took it. UIKit refuses quietly (a log line, nothing
+/// thrown) when the top controller is mid-dismiss or out of the window, and
+/// sets `presentingViewController` at once when it accepts, even mid-animation.
+enum TVOverPlayerPresentation {
+    @MainActor
+    static func present(_ controller: UIViewController, over player: UIViewController) -> Bool {
+        var top = player
+        while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+        top.present(controller, animated: true)
+        return controller.presentingViewController != nil
+    }
+}
+
+/// What auto-advance does about the next item's version (#289, D2), from the
+/// player's own decision (`PlayerViewModel.nextItemVersionChoice`). `nil`
+/// (its fetch of the next item hadn't landed, or failed) is decided afresh
+/// through `MediaVersionResolver.continuation`, never taken as "play the
+/// server's default", which would skip a question the user should get.
+enum TVNextItemVersionStep: Equatable {
+    case play(mediaSourceID: String?)
+    case ask(versions: [MediaVersion], lastPlayedID: String?)
+    case decideAfresh
+
+    init(handedOver: MediaVersionChoice?) {
+        switch handedOver {
+        case .play(let mediaSourceID): self = .play(mediaSourceID: mediaSourceID)
+        case .ask(let versions, let lastPlayedID): self = .ask(versions: versions, lastPlayedID: lastPlayedID)
+        case nil: self = .decideAfresh
+        }
     }
 }
 
