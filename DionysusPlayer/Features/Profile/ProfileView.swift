@@ -342,12 +342,8 @@ struct ProfileView: View {
                     .navigationDestination(for: ProfileSubpage.self) { $0.destination }
             }
             // A task per stack, since `.id(pane)` below rebuilds it: a link's
-            // sub-page is pushed here, in an update after the stack mounted.
-            .task {
-                guard let subpage = pendingDetailSubpage else { return }
-                pendingDetailSubpage = nil
-                detailPath.append(subpage)
-            }
+            // sub-page is pushed here, once the stack has mounted.
+            .task { await pushPendingDetailSubpage() }
             .id(pane)
         }
         // `.balanced` is what actually keeps the sidebar beside the detail in
@@ -455,11 +451,12 @@ struct ProfileView: View {
     /// Shows `pane` with `subpage` pushed on it, for a link.
     ///
     /// Changing the pane rebuilds the detail stack (`.id(pane)`), and on
-    /// iOS 18 a path filled in the same update never reaches the new stack:
-    /// the pane opened at its root (seen on an iPad on 18.6, where
-    /// `profile/about/license` showed About with License unpushed; iOS 27
-    /// pushed it). So for another pane the sub-page waits for the new
-    /// stack's task; for the pane already showing, the stack is live.
+    /// iOS 18 a path filled then doesn't hold: the pane opened at its root
+    /// (seen on an iPad on 18.6, where `profile/about/license` showed About
+    /// with License unpushed; iOS 27 pushed it), whether the sub-page was
+    /// appended in the same update or as the new stack's task began. So for
+    /// another pane the sub-page waits for `pushPendingDetailSubpage()`; for
+    /// the pane already showing, the stack is live and takes it at once.
     private func push(_ subpage: ProfileSubpage, in pane: ProfileSettingsPane) {
         let isShowing = (selectedPane ?? .appearance) == pane
         select(pane)
@@ -468,6 +465,27 @@ struct ProfileView: View {
         } else {
             pendingDetailSubpage = subpage
         }
+    }
+
+    /// Pushes the sub-page a link left pending for the pane just shown, and
+    /// sees that it stays: it's appended a beat after the stack mounts, and
+    /// again if the path is emptied under it, until it has held for two
+    /// checks running (or about two seconds have passed). Selecting another
+    /// pane cancels this with the stack it belongs to.
+    private func pushPendingDetailSubpage() async {
+        guard let subpage = pendingDetailSubpage else { return }
+        var held = 0
+        for _ in 0..<14 where held < 2 {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, pendingDetailSubpage == subpage else { return }
+            if detailPath.isEmpty {
+                detailPath.append(subpage)
+                held = 0
+            } else {
+                held += 1
+            }
+        }
+        pendingDetailSubpage = nil
     }
 
     /// Opens a page a link asked for (#406): in the split layout its pane,
