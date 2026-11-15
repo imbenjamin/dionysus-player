@@ -144,6 +144,9 @@ struct ProfileView: View {
     @State private var detailPath = NavigationPath()
     /// The one list's sections, for a link to scroll to.
     @State private var compactScrollTarget: LinkedProfileScroll?
+    /// A sub-page a link asked for in a pane other than the one showing,
+    /// pushed once that pane's stack has mounted (`push(_:in:)`).
+    @State private var pendingDetailSubpage: ProfileSubpage?
     /// A Quick Connect code a link asked to approve, for the Account rows.
     @State private var linkedQuickConnect: QuickConnectLink?
     /// The link last opened, so a change of layout doesn't open it again.
@@ -338,6 +341,9 @@ struct ProfileView: View {
                     .navigationDestination(for: AppRoute.self, destination: AppRouteDestinationView.init)
                     .navigationDestination(for: ProfileSubpage.self) { $0.destination }
             }
+            // A task per stack, since `.id(pane)` below rebuilds it: a link's
+            // sub-page is pushed here, once the stack has mounted.
+            .task { await pushPendingDetailSubpage() }
             .id(pane)
         }
         // `.balanced` is what actually keeps the sidebar beside the detail in
@@ -439,6 +445,47 @@ struct ProfileView: View {
     private func select(_ pane: ProfileSettingsPane?) {
         selectedPane = pane
         detailPath = NavigationPath()
+        pendingDetailSubpage = nil
+    }
+
+    /// Shows `pane` with `subpage` pushed on it, for a link.
+    ///
+    /// Changing the pane rebuilds the detail stack (`.id(pane)`), and on
+    /// iOS 18 a path filled then doesn't hold: the pane opened at its root
+    /// (seen on an iPad on 18.6, where `profile/about/license` showed About
+    /// with License unpushed; iOS 27 pushed it), whether the sub-page was
+    /// appended in the same update or as the new stack's task began. So for
+    /// another pane the sub-page waits for `pushPendingDetailSubpage()`; for
+    /// the pane already showing, the stack is live and takes it at once.
+    private func push(_ subpage: ProfileSubpage, in pane: ProfileSettingsPane) {
+        let isShowing = (selectedPane ?? .appearance) == pane
+        select(pane)
+        if isShowing {
+            detailPath.append(subpage)
+        } else {
+            pendingDetailSubpage = subpage
+        }
+    }
+
+    /// Pushes the sub-page a link left pending for the pane just shown, and
+    /// sees that it stays: it's appended a beat after the stack mounts, and
+    /// again if the path is emptied under it, until it has held for two
+    /// checks running (or about two seconds have passed). Selecting another
+    /// pane cancels this with the stack it belongs to.
+    private func pushPendingDetailSubpage() async {
+        guard let subpage = pendingDetailSubpage else { return }
+        var held = 0
+        for _ in 0..<14 where held < 2 {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, pendingDetailSubpage == subpage else { return }
+            if detailPath.isEmpty {
+                detailPath.append(subpage)
+                held = 0
+            } else {
+                held += 1
+            }
+        }
+        pendingDetailSubpage = nil
     }
 
     /// Opens a page a link asked for (#406): in the split layout its pane,
@@ -456,15 +503,9 @@ struct ProfileView: View {
             case .playback: select(.playback)
             case .downloads: select(.downloads)
             case .about: select(.about)
-            case .advancedPlayback:
-                select(.playback)
-                detailPath.append(ProfileSubpage.advancedPlayback)
-            case .license:
-                select(.about)
-                detailPath.append(ProfileSubpage.license)
-            case .privacyPolicy:
-                select(.about)
-                detailPath.append(ProfileSubpage.privacyPolicy)
+            case .advancedPlayback: push(.advancedPlayback, in: .playback)
+            case .license: push(.license, in: .about)
+            case .privacyPolicy: push(.privacyPolicy, in: .about)
             }
             return
         }
