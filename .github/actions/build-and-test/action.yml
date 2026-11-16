@@ -137,10 +137,18 @@ runs:
         # for weeks behind a missing `pipefail` (see TESTING.md).
         #
         # Matched on the runtime's version string exactly: macos-15 carries
-        # both 18.5 and 18.6, and a prefix match would pick either.
+        # both 18.5 and 18.6, and a prefix match would pick either. Among
+        # several with that version, the one that supports the device type:
+        # `xcode-27` carries two iOS 27.2 runtimes, the iPhone Duo's own
+        # (iOS-27-2-iPhone19-4, which runs nothing else) and the one for every
+        # other iPhone and iPad, and taking the first failed to create an
+        # iPhone 16 on the Duo's (PR #474, 2026-11-16). A runtime that lists
+        # no supported device types falls back to the first match.
         runtime=$(xcrun simctl list runtimes available -j \
-          | jq -r --arg v "$IOS_VERSION" --arg p "$PLATFORM" '.runtimes[] | select(.platform == $p and .version == $v) | .identifier' \
-          | head -1)
+          | jq -r --arg v "$IOS_VERSION" --arg p "$PLATFORM" --arg name "$DEVICE_TYPE" '
+              [.runtimes[] | select(.platform == $p and .version == $v)]
+              | (map(select(any(.supportedDeviceTypes[]?; .name == $name))) + .)
+              | first | .identifier // empty')
         if [ -z "$runtime" ]; then
           echo "::error::No $PLATFORM $IOS_VERSION runtime on this runner image. It can't be downloaded; run this environment on an image that carries it (see ui-tests.yml)." >&2
           xcrun simctl list runtimes
