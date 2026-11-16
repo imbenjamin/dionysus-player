@@ -211,8 +211,8 @@ jobs:
     # 2026-10-29), since the full plan holds every smoke journey.
     #
     # ⚠️ "develop protection" requires the four checks this reports, by
-    # their full names: "UI smoke tests / iPhone, iOS 27.0", "UI smoke tests
-    # / iPad, iOS 27.0", "UI smoke tests / iPhone Duo closed, iOS 27.1" and
+    # their full names: "UI smoke tests / iPhone, iOS 27.2", "UI smoke tests
+    # / iPad, iOS 27.2", "UI smoke tests / iPhone Duo closed, iOS 27.1" and
     # the same with "open". Renaming this job, or changing a device, pose or
     # iOS version in ui-tests.yml, changes those names — update the ruleset
     # in step.
@@ -251,7 +251,7 @@ jobs:
     # `develop` PRs keep the smoke plan above and get the full suite nightly.
     #
     # It exists because "Secure stable" requires the eight "Full UI tests / …"
-    # checks (iPhone and iPad on iOS 27.0 and 18.6, and the iPhone Duo in
+    # checks (iPhone and iPad on iOS 27.2 and 18.6, and the iPhone Duo in
     # its four poses), and before this job only nightly-ui-tests.yml
     # reported them.
     # That workflow runs on its schedule or by dispatch, never for a PR, so a
