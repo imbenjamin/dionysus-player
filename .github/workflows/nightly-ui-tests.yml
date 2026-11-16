@@ -86,7 +86,7 @@ jobs:
             test-plan: UnitTests-Random
             platform: iOS
             device-type: iPhone 16
-            os-version: "27.0"
+            os-version: "27.2"
           - label: tvOS
             scheme: DionysusTV
             test-plan: TVUnitTests-Random
