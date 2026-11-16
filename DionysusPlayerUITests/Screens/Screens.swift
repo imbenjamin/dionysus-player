@@ -647,6 +647,34 @@ struct AssetDetailScreen: Screen {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", A11yID.Versions.option(""))).firstMatch
     }
 
+    /// Dismisses a version question (the single title's, or a season's)
+    /// without answering it, by a tap outside it, as a person would.
+    ///
+    /// As a popover (an iPad, the iPhone Duo open or closed) the tap goes to
+    /// the popover's dismiss region, near whichever edge, top or bottom, the
+    /// popover is farther from, and 30% across: clear of the Duo's vertical
+    /// side bar, which isn't part of the region (a tap there closed
+    /// nothing), and of a book-pose fold at the centre, where a touch does
+    /// nothing. Never at a point of `app`'s frame: on
+    /// the Duo's inner display XCUITest reports the app's frame in the
+    /// display's native portrait (669 by 951) while the window and every
+    /// element are laid out held wide (951 by 669), so
+    /// `app.coordinate(withNormalizedOffset:)` landed on the Play button the
+    /// popover hangs from and closed nothing (nightly, 2026-11-16: open,
+    /// book and tabletop). Escape doesn't close it either. Without a
+    /// popover (an iPhone's dialog) a tap near the top of the window does,
+    /// above the dialog.
+    func dismissVersionQuestion() {
+        let region = app.otherElements["PopoverDismissRegion"]
+        let popover = app.popovers.firstMatch
+        guard region.exists, popover.exists else {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+            return
+        }
+        let dy: CGFloat = popover.frame.midY > region.frame.midY ? 0.12 : 0.88
+        region.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: dy)).tap()
+    }
+
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
         playButton.awaitExistence("the detail page's play button", file: file, line: line)
     }

@@ -335,8 +335,7 @@ final class DownloadsJourneyTests: UITestCase {
         detail.downloadButton.tap()
         let option = detail.versionOption("\(quietAscent)-1080p")
         option.awaitExistence("the version question")
-        // A tap above the popover dismisses it, as a person would.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        detail.dismissVersionQuestion()
         option.awaitDisappearance("the version question")
 
         // Long enough for the audio prompt to have come had the dismissal
@@ -448,8 +447,7 @@ final class DownloadsJourneyTests: UITestCase {
         detail.seasonDownloadButton.awaitExistence("the season's download button").tap()
         let option = detail.bulkVersionOption(0)
         option.awaitExistence("the season's version question")
-        // A tap above the popover dismisses it, as a person would.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        detail.dismissVersionQuestion()
         option.awaitDisappearance("the season's version question")
         assertSeasonDownloadIdle(detail, "after the single question's dismissal")
 

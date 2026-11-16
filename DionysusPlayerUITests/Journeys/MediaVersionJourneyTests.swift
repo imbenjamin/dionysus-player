@@ -141,8 +141,7 @@ final class MediaVersionJourneyTests: UITestCase {
         for attempt in 1...4 {
             detail.playButton.tap()
             option.awaitExistence("the version question, Play number \(attempt)")
-            // A tap above the popover dismisses it, as a person would.
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+            detail.dismissVersionQuestion()
             option.awaitDisappearance("the version question, Play number \(attempt)")
             // Long enough for a player to have come up had the dismissal played.
             RunLoop.current.run(until: Date().addingTimeInterval(2))

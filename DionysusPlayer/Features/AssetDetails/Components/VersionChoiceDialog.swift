@@ -212,7 +212,9 @@ private struct VersionedPlaybackModifier: ViewModifier {
                     play: play
                 ).run()
             }
-            .modifier(VersionQuestionModifier(start: $start, anchor: anchor, viewModel: viewModel, play: play))
+            .modifier(QuestionPlacement(anchor: anchor) {
+                VersionQuestionModifier(start: $start, anchor: anchor, viewModel: viewModel, play: play)
+            })
     }
 
     private func decide(_ pending: VersionedPlaybackStart) async -> MediaVersionChoice {
@@ -225,6 +227,33 @@ private struct VersionedPlaybackModifier: ViewModifier {
             return await viewModel.continuationDecision(
                 forItemID: pending.request.itemID, previousVersionLabel: pending.request.previousVersionLabel
             )
+        }
+    }
+}
+
+/// Where a `versionedPlayback` modifier asks its question from: a button's
+/// own view, or, for the page's question (auto-advance's, which has nothing
+/// to point at), a point in the middle of the page, clear of an iPhone Duo's
+/// fold (`centredClearOfTheFold()`). Not the page itself: a popover anchored
+/// to the whole page has no room beside it, and iPadOS 18 drew it as an
+/// empty 34pt sliver under the tab bar with its versions out of reach, so
+/// nothing could be chosen after an episode ended (nightly, 2026-11-16).
+private struct QuestionPlacement<Question: ViewModifier>: ViewModifier {
+    let anchor: VersionedPlaybackStart.Anchor
+    let question: () -> Question
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if anchor == .page {
+            content.overlay {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .modifier(question())
+                    .centredClearOfTheFold()
+                    .allowsHitTesting(false)
+            }
+        } else {
+            content.modifier(question())
         }
     }
 }
