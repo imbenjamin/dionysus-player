@@ -1059,6 +1059,14 @@ What no suite can reach, and how it was or should be checked.
   Partially Open, then Rotate Right), `Scripts/duo-pose/set-duo-pose.sh
   <udid> <pose>` or `/duology-ship:duo-poses`, and capture the inner display
   with `xcrun simctl io <udid> screenshot --display=primary-1`.
+- **Never tap at a point of `app`'s own frame on the inner display**
+  (`app.coordinate(withNormalizedOffset:)`): XCUITest reports it in the
+  display's native portrait (669 by 951) while the window and every element
+  are laid out held wide (951 by 669), so the point lands elsewhere (a "tap
+  above the popover" hit the Play button it hung from, 2026-11-16). Tap
+  relative to an element; `AssetDetailScreen.dismissVersionQuestion()` taps
+  a popover's `PopoverDismissRegion`, clear of the side bar (not part of the
+  region) and the fold.
 - **A journey never scrolls with `app.swipeUp()`**: it starts at the window's
   centre, on the fold in book and tabletop, and scrolls nothing. Settings go
   through `ProfileScreen.scrollSettings()`; elsewhere, swipe on a row.
