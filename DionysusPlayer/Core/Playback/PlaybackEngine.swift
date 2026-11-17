@@ -111,9 +111,12 @@ protocol PlaybackEngine: AnyObject {
     /// `spatialAudio` is AetherEngine's `objectAudioRendering`: one value for
     /// the session and for both TrueHD Atmos and DTS:X, which is why
     /// `PlayerViewModel` predicts the track it will play before loading.
+    ///
+    /// `nightAudio` starts the session with Night Audio's compressor
+    /// (`LoadOptions.audioShaping`), rather than rebuilding once it plays.
     func load(
         url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>,
-        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering
+        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering, nightAudio: Bool
     ) async throws
     /// What the session was loaded (or last rebuilt) with.
     var spatialAudio: SpatialAudioRendering { get }
@@ -121,6 +124,19 @@ protocol PlaybackEngine: AnyObject {
     /// keeping the selected audio track and play/pause state
     /// (`reloadAtCurrentPosition(applying:)`). A no-op when it's unchanged.
     func setSpatialAudio(_ rendering: SpatialAudioRendering) async throws
+
+    /// Turns Night Audio's compressor on or off while playing
+    /// (`AetherEngine.setAudioShaping`). Not awaited: the engine rebuilds at
+    /// the playhead on a task of its own and folds a change that lands
+    /// meanwhile into it. It also stands for the next load.
+    func setNightAudio(_ on: Bool)
+    /// Whether the compressor is shaping the session (`audioShapingState`).
+    var nightAudioState: NightAudioState { get }
+    /// Every change of `nightAudioState`, including a load's own.
+    var onNightAudioStateChange: ((NightAudioState) -> Void)? { get set }
+    /// The player's volume, 0...1 (`AetherEngine.volume`): Night Mode's
+    /// Volume Limit. It carries over to the next load.
+    var outputVolume: Float { get set }
     func play()
     func pause()
     func togglePlayPause()
@@ -208,12 +224,11 @@ extension PlaybackEngine {
         try await load(url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices, isRemoteHLS: false, audioOffset: 0)
     }
 
-    /// No Spatial Audio: offline playback (downloads are always transcoded,
-    /// never TrueHD or DTS-HD), and callers not exercising it.
+    /// No Spatial Audio or Night Audio: callers not exercising them.
     func load(url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>, isRemoteHLS: Bool, audioOffset: TimeInterval) async throws {
         try await load(
             url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: knownAtmosAudioTrackIndices,
-            isRemoteHLS: isRemoteHLS, audioOffset: audioOffset, spatialAudio: .off
+            isRemoteHLS: isRemoteHLS, audioOffset: audioOffset, spatialAudio: .off, nightAudio: false
         )
     }
 

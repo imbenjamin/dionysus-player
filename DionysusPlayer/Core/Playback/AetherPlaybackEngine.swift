@@ -71,6 +71,16 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// Follows `engine.$videoRoute`; see `isAudioOffsetAvailable(on:)`.
     private(set) var isAudioOffsetAvailable = false
     private(set) var spatialAudio: SpatialAudioRendering = .off
+    var onNightAudioStateChange: ((NightAudioState) -> Void)?
+    /// Follows `engine.$audioShapingState`.
+    private(set) var nightAudioState: NightAudioState = .off
+
+    /// Remembered by the engine across loads, so a limit set before or
+    /// between sessions holds.
+    var outputVolume: Float {
+        get { engine.volume }
+        set { engine.volume = newValue }
+    }
 
     /// Built around `engine.nativePlayerLayer`, so the native AVPlayer route
     /// only. Rebuilt from the `engine.$currentAVPlayer` sink below, which
@@ -378,6 +388,19 @@ final class AetherPlaybackEngine: PlaybackEngine {
             }
             .store(in: &cancellables)
 
+        engine.$audioShapingState
+            .map(Self.nightAudioState)
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.nightAudioState = state
+                    self.onNightAudioStateChange?(state)
+                }
+            }
+            .store(in: &cancellables)
+
         engine.$videoRoute
             .compactMap(Self.audioOffsetAvailability(on:))
             .removeDuplicates()
@@ -533,7 +556,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
     /// the engine's own defaults.
     nonisolated static func makeLoadOptions(
         isRemoteHLS: Bool, externalSubtitles: [ExternalSubtitleTrack], display: DisplayContext, audioOffset: TimeInterval = 0,
-        spatialAudio: SpatialAudioRendering = .off, readAheadSeconds: Int = ReadAheadBufferStore.defaultSeconds
+        spatialAudio: SpatialAudioRendering = .off, readAheadSeconds: Int = ReadAheadBufferStore.defaultSeconds,
+        nightAudio: Bool = false
     ) -> LoadOptions {
         // Order matters here beyond just readability: `LoadOptions`' own
         // memberwise init takes ~40 named, defaulted parameters, but Swift
@@ -573,7 +597,22 @@ final class AetherPlaybackEngine: PlaybackEngine {
         // are disk-backed (~750 MB for five minutes of 4K), and the engine
         // caps the window at a quarter of free space.
         options.forwardBufferSegments = ReadAheadBufferStore.segments(forSeconds: readAheadSeconds)
+        // Night Audio. Shaping takes precedence over `objectAudioRendering`,
+        // so the view model loads with Spatial Audio off while it's on.
+        options.audioShaping = nightAudioShaping(nightAudio)
         return options
+    }
+
+    nonisolated static func nightAudioShaping(_ on: Bool) -> AudioShaping {
+        on ? AudioShaping(compressor: .night) : AudioShaping()
+    }
+
+    nonisolated static func nightAudioState(_ state: AudioShapingState) -> NightAudioState {
+        switch state {
+        case .off: return .off
+        case .applied: return .applied
+        case .unavailable: return .unavailable
+        }
     }
 
     nonisolated static func engineRendering(_ rendering: SpatialAudioRendering) -> ObjectAudioRendering {
@@ -632,7 +671,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
 
     func load(
         url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>,
-        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering
+        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering, nightAudio: Bool
     ) async throws {
         // A fresh source carries its own playhead; the previous session's
         // stand-in must not leak into it.
@@ -646,7 +685,8 @@ final class AetherPlaybackEngine: PlaybackEngine {
             display: DisplayContext.current(),
             audioOffset: audioOffset,
             spatialAudio: spatialAudio,
-            readAheadSeconds: ReadAheadBufferStore.seconds()
+            readAheadSeconds: ReadAheadBufferStore.seconds(),
+            nightAudio: nightAudio
         )
         do {
             _ = try await engine.load(url: url, options: options)
@@ -888,6 +928,10 @@ final class AetherPlaybackEngine: PlaybackEngine {
         try await engine.reloadAtCurrentPosition { $0.objectAudioRendering = engineRendering }
         spatialAudio = rendering
         spatialBedRoute = currentSpatialBedRoute()
+    }
+
+    func setNightAudio(_ on: Bool) {
+        engine.setAudioShaping(Self.nightAudioShaping(on))
     }
 
     // MARK: Spatial Audio across a route change

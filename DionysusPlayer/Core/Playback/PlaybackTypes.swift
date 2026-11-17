@@ -151,6 +151,21 @@ struct PlaybackStats: Equatable {
     /// While TrueHD Atmos or DTS:X plays as Spatial Audio: "7.1.4 · 13 objects,
     /// 4 overhead", or "7.1.4 · 4 height channels" for DTS:X. Nil otherwise.
     var spatialAudio: String? = nil
+    /// While Night Mode is on, what it's doing: "Night Audio · Volume 60% ·
+    /// Brightness 40%" (`PlaybackStatsReport.describeNightMode`). Set by
+    /// `PlayerViewModel.stats`, since the engine knows nothing of the levels.
+    var nightMode: String? = nil
+}
+
+/// Whether Night Audio's compressor is shaping this session, as AetherEngine's
+/// `audioShapingState` reports it.
+enum NightAudioState: Equatable {
+    /// Not asked for, or no session (also briefly while a rebuild is on the way).
+    case off
+    case applied
+    /// Asked for, and this session can't carry it: AVPlayer owns the audio (a
+    /// server transcode). It applies to the next session that can.
+    case unavailable
 }
 
 /// A selectable audio or subtitle track, normalized from whatever track

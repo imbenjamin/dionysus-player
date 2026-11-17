@@ -64,6 +64,7 @@ private enum ProfileSettingsPane: Identifiable, Hashable {
 /// link (#406) can push one (`ProfileView.open(_:)`).
 private enum ProfileSubpage: Hashable {
     case advancedPlayback
+    case nightMode
     /// A push on the one list only; the split layout has a Downloads pane.
     case downloads
     case license
@@ -73,6 +74,7 @@ private enum ProfileSubpage: Hashable {
     var destination: some View {
         switch self {
         case .advancedPlayback: AdvancedPlaybackSettingsView()
+        case .nightMode: NightModeSettingsView()
         case .downloads: DownloadsSettingsView()
         case .license: LicenseView()
         case .privacyPolicy: PrivacyPolicyView()
@@ -504,6 +506,7 @@ struct ProfileView: View {
             case .downloads: select(.downloads)
             case .about: select(.about)
             case .advancedPlayback: push(.advancedPlayback, in: .playback)
+            case .nightMode: push(.nightMode, in: .playback)
             case .license: push(.license, in: .about)
             case .privacyPolicy: push(.privacyPolicy, in: .about)
             }
@@ -521,6 +524,7 @@ struct ProfileView: View {
         case .about: compactScrollTarget = LinkedProfileScroll(section: .about)
         case .downloads: compactPath.append(ProfileSubpage.downloads)
         case .advancedPlayback: compactPath.append(ProfileSubpage.advancedPlayback)
+        case .nightMode: compactPath.append(ProfileSubpage.nightMode)
         case .license: compactPath.append(ProfileSubpage.license)
         case .privacyPolicy: compactPath.append(ProfileSubpage.privacyPolicy)
         }
@@ -650,6 +654,12 @@ struct ProfileView: View {
             }
             .accessibilityIdentifier(A11yID.Profile.audioOffsetReset)
         }
+        NavigationLink(value: ProfileSubpage.nightMode) {
+            LabeledContent("Night Mode") {
+                NightModeController.shared.settings.isOn ? Text("On") : Text("Off")
+            }
+        }
+        .accessibilityIdentifier(A11yID.Profile.nightLink)
         // Streaming mode/bitrate and the Playback Stats toggle live on their
         // own pushed screen — see `AdvancedPlaybackSettingsView`. "Advanced"
         // is also `DownloadsQualityLadderView`'s link text, so the identifier
@@ -731,7 +741,7 @@ struct ProfileView: View {
     }
 
     private var playbackFooter: some View {
-        Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles & Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
+        Text("Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles & Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel. Night Mode quiets and dims playback, by hand or on a schedule.")
             .readableSettingsFooter()
     }
 

@@ -26,6 +26,14 @@ struct TVPlayerCommandRunner {
             case .stepAudioOffset(let steps): viewModel.audioOffset.step(by: steps)
             case .setAudioOffsetScope(let scope): viewModel.audioOffset.setScope(scope)
             case .resetAudioOffset: viewModel.audioOffset.resetToGlobal()
+            case .setNightMode(let on): viewModel.nightMode.setOn(on)
+            case .setNightAudio(let on): viewModel.nightMode.setNightAudio(on)
+            case .stepVolume(let step):
+                viewModel.nightMode.setVolumePercent(viewModel.nightMode.settings.volumePercent + step)
+            case .setVolume(let percent): viewModel.nightMode.setVolumePercent(percent)
+            case .stepBrightness(let step):
+                viewModel.nightMode.setBrightnessPercent(viewModel.nightMode.settings.brightnessPercent + step)
+            case .setBrightness(let percent): viewModel.nightMode.setBrightnessPercent(percent)
             case .close: close()
             }
         }

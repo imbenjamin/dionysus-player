@@ -85,6 +85,13 @@ final class DeepLinkJourneyTests: UITestCase {
         app.steppers[A11yID.Profile.readAheadBufferStepper].awaitExistence("Advanced playback's read-ahead stepper")
     }
 
+    func testProfileLink_pushesNightMode() {
+        launchAtHome()
+        openLink(link("profile/playback/night"))
+        app.switches[A11yID.Profile.nightSchedule].awaitExistence("Night Mode's Schedule switch")
+        XCTAssertTrue(app.switches[A11yID.Profile.nightToggle].exists, "the Night Mode switch")
+    }
+
     /// Filled, not submitted: approving signs a device in, so it stays a tap.
     func testQuickConnectLink_fillsTheCode_withoutApproving() {
         launchAtHome()

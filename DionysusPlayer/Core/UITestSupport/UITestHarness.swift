@@ -113,6 +113,10 @@ enum UITestHarness {
         SharedKeychainAudioOffsetStorage().removeAll()
         SpatialAudioStore(storage: SharedKeychainAudioOffsetStorage()).removeAll()
         #endif
+        // Night Mode's switch and levels, on either platform's storage (the
+        // shared keychain on tvOS, `UserDefaults` on iOS), so one journey's
+        // dimming never reaches the next.
+        NightModeStore().removeAll()
         ServerSessionStore().clearAll()
 
         if let domain = Bundle.main.bundleIdentifier {

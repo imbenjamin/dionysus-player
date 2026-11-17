@@ -59,4 +59,20 @@ struct UITestAnnouncementProbe: View {
         }
     }
 }
+
+/// A one-point text carrying the app's time zone as its label, mounted only
+/// under `-UITestShowTimeZone YES`, so a journey launched with another `TZ`
+/// can see the app really runs in it.
+struct UITestTimeZoneProbe: View {
+    var body: some View {
+        if UITestConfiguration.isActive, UserDefaults.standard.bool(forKey: "UITestShowTimeZone") {
+            Text(verbatim: TimeZone.current.identifier)
+                .font(.system(size: 1))
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier(A11yID.UITest.timeZone)
+        }
+    }
+}
 #endif

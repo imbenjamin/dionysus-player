@@ -15,3 +15,23 @@ final class PlayerControlsOverlayTests: XCTestCase {
         XCTAssertEqual(PlayerControlsOverlay.skipped(from: 595, by: 1, duration: 600), 600)
     }
 }
+
+/// The top row's moon (Night Mode, iOS player): a plain `moon` while off, and
+/// `moon.fill` on the white badge while on, the rotation lock's on-state.
+final class PlayerNightButtonTests: XCTestCase {
+    func test_off_isAPlainMoon() {
+        let face = PlayerControlsOverlay.nightButtonFace(isOn: false)
+        XCTAssertEqual(face.systemImage, "moon")
+        XCTAssertFalse(face.hasBadge)
+        XCTAssertEqual(face.label, "Night Mode")
+        XCTAssertEqual(face.value, "Off")
+    }
+
+    func test_on_isAFilledMoonOnTheBadge() {
+        let face = PlayerControlsOverlay.nightButtonFace(isOn: true)
+        XCTAssertEqual(face.systemImage, "moon.fill")
+        XCTAssertTrue(face.hasBadge)
+        XCTAssertEqual(face.label, "Night Mode")
+        XCTAssertEqual(face.value, "On")
+    }
+}

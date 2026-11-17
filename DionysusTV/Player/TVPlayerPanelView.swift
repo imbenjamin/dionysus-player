@@ -7,6 +7,7 @@ extension TVPanelTab {
         case .chapters: String(localized: "Chapters")
         case .audio: String(localized: "Audio")
         case .subtitles: String(localized: "Subtitles")
+        case .night: String(localized: "Night")
         }
     }
 }
@@ -28,12 +29,12 @@ struct TVPlayerPanelView: View {
     var landingRow = 0
     @FocusState private var focusedRow: Int?
 
-    private func isFocused(_ index: Int) -> Bool { panel.focus == .content(index) }
+    func isFocused(_ index: Int) -> Bool { panel.focus == .content(index) }
 
     /// A button the focus engine reaches in the accessible transport;
     /// otherwise the face drawn from the model's focus.
     @ViewBuilder
-    private func control<Face: View>(
+    func control<Face: View>(
         _ action: TVPlayerControl, modelFocused: Bool, @ViewBuilder face: @escaping (_ isFocused: Bool) -> Face
     ) -> some View {
         if accessible {
@@ -90,6 +91,7 @@ struct TVPlayerPanelView: View {
         case .subtitles:
             trackList(rows: [(String(localized: "Off"), nil, !viewModel.subtitleTracks.contains(where: \.isSelected))]
                 + viewModel.subtitleTracks.map { ($0.title, $0.metadata, $0.isSelected) })
+        case .night: nightContent
         }
     }
 

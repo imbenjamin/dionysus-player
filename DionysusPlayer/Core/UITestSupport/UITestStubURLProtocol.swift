@@ -600,7 +600,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
              .slowPublicUsers, .slowSignIn, .revokedSessions:
             return nil
         case .largeCast, .noBackdrop, .missingTileArtwork, .manyGenres, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits,
-             .audioOffsetUnavailable, .rebuffering, .slowSeek, .introBeforeResume,
+             .audioOffsetUnavailable, .transcode, .rebuffering, .slowSeek, .introBeforeResume,
              .reconnecting, .pictureInPicture, .scrubThumbnails, .anamorphicVideo:
             return nil
         case .failingDetail:

@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Everything drawn over the video, bottom to top. Takes no interaction:
+/// Everything drawn over the video, bottom to top (subtitles, Night Mode's
+/// dimming, then the controls). Takes no interaction:
 /// the host's recognizers take every press (`TVPlayerInputModel`).
 ///
 /// In the accessible transport (M5) the controls move to a layer presented
@@ -33,6 +34,18 @@ struct TVPlayerOverlay: View {
                     controlsTop: chromeTop, metrics: .tv
                 )
                 .ignoresSafeArea()
+                // Night Mode's Brightness: black over the picture, the held
+                // still (`AetherStillView`, beneath this overlay) and the
+                // subtitles, below the transport and the panel, which stay
+                // at full brightness. Only in the player's own overlay: the
+                // accessible transport's layer sits above everything.
+                if viewModel.videoDimOpacity > 0 {
+                    Color.black
+                        .opacity(viewModel.videoDimOpacity)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
             }
             if drawsControls {
                 controls

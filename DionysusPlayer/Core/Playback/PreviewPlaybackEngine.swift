@@ -110,11 +110,33 @@ final class PreviewPlaybackEngine: PlaybackEngine {
         spatialAudioReloads.append(rendering)
     }
 
+    /// Night Audio as the last load or `setNightAudio(_:)` asked for it,
+    /// reported as AetherEngine would: unavailable on a server transcode.
+    private(set) var loadedNightAudio: Bool?
+    private(set) var nightAudioCalls: [Bool] = []
+    var outputVolume: Float = 1
+    var onNightAudioStateChange: ((NightAudioState) -> Void)?
+    private(set) var nightAudioState: NightAudioState = .off
+    private var isRemoteHLSSession = false
+
+    func setNightAudio(_ on: Bool) {
+        nightAudioCalls.append(on)
+        reportNightAudio(on)
+    }
+
+    private func reportNightAudio(_ on: Bool) {
+        nightAudioState = on ? (isRemoteHLSSession ? .unavailable : .applied) : .off
+        onNightAudioStateChange?(nightAudioState)
+    }
+
     func load(
         url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>,
-        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering
+        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering, nightAudio: Bool
     ) async throws {
         self.spatialAudio = spatialAudio
+        loadedNightAudio = nightAudio
+        isRemoteHLSSession = isRemoteHLS
+        reportNightAudio(nightAudio)
         if let simulatedFailure {
             onStateChange?(.failed(simulatedFailure))
             return

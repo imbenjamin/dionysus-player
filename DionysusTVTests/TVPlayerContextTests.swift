@@ -34,7 +34,8 @@ final class TVPlayerContextTests: XCTestCase {
             userID: "user-1", itemID: "item-1", engine: engine,
             trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
-            streamPreferenceStore: StreamPreferenceStore(defaults: defaults)
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+            nightMode: .isolated()
         )
         defaults.set(true, forKey: showPlaybackStatsButtonEnabledStorageKey)
         defaults.set(false, forKey: chaptersInScrubberEnabledStorageKey)
@@ -57,12 +58,35 @@ final class TVPlayerContextTests: XCTestCase {
             trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
             streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
-            audioOffsetStore: AudioOffsetStore(defaults: defaults)
+            audioOffsetStore: AudioOffsetStore(defaults: defaults),
+            nightMode: .isolated()
         )
         XCTAssertNil(TVPlayerContext(viewModel: viewModel, defaults: defaults).audioOffset)
 
         engine.isAudioOffsetAvailable = true
         let context = TVPlayerContext(viewModel: viewModel, defaults: defaults)
         XCTAssertEqual(context.audioOffset, .init(canDecrease: true, canIncrease: true, hasTitleOffset: false, scope: .thisTitle))
+    }
+
+    func test_night_snapshot_readsTheController() {
+        let nightMode = NightModeController.isolated()
+        let viewModel = PlayerViewModel(
+            client: JellyfinAPIClient(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: "tok", session: MockURLProtocol.makeSession()),
+            userID: "user-1", itemID: "item-1", engine: FakePlaybackEngine(),
+            trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
+            nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+            nightMode: nightMode
+        )
+        XCTAssertEqual(TVPlayerContext(viewModel: viewModel, defaults: defaults).night, .init())
+
+        nightMode.setOn(true)
+        nightMode.setNightAudio(false)
+        nightMode.setVolumePercent(60)
+        nightMode.setBrightnessPercent(40)
+        XCTAssertEqual(
+            TVPlayerContext(viewModel: viewModel, defaults: defaults).night,
+            .init(isOn: true, nightAudio: false, volumePercent: 60, brightnessPercent: 40)
+        )
     }
 }

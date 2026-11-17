@@ -415,6 +415,24 @@ enum A11yID {
         /// comment describes, and simpler than that composite string id for
         /// a test that just wants "the second chapter".
         static func chapterOption(_ index: Int) -> String { "player.chapterPicker.option.\(index)" }
+
+        /// The top row's moon, opening the Night panel (`NightModePanel`).
+        /// The panel has no container identifier (see this enum's rules);
+        /// `nightToggle` stands in for it. The dimming layer has none either:
+        /// it's hidden from accessibility, so journeys read Playback Stats'
+        /// "Night Mode" row.
+        static let nightButton = "player.night.button"
+        static let nightToggle = "player.night.toggle"
+        static let nightAudio = "player.night.nightAudio"
+        /// A level's value, or under VoiceOver the whole row as one
+        /// adjustable element.
+        static let nightVolume = "player.night.volume"
+        static let nightBrightness = "player.night.brightness"
+        /// A level's `[0%] [−] [+] [100%]` buttons: `volume` or `brightness`,
+        /// then `min`, `decrease`, `increase` or `max`, e.g.
+        /// `player.night.brightness.min`.
+        static func nightControl(_ level: String, _ control: String) -> String { "player.night.\(level).\(control)" }
+        static let nightScheduleSummary = "player.night.scheduleSummary"
     }
 
     /// Playback Stats rows read by journeys on both apps, with one identifier
@@ -504,6 +522,21 @@ enum A11yID {
         /// Present only when the server reports Quick Connect enabled.
         static let quickConnectRow = "profile.quickConnectRow"
         static let advancedPlaybackLink = "profile.advancedPlaybackLink"
+        /// Playback → Night Mode (`NightModeSettingsView`): its row, the
+        /// switches, each level's value (under VoiceOver the whole row) and
+        /// buttons (`nightControl("volume", "decrease")`), the schedule's
+        /// switch and time pickers, and the note shown while both times are
+        /// the same.
+        static let nightLink = "profile.night.link"
+        static let nightToggle = "profile.night.toggle"
+        static let nightAudio = "profile.night.nightAudio"
+        static let nightVolume = "profile.night.volume"
+        static let nightBrightness = "profile.night.brightness"
+        static func nightControl(_ level: String, _ control: String) -> String { "profile.night.\(level).\(control)" }
+        static let nightSchedule = "profile.night.schedule"
+        static let nightTurnOn = "profile.night.turnOn"
+        static let nightTurnOff = "profile.night.turnOff"
+        static let nightSameTimesNote = "profile.night.sameTimesNote"
         static let styledSubtitlesToggle = "profile.styledSubtitlesToggle"
         static let readAheadBufferStepper = "profile.readAheadBuffer.stepper"
         static let downloadsSettingsLink = "profile.downloadsSettingsLink"
@@ -605,6 +638,9 @@ enum A11yID {
         /// `UITestAnnouncementProbe`: its label is the last VoiceOver
         /// announcement, under `-UITestSimulateVoiceOver`.
         static let lastAnnouncement = "uitest.lastAnnouncement"
+        /// `UITestTimeZoneProbe`: its label is the app's
+        /// `TimeZone.current.identifier`, under `-UITestShowTimeZone`.
+        static let timeZone = "uitest.timeZone"
         /// The still the scrub bubble last showed, as
         /// `UITestTrickplay.describe` puts it (`scrubThumbnails` only).
         static let lastScrubPreview = "uitest.lastScrubPreview"
@@ -788,6 +824,24 @@ enum A11yID {
             static let chaptersInScrubber = "tv.profile.chaptersInScrubber"
             static let subtitleAppearance = "tv.profile.subtitleAppearance"
             static let advanced = "tv.profile.advanced"
+            /// Playback → Night Mode (`TVNightModePage`): its row, the
+            /// switches, each level's and time's value (under VoiceOver the
+            /// whole row) and buttons, the schedule's switch, and the note
+            /// shown while both times are the same.
+            static let nightMode = "tv.profile.night.link"
+            static let nightToggle = "tv.profile.night.toggle"
+            static let nightAudio = "tv.profile.night.nightAudio"
+            static let nightVolume = "tv.profile.night.volume"
+            static let nightBrightness = "tv.profile.night.brightness"
+            static func nightControl(_ level: String, _ control: String) -> String { "tv.profile.night.\(level).\(control)" }
+            static let nightSchedule = "tv.profile.night.schedule"
+            static let nightTurnOn = "tv.profile.night.turnOn"
+            static let nightTurnOff = "tv.profile.night.turnOff"
+            /// A time's − and +: `turnOn` or `turnOff`, then `decrease` or
+            /// `increase`, e.g. `tv.profile.night.turnOn.increase`.
+            static func nightTimeControl(_ time: String, _ control: String) -> String { "tv.profile.night.\(time).\(control)" }
+            static let nightSameTimesNote = "tv.profile.night.sameTimesNote"
+            static let nightRows = "tv.profile.night.rows"
             static let license = "tv.profile.license"
             static let privacyPolicy = "tv.profile.privacyPolicy"
             static let version = "tv.profile.version"
@@ -846,6 +900,21 @@ enum A11yID {
             static let audioOffsetRow = "tv.player.audioOffset"
             static let audioOffsetScope = "tv.player.audioOffset.scope"
             static let audioOffsetReset = "tv.player.audioOffset.reset"
+            /// The Night tab's rows (`TVPlayerPanelView.nightContent`). The
+            /// tab itself is `panelTab("night")`. The dimming layer has no
+            /// identifier: journeys read its level from Playback Stats'
+            /// "Night Mode" row.
+            static let nightToggle = "tv.player.night.toggle"
+            static let nightAudio = "tv.player.night.nightAudio"
+            /// A level's value (label the level's name, value "60%"); in
+            /// the accessible transport, the whole adjustable row.
+            static let nightVolume = "tv.player.night.volume"
+            static let nightBrightness = "tv.player.night.brightness"
+            /// A level's control: `min`, `decrease`, `increase` or `max`,
+            /// e.g. `tv.player.night.volume.decrease`.
+            static func nightControl(_ level: String, _ control: String) -> String { "tv.player.night.\(level).\(control)" }
+            /// The moon beside the elapsed time while Night Mode is on.
+            static let nightIndicator = "tv.player.night.indicator"
             static let transport = "tv.player.transport"
             static let titleBlock = "tv.player.title"
             static let elapsed = "tv.player.elapsed"

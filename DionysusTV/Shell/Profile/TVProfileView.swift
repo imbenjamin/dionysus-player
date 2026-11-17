@@ -23,7 +23,7 @@ struct TVProfileView: View {
     /// accessibility identifiers on tvOS, nor a push, which would put the
     /// sidebar beside a page that belongs to Profile.
     private enum Cover: String, Identifiable {
-        case changeServer, signOut, quickConnect, nextUpCountdown, subtitleAppearance, audioOffset, atmosLayout, dtsXLayout, spatialAudioHelp, advanced, license, privacyPolicy
+        case changeServer, signOut, quickConnect, nextUpCountdown, subtitleAppearance, audioOffset, nightMode, atmosLayout, dtsXLayout, spatialAudioHelp, advanced, license, privacyPolicy
         var id: String { rawValue }
     }
 
@@ -65,7 +65,7 @@ struct TVProfileView: View {
             // session, so it's only there while the first is off.
             + (followsAppleTVUsers ? [] : [A11yID.TV.Profile.selectsUserEveryRelaunch])
             + [A11yID.TV.Profile.autoCarousel, A11yID.TV.Profile.nextUpCountdown, A11yID.TV.Profile.chaptersInScrubber,
-               A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.advanced]
+               A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.nightMode, A11yID.TV.Profile.advanced]
             + spatialAudioFocusIDs
             + [A11yID.TV.Profile.license, A11yID.TV.Profile.privacyPolicy]
     }
@@ -188,6 +188,8 @@ struct TVProfileView: View {
                 )
             case .spatialAudioHelp:
                 TVTextPageView(title: "About Spatial Audio", paragraphs: SpatialAudioHelp.paragraphs.map { AttributedString($0) })
+            case .nightMode:
+                TVNightModePage()
             case .advanced:
                 TVAdvancedPlaybackView()
             case .license:
@@ -214,6 +216,7 @@ struct TVProfileView: View {
             cover = nil
             ToastCenter.shared.post(.notice(DeepLink.noDownloadsMessage))
         case .advancedPlayback: cover = .advanced
+        case .nightMode: cover = .nightMode
         case .license: cover = .license
         case .privacyPolicy: cover = .privacyPolicy
         case .quickConnect(let code):
@@ -327,8 +330,15 @@ struct TVProfileView: View {
                     ) {
                         cover = .audioOffset
                     }
+                    row(
+                        "Night Mode", value: onOff(NightModeController.shared.settings.isOn),
+                        hint: "Quiets and dims playback, by hand or on a schedule.",
+                        opensPage: true, id: A11yID.TV.Profile.nightMode
+                    ) {
+                        cover = .nightMode
+                    }
                     row("Advanced", opensPage: true, id: A11yID.TV.Profile.advanced) { cover = .advanced }
-                    TVSettingsFooter(text: "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles and Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel.")
+                    TVSettingsFooter(text: "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles and Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel. Night Mode quiets and dims playback, by hand or on a schedule.")
                 }
 
                 // A section of its own under Playback, as on iOS (Benjamin,

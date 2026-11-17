@@ -195,4 +195,24 @@ final class AetherPlaybackEngineLoadOptionsTests: XCTestCase {
         XCTAssertEqual(AetherPlaybackEngine.audioOffsetAvailability(on: .loopback), true)
         XCTAssertEqual(AetherPlaybackEngine.audioOffsetAvailability(on: .remoteBypass), false)
     }
+
+    // MARK: Night Audio
+
+    /// Night Audio is AetherEngine's own night compressor, passed at load so a
+    /// session starts shaped instead of rebuilding once it has.
+    func test_nightAudio_setsNightCompressor() {
+        let on = AetherPlaybackEngine.makeLoadOptions(
+            isRemoteHLS: false, externalSubtitles: [], display: .unknown, nightAudio: true
+        )
+        XCTAssertEqual(on.audioShaping, AudioShaping(compressor: .night))
+        let off = AetherPlaybackEngine.makeLoadOptions(isRemoteHLS: false, externalSubtitles: [], display: .unknown)
+        XCTAssertEqual(off.audioShaping, AudioShaping())
+    }
+
+    /// Each of the engine's states has the app's of the same name.
+    func test_nightAudioState_mapsOneToOne() {
+        XCTAssertEqual(AetherPlaybackEngine.nightAudioState(.off), .off)
+        XCTAssertEqual(AetherPlaybackEngine.nightAudioState(.applied), .applied)
+        XCTAssertEqual(AetherPlaybackEngine.nightAudioState(.unavailable), .unavailable)
+    }
 }

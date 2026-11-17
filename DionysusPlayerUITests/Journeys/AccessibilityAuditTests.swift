@@ -409,6 +409,20 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    /// The Night panel, with Night Mode on so the moon's badge and the
+    /// levels at full strength are audited, and Brightness at 0% so its
+    /// dimmed − and 0% are too.
+    func testNightPanelHasNoAccessibilityIssues() throws {
+        let player = openPlayer()
+        player.nightButton.tap()
+        player.nightToggle.awaitExistence("the Night panel")
+        player.nightToggle.switches.firstMatch.tap()
+        player.nightControl("brightness", "min").tap()
+        XCTAssertFalse(player.nightControl("brightness", "min").isEnabled)
+
+        try auditCurrentScreen()
+    }
+
     // MARK: - Downloads and Profile
 
     /// A movie and a show, so both kinds of row are audited (TQ-23).
@@ -529,6 +543,23 @@ final class AccessibilityAuditTests: UITestCase {
         // (TQ-20); this closes it. The iPhone's docked pad has no way to
         // close and stays, with the rows above it audited.
         ladder.dismissNumberPad(from: field)
+
+        try auditCurrentScreen()
+    }
+
+    /// Profile's Night Mode page, schedule on with equal times so the times
+    /// and the note are audited too. Opened by link: the path there isn't
+    /// what this checks.
+    func testNightModeSettingsHaveNoAccessibilityIssues() throws {
+        launch(extraArguments: [
+            "-nightMode.schedule.enabled", "YES",
+            "-nightMode.schedule.turnOn", "420",
+        ])
+        HomeScreen(app: app).awaitLoaded()
+        XCUIDevice.shared.system.open(URL(string: "dionysus://profile/playback/night")!)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        if springboard.buttons["Open"].waitForExistence(timeout: 2) { springboard.buttons["Open"].tap() }
+        app.datePickers[A11yID.Profile.nightTurnOn].awaitExistence("Turn On's picker")
 
         try auditCurrentScreen()
     }

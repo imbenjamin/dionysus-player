@@ -102,6 +102,14 @@ final class DeepLinkProfilePageTests: XCTestCase {
         XCTAssertEqual(DeepLink.ProfilePage(path: ["About", "License"]), .license)
     }
 
+    /// Profile → Playback → Night Mode (Night Mode spec, "Profile").
+    func test_playbackNight_isNightMode() {
+        XCTAssertEqual(DeepLink.ProfilePage(path: ["playback", "night"]), .nightMode)
+        XCTAssertEqual(DeepLink.ProfilePage(path: ["playback", "NIGHT"]), .nightMode)
+        let link = DeepLink(url: URL(string: "dionysus://profile/playback/night")!)
+        XCTAssertEqual(link?.destination, .profile(path: ["playback", "night"]))
+    }
+
     func test_aPageProfileDoesntHave_isNil() {
         XCTAssertNil(DeepLink.ProfilePage(path: ["nope"]))
         XCTAssertNil(DeepLink.ProfilePage(path: ["appearance", "advanced"]))

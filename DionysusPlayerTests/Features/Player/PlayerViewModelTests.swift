@@ -54,6 +54,7 @@ final class PlayerViewModelTests: XCTestCase {
             audioOffsetStore: audioOffsetStore ?? AudioOffsetStore(defaults: defaults),
             spatialAudioStore: spatialAudioStore ?? SpatialAudioStore(storage: defaults),
             versionPreferenceStore: versionPreferenceStore ?? MediaVersionPreferenceStore(defaults: defaults),
+            nightMode: .isolated(),
             playbackQueue: playbackQueue,
             linkOverrides: linkOverrides
         )
@@ -2182,7 +2183,7 @@ final class PlayerViewModelTests: XCTestCase {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
             client: client, userID: "user", itemID: "item",
-            engine: FakePlaybackEngine(), playbackQueue: []
+            engine: FakePlaybackEngine(), nightMode: .isolated(), playbackQueue: []
         )
         XCTAssertFalse(viewModel.isOfflinePlayback)
     }

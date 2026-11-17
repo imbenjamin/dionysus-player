@@ -11,6 +11,8 @@ extension DeepLink {
         case appearance
         case playback
         case advancedPlayback
+        /// Playback → Night Mode: the switch, levels and schedule.
+        case nightMode
         case downloads
         case about
         case license
@@ -27,6 +29,7 @@ extension DeepLink {
             case ["appearance"]: self = .appearance
             case ["playback"]: self = .playback
             case ["playback", "advanced"]: self = .advancedPlayback
+            case ["playback", "night"]: self = .nightMode
             case ["downloads"]: self = .downloads
             case ["about"]: self = .about
             case ["about", "license"]: self = .license

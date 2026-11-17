@@ -22,8 +22,44 @@ enum TVAudioPanelRow: Equatable {
     case track(Int), offset, scope, reset
 }
 
+/// The Night tab's two levels, each a row.
+enum TVNightLevel: CaseIterable, Equatable {
+    case volume, brightness
+
+    /// Fixed, unlocalized: identifiers use it.
+    var id: String { self == .volume ? "volume" : "brightness" }
+}
+
+/// A level row's controls, left to right: `[0%] [−] value [+] [100%]`. The
+/// value between − and + isn't a stop (Benjamin, 2026-11-16).
+enum TVNightLevelControl: CaseIterable, Equatable {
+    case min, decrease, increase, max
+
+    /// Fixed, unlocalized: identifiers use it.
+    var id: String {
+        switch self {
+        case .min: "min"
+        case .decrease: "decrease"
+        case .increase: "increase"
+        case .max: "max"
+        }
+    }
+}
+
+/// A focus stop on the Night tab. Four rows (Night Mode, Night Audio, Volume
+/// Limit, Brightness); a level row is four stops, numbered on from the
+/// switches as the Audio tab numbers its offset rows on from the tracks.
+enum TVNightPanelRow: Equatable {
+    case nightMode, nightAudio
+    case level(TVNightLevel, TVNightLevelControl)
+
+    /// Every stop in `Panel.Focus.content` order.
+    static let all: [TVNightPanelRow] = [.nightMode, .nightAudio]
+        + TVNightLevel.allCases.flatMap { level in TVNightLevelControl.allCases.map { .level(level, $0) } }
+}
+
 enum TVPanelTab: CaseIterable, Equatable {
-    case info, chapters, audio, subtitles
+    case info, chapters, audio, subtitles, night
 
     var id: String {
         switch self {
@@ -31,11 +67,12 @@ enum TVPanelTab: CaseIterable, Equatable {
         case .chapters: "chapters"
         case .audio: "audio"
         case .subtitles: "subtitles"
+        case .night: "night"
         }
     }
 
-    /// Audio and Subtitles are vertical lists; Chapters is a rail.
-    var isList: Bool { self == .audio || self == .subtitles }
+    /// Audio, Subtitles and Night are vertical lists; Chapters is a rail.
+    var isList: Bool { self == .audio || self == .subtitles || self == .night }
 }
 
 enum TVDirection: Equatable {
@@ -64,14 +101,18 @@ enum TVPlayerControl: Equatable {
     case nextUp(TVNextUpButton)
     /// The hidden layer's Show Player Controls: Select, Up or Down.
     case showControls
-    /// The accessible transport's adjustable panel row (the audio offset):
-    /// swipe up is `.right`, swipe down `.left`.
+    /// The accessible transport's adjustable panel rows (the audio offset,
+    /// Night's Volume Limit and Brightness): swipe up is `.right`, swipe
+    /// down `.left`.
     case adjustPanelRow(Int, TVDirection)
 }
 
 /// What the remote did, as the host reports it.
 enum TVRemoteInput: Equatable {
     case select, playPause, menu, up, down
+    /// Select held past `TVPlayerTiming.holdThreshold`, and let go. The tap
+    /// (`.select`) may still follow the release; the model swallows it.
+    case selectHoldBegan, selectHoldEnded
     /// Left or Right going down and coming up. The model tells a press
     /// (released within `TVPlayerTiming.holdThreshold`) from a hold.
     case arrowDown(TVDirection), arrowUp(TVDirection)
@@ -98,6 +139,10 @@ enum TVPlayerCommand: Equatable {
     case selectAudio(id: Int), selectSubtitle(id: Int?)
     /// The Audio tab's offset rows (`AudioOffsetController`).
     case stepAudioOffset(Int), setAudioOffsetScope(AudioOffsetScope), resetAudioOffset
+    /// The Night tab's rows (`NightModeController`), steps and levels in
+    /// percent.
+    case setNightMode(Bool), setNightAudio(Bool)
+    case stepVolume(Int), setVolume(Int), stepBrightness(Int), setBrightness(Int)
     case close
 }
 
@@ -150,6 +195,16 @@ struct TVPlayerContext: Equatable {
 
     /// The Audio tab's offset rows; `nil` where the offset can't apply.
     var audioOffset: AudioOffset?
+
+    /// Night Mode's settings, for the Night tab's rows.
+    struct Night: Equatable {
+        var isOn = false
+        var nightAudio = true
+        var volumePercent = 100
+        var brightnessPercent = 100
+    }
+
+    var night = Night()
 
     /// The icons with something to do, so none is a dead stop.
     var availableIcons: [TVPlayerIcon] {
@@ -240,6 +295,19 @@ struct TVPlayerInputState: Equatable {
     var awaitsOwnPause = false
     var hasRequestedClose = false
     var flash: Flash?
+    /// Select held on a Night level's − or +, repeating its step.
+    struct SelectHold: Equatable {
+        var lastRepeatAt: TimeInterval
+    }
+
+    var selectHold: SelectHold?
+    /// `nightHoldTick` ended the hold (the panel closed under it) while the
+    /// press is still down: its release, whenever it comes, adds nothing.
+    /// Cleared by that release (tap or hold's end), and by a new hold.
+    var selectHoldCancelledByTick = false
+    /// Until when a `.select` is the tap that ended a hold, and adds nothing.
+    /// It expires, since a tap recognizer may not fire after a long press.
+    var swallowsSelectUntil: TimeInterval?
 }
 
 /// The spec's timings (Benjamin, 2026-10-06), tuned against Infuse on the
@@ -259,6 +327,11 @@ enum TVPlayerTiming {
     static let panelTimeout: TimeInterval = 10
     /// A held arrow on the audio offset row steps this often.
     static let offsetRepeatInterval: TimeInterval = 0.1
+    /// Select held on a Night level's − or + steps this often, after
+    /// `holdThreshold`, as `TVAudioOffsetPage`'s buttons do.
+    static let selectRepeatInterval: TimeInterval = 0.1
+    /// How long after a hold ends its own tap may still arrive.
+    static let holdReleaseWindow: TimeInterval = 0.3
     /// Real-time multiples for scan levels 1 to 4. The native transport (as
     /// Infuse uses it) has four levels, its third about our 64x and its fourth
     /// faster (Benjamin, Bedroom Apple TV, 2026-10-08). Its count is the
@@ -305,6 +378,7 @@ enum TVPlayerInputModel {
         if input == .tick { return tick(&state, context: context, now: now) }
         guard context.playback.acceptsInput else {
             state.heldArrow = nil
+            state.selectHold = nil
             guard input == .menu else { return [] }
             // An audio switch rebuilds the session, reading as loading with
             // the Audio tab still open: Menu closes the tab first (M4 review).
@@ -331,7 +405,34 @@ enum TVPlayerInputModel {
         }
         let intent: Intent
         switch input {
-        case .select: intent = .select
+        case .select:
+            // The tap that ends a hold on a Night level's − or + adds no step
+            // of its own, whichever of it and the hold's end comes first.
+            if state.selectHold != nil {
+                state.selectHold = nil
+                return []
+            }
+            if state.selectHoldCancelledByTick {
+                state.selectHoldCancelledByTick = false
+                state.swallowsSelectUntil = nil
+                return []
+            }
+            if let until = state.swallowsSelectUntil {
+                state.swallowsSelectUntil = nil
+                if now <= until { return [] }
+            }
+            intent = .select
+        case .selectHoldBegan:
+            return nightHoldBegan(&state, context: context, now: now)
+        case .selectHoldEnded:
+            if state.selectHoldCancelledByTick {
+                state.selectHoldCancelledByTick = false
+                state.swallowsSelectUntil = now + TVPlayerTiming.holdReleaseWindow
+            } else if state.selectHold != nil {
+                state.selectHold = nil
+                state.swallowsSelectUntil = now + TVPlayerTiming.holdReleaseWindow
+            }
+            return []
         case .playPause: intent = .playPause
         case .menu: intent = .menu
         case .up: intent = .up
@@ -486,6 +587,7 @@ enum TVPlayerInputModel {
             // Turned on mid-hold or mid-scrub (M5 review): nothing in this
             // mode ends either, so they end here, a scrub as Menu ends it.
             state.heldArrow = nil
+            state.selectHold = nil
             if let scrub = state.scrub {
                 state.scrub = nil
                 if scrub.resumesOnCancel { commands.append(.play) }
@@ -507,6 +609,7 @@ enum TVPlayerInputModel {
             state.panel?.lastInputAt = now
             commands += offsetStep(held.direction, context)
         }
+        commands += nightHoldTick(&state, context: context, now: now)
         if var scrub = state.scrub, var scan = scrub.scan {
             let moved = scrub.previewTime + scanRate(level: scan.level) * (now - scan.lastTickAt)
             scrub.previewTime = clamp(moved, context)

@@ -434,7 +434,8 @@ depends on it directly: `AetherPlaybackEngine` is the adapter,
 `PreviewPlaybackEngine` (`#if DEBUG`) the fake for previews and UI tests.
 **When changing playback behaviour, change the protocol and both
 conformers**; `PlayerViewModel` only talks to the protocol. Picture in
-Picture, Now Playing, stop reporting and the whole subtitle pipeline are in
+Picture, Now Playing, stop reporting, the whole subtitle pipeline and Night
+Mode (its schedule, what it trades, the dimming layer) are in
 `DionysusPlayer/Core/Playback/CLAUDE.md`.
 
 ### Features (`Features/*`)

@@ -35,6 +35,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
     /// Menu and Play/Pause: they keep working in the accessible transport,
     /// where every other press is the focus engine's (M5).
     private var modeIndependentRecognizers: Set<ObjectIdentifier> = []
+    private let simultaneousRecognition = SimultaneousRecognition()
     private var isAccessibleTransportApplied = false
     private var accessibleLayer: TVAccessibleTransportLayer?
     /// VoiceOver's and Switch Control's status.
@@ -75,6 +76,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
 
         // Every press goes to the input model, which decides what it means.
         addTap(.select) { [weak self] in self?.input.send(.select) }
+        addSelectHold()
         addTap(.playPause) { [weak self] in self?.input.send(.playPause) }
         addTap(.menu) { [weak self] in self?.input.send(.menu) }
         addTap(.upArrow) { [weak self] in self?.input.send(.up) }
@@ -507,6 +509,26 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         }
     }
 
+    /// Select held past `holdThreshold`, for the Night tab's − and +, which
+    /// repeat while held. Recognized alongside the Select tap, so a press
+    /// anywhere acts as before; the model swallows the tap ending a hold.
+    private func addSelectHold() {
+        let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(selectHoldChanged(_:)))
+        recognizer.minimumPressDuration = TVPlayerTiming.holdThreshold
+        recognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.select.rawValue)]
+        recognizer.delegate = simultaneousRecognition
+        view.addGestureRecognizer(recognizer)
+        ourRecognizers.append(recognizer)
+    }
+
+    @objc private func selectHoldChanged(_ recognizer: UILongPressGestureRecognizer) {
+        switch recognizer.state {
+        case .began: input.send(.selectHoldBegan)
+        case .ended, .cancelled, .failed: input.send(.selectHoldEnded)
+        default: break
+        }
+    }
+
     private func addTap(_ type: UIPress.PressType, _ action: @escaping () -> Void) {
         let recognizer = PressRecognizer(action: action)
         recognizer.allowedPressTypes = [NSNumber(value: type.rawValue)]
@@ -575,6 +597,13 @@ enum TVNextItemVersionStep: Equatable {
         case nil: self = .decideAfresh
         }
     }
+}
+
+/// Lets the Select hold recognize alongside the Select tap.
+private final class SimultaneousRecognition: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool { true }
 }
 
 /// One remote press type, as a closure.
