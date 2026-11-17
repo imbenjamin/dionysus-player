@@ -58,7 +58,8 @@ final class TopShelfRefreshTests: XCTestCase {
             userID: "user-1", itemID: "item-1", engine: FakePlaybackEngine(),
             trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
-            streamPreferenceStore: StreamPreferenceStore(defaults: defaults)
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+            nightMode: .isolated()
         )
         let session = TVPlaybackSession(viewModel: viewModel)
         session.end()

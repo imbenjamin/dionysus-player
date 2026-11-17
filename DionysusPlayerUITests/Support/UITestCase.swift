@@ -73,15 +73,19 @@ class UITestCase: XCTestCase {
     ///     only for journeys about the welcome itself.
     ///   - extraArguments: Appended verbatim, for a test that needs to force
     ///     one of the app's own `@AppStorage` keys.
+    ///   - environment: The app's environment variables, e.g. `TZ` for a
+    ///     time zone other than the Simulator's.
     @discardableResult
     func launch(
         scenario: String = "standard",
         signedIn: Bool = true,
         resetsState: Bool = true,
         skipsWelcome: Bool = true,
-        extraArguments: [String] = []
+        extraArguments: [String] = [],
+        environment: [String: String] = [:]
     ) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchEnvironment.merge(environment) { _, new in new }
         app.launchArguments = [
             "-UITestMode", "YES",
             "-UITestScenario", scenario,

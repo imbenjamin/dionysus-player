@@ -1,6 +1,6 @@
 # Night Mode: design
 
-2026-11-16. Status: design, awaiting approval. Next: a feasibility check and
+2026-11-16. Issue: #363 ("[Feature] Night / Sleep mode"; the PR closes it). Status: approved. Next: a feasibility check and
 implementation plan (`docs/superpowers/plans/`).
 
 ## Intent
@@ -146,13 +146,15 @@ When Night Mode is off, all three return to normal in one step.
 - **Night Audio decodes the audio on the device.** While it's on, Atmos,
   TrueHD and DTS passthrough to a receiver, and the Spatial Audio object
   render, are replaced by compressed PCM; it takes priority over the Spatial
-  Audio setting (AetherEngine's rule). Under the toggle: one line saying it
-  turns off Atmos and receiver passthrough while on. Every toggle (and Night
-  Mode switching it) holds the picture about 0.3 s while the engine rebuilds
+  Audio setting (AetherEngine's rule). Beside the toggle, its note: "Limits
+  dynamic range. Turns off Atmos and passthrough while on." Every toggle (and Night
+  Mode switching it) holds the picture while the engine rebuilds (AetherEngine
+  quotes about 0.3 s; measured 1–2 s on the Living Room Apple TV, judged
+  acceptable by Benjamin, 2026-11-16)
   at the playhead.
 - **Night Audio on a server transcode** (`.remoteBypass`, where AVPlayer owns
   the audio) can't apply: `audioShapingState` reads `.unavailable`, and the
-  row says "Not available for this stream". It still applies to the next
+  row says "Not available when transcoding". It still applies to the next
   stream that can.
 - **Volume Limit and passthrough.** `engine.volume` scales audio the device
   mixes. Audio passed undecoded to a receiver (Apple TV over HDMI, an iPhone
@@ -175,6 +177,14 @@ When Night Mode is off, all three return to normal in one step.
     quiet.
   With Night Audio on, the engine decodes to PCM, so no passthrough of the
   source remains.
+  **Measured (Living Room, 2026-11-16, Release build): the first branch
+  holds; no note ships.** The Apple TV decodes every format to multichannel
+  PCM before HDMI (the AVR shows "Multi In" even for a stream-copied E-AC-3
+  track), so `engine.volume` applies on every route seen: Nobody 2 DD+
+  stream-copied (Night Audio off), Life of Brian (TrueHD), Gravity (TrueHD
+  Atmos rendered to the PCM bed, AVR "Atmos"). Task 5b (the note) is dropped.
+  Brightness dims Dolby Vision (Gravity) evenly. A Debug build stalls the
+  Atmos render (~0.2x real time); device checks use a Release build.
 
 ### Brightness layer
 
@@ -206,34 +216,42 @@ in `PlayerControlsOverlay`'s doc comment):
 Night Mode                         [ ON ]
 ───────────────────────────────────────
 Night Audio                        [ ON ]
-  Turns off Atmos and receiver passthrough while on.
-Volume Limit              –   60%   +
-Brightness        0%   –   40%   +   100%
+  Limits dynamic range. Turns off Atmos and passthrough while on.
+Volume Limit        [0%]  [–]  60%  [+]  [100%]
+Brightness          [0%]  [–]  40%  [+]  [100%]
 ───────────────────────────────────────
 Schedule: 22:00–07:00       (or "Off")
 ```
 
 - The three levels can be changed whether Night Mode is on or off (to set up
   ahead); they show greyed while off and apply as soon as it's on. My call.
-- −/+ step 5%, clamped. The value is one VoiceOver adjustable element per row
-  (swipe up/down 5%), with 0% and 100% as plain buttons.
+- **Both levels share one row layout on both apps: `[0%] [−] value [+] [100%]`**
+  (Benjamin, 2026-11-16, option A of four after a mockup; rejected: a slider
+  whose held arrow jumps to an end, Select toggling to 0%, and preset chips
+  under each row). −/+ step 5%, clamped; holding −/+ repeats; a button that
+  would do nothing (− at 0%, + and 100% at 100%) is dimmed. Under VoiceOver
+  each row is one adjustable element (swipe up/down 5%) with 0% and 100% as
+  named actions.
 - The schedule line opens nothing in the player (a summary only); it's my
   call to keep schedule editing in Profile.
 
 ### Apple TV player
 
 A **Night** tab in the player panel, after Subtitles (Info, Chapters, Audio,
-Subtitles, Night), with the same rows. Each level is a row whose value Left
-and Right change by 5%; Brightness's 0% and 100% are rows of their own (my
-call: tvOS has no inline buttons inside a row, and focus works best on rows).
-The builder fits it into `TVPlayerInputModel+Panel`'s row model.
+Subtitles, Night), with four rows: Night Mode, Night Audio (its note beside
+its name, so the rows fit the panel), Volume Limit and Brightness, each level
+row being the shared `[0%] [−] value [+] [100%]` layout. Up/Down move between
+rows; on a level row Left/Right move focus among 0%, −, + and 100% (the
+value takes no focus) and Select presses, holding Select on −/+ repeating
+as on the Audio Offset page. The builder fits it into
+`TVPlayerInputModel+Panel`'s row model.
 
 ### Indicator
 
 While Night Mode is in force, the moon button shows its filled on-state on
-iOS. On the Apple TV the Night tab's title shows a filled moon, and the
-transport shows a small moon glyph beside the time (my call; it's the one
-place visible without opening the panel).
+iOS. On the Apple TV the transport shows a small moon glyph beside the time
+(my call; it's the one place visible without opening the panel). The Night
+tab's title carries no moon: no other tab has an icon (Benjamin, 2026-11-16).
 
 ### Profile
 
@@ -246,10 +264,16 @@ page with:
 - **Schedule** (toggle), then **Turn On** and **Turn Off** time pickers,
   shown while the schedule is on.
 
-iOS uses `DatePicker(displayedComponents: .hourAndMinute)`. **tvOS has no
-`DatePicker`**: my call is an hour picker and a minute picker (00, 05 … 55)
-per time, in `TVSettingsPicker`'s style. 12/24-hour follows the device's
-locale on both.
+iOS uses `DatePicker(displayedComponents: .hourAndMinute)` in the default
+compact style (Benjamin, 2026-11-16: fine as is). **tvOS has no time picker**
+(neither `DatePicker` nor `UIDatePicker` exists there), so each time is an
+inline stepper row, `Turn On   [−] 22:00 [+]`, the same control as the level
+rows: − and + move it by **15 minutes**, wrap past midnight, and repeat while
+Select is held (Benjamin, 2026-11-16, option A; rejected: four hour/minute
+picker rows, a 96-row list of times, a custom two-column wheel). A time set
+on another device is per device, so tvOS only ever sees its own 15-minute
+values; one stored off the grid (not reachable today) steps to the next
+quarter hour. 12/24-hour follows the device's locale on both.
 
 A Profile deep link (`DeepLink.ProfilePage`, e.g. `profile/night-mode`)
 follows `CLAUDE.md`'s rule that a new destination updates `TESTING.md`'s

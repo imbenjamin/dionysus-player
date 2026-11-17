@@ -182,6 +182,41 @@ final class TVPlayerAccessibleTransportTests: XCTestCase, TVPlayerInputModelHarn
         XCTAssertNil(state.heldArrow)
     }
 
+    private func nightIndex(_ row: TVNightPanelRow) -> Int {
+        TVNightPanelRow.all.firstIndex(of: row)!
+    }
+
+    /// Night's switches are buttons through the same reducer. Each level is
+    /// one adjustable element stepping 5, as the Audio tab's Offset row is,
+    /// with its 0% and 100% as named actions sending its shortcut controls.
+    func test_nightTab_switchesAreButtons_levelsAdjustByFive_andShortcutsAreActions() {
+        context.night = .init(isOn: false, nightAudio: true, volumePercent: 60, brightnessPercent: 40)
+        send(.control(.openPanel(.night)))
+        XCTAssertEqual(state.panel?.tab, .night)
+        XCTAssertEqual(send(.control(.panelRow(nightIndex(.nightMode)))), [.setNightMode(true)])
+        XCTAssertEqual(send(.control(.panelRow(nightIndex(.nightAudio)))), [.setNightAudio(false)])
+        let volume = nightIndex(.level(.volume, .decrease))
+        XCTAssertEqual(send(.control(.adjustPanelRow(volume, .right))), [.stepVolume(5)])
+        XCTAssertEqual(send(.control(.adjustPanelRow(volume, .left))), [.stepVolume(-5)])
+        let brightness = nightIndex(.level(.brightness, .decrease))
+        XCTAssertEqual(send(.control(.adjustPanelRow(brightness, .right))), [.stepBrightness(5)])
+        XCTAssertEqual(send(.control(.adjustPanelRow(brightness, .left))), [.stepBrightness(-5)])
+        XCTAssertEqual(send(.control(.panelRow(nightIndex(.level(.volume, .min))))), [.setVolume(0)])
+        XCTAssertEqual(send(.control(.panelRow(nightIndex(.level(.volume, .max))))), [.setVolume(100)])
+        XCTAssertEqual(send(.control(.panelRow(nightIndex(.level(.brightness, .min))))), [.setBrightness(0)])
+        XCTAssertEqual(send(.control(.panelRow(nightIndex(.level(.brightness, .max))))), [.setBrightness(100)])
+        XCTAssertEqual(state.panel?.tab, .night, "Nothing in the tab closes the panel")
+    }
+
+    func test_nightTab_onlyItsLevelsAdjust() {
+        send(.control(.openPanel(.night)))
+        for row in [TVNightPanelRow.nightMode, .nightAudio] {
+            XCTAssertEqual(send(.control(.adjustPanelRow(nightIndex(row), .right))), [], "\(row)")
+        }
+        context.night.volumePercent = 100
+        XCTAssertEqual(send(.control(.adjustPanelRow(nightIndex(.level(.volume, .decrease)), .right))), [], "Refused at its end")
+    }
+
     func test_controlsOutsideTheMode_doNothing() {
         context.accessibleTransport = false
         XCTAssertEqual(send(.control(.playPause)), [])

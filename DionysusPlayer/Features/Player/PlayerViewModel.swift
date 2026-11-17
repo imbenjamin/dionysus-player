@@ -260,6 +260,17 @@ final class PlayerViewModel {
     private var sessionSpatialAudio: SpatialAudioSettings?
     /// The rebuild an audio switch asked for, if one is running.
     private var spatialAudioCorrection: Task<Void, Never>?
+    /// The player's Night Mode panels bind to it.
+    let nightMode: NightModeController
+    /// The black layer's opacity over the picture: Night Mode's Brightness.
+    private(set) var videoDimOpacity: Double = 0
+    /// Whether Night Audio's compressor is shaping this session, as the
+    /// engine reports it.
+    private(set) var nightAudioState: NightAudioState = .off
+    /// Held here because the controller holds its observers weakly.
+    @ObservationIgnored private var nightModeObservation: NightModeObservation?
+    /// The Night Audio the engine was last given, by a load or a change.
+    @ObservationIgnored private var engineNightAudio = false
     #if DOWNLOADS
     /// Set via the download-taking convenience `init`. When non-nil, `start()`,
     /// `stop()` and progress reporting route through the local-only offline
@@ -316,7 +327,11 @@ final class PlayerViewModel {
     }
     /// A fresh snapshot per access, uncached: `PlaybackStatsOverlay` polls it on
     /// its own timer only while visible, so there is nothing to keep in sync.
-    var stats: PlaybackStats { engine.stats }
+    var stats: PlaybackStats {
+        var stats = engine.stats
+        stats.nightMode = PlaybackStatsReport.describeNightMode(nightMode.effect, nightAudioState: nightAudioState)
+        return stats
+    }
 
     /// The total `NextUpOverlay`'s ring computes a remaining fraction against,
     /// since an elapsing count has no notion of its starting point.
@@ -518,10 +533,12 @@ final class PlayerViewModel {
         audioOffsetStore: AudioOffsetStore = AudioOffsetStore(),
         spatialAudioStore: SpatialAudioStore = SpatialAudioStore(),
         versionPreferenceStore: MediaVersionPreferenceStore = MediaVersionPreferenceStore(),
+        nightMode: NightModeController = .shared,
         playbackQueue: [MediaItem] = [],
         linkOverrides: PlaybackLinkOverrides? = nil
     ) {
         self.client = client
+        self.nightMode = nightMode
         self.spatialAudioStore = spatialAudioStore
         self.versionPreferenceStore = versionPreferenceStore
         self.userID = userID
@@ -586,6 +603,8 @@ final class PlayerViewModel {
         engine.onSubtitleTrackChange = { [weak self] id in self?.handleSubtitleTrackChange(id) }
         engine.onAudioOffsetAvailabilityChange = { [weak self] available in self?.audioOffset.isAvailable = available }
         audioOffset.isAvailable = engine.isAudioOffsetAvailable
+        engine.onNightAudioStateChange = { [weak self] state in self?.nightAudioState = state }
+        followNightMode()
         // The render session is a plain object, so it pokes the view model to
         // re-run the overlay's body.
         assRenderSession.onFrameChange = { [weak self] in self?.assFrameGeneration &+= 1 }
@@ -604,6 +623,7 @@ final class PlayerViewModel {
         spatialAudioStore: SpatialAudioStore = SpatialAudioStore(),
         downloadedItem: DownloadedItem?,
         downloadStore: DownloadStore?,
+        nightMode: NightModeController = .shared,
         playbackQueue: [MediaItem] = [],
         linkOverrides: PlaybackLinkOverrides? = nil
     ) {
@@ -615,6 +635,7 @@ final class PlayerViewModel {
             streamPreferenceStore: streamPreferenceStore,
             audioOffsetStore: audioOffsetStore,
             spatialAudioStore: spatialAudioStore,
+            nightMode: nightMode,
             playbackQueue: playbackQueue,
             linkOverrides: linkOverrides
         )
@@ -647,6 +668,7 @@ final class PlayerViewModel {
         errorMessage = nil
         failureCategory = nil
         cancelSpatialAudioCorrection()
+        if nightModeObservation == nil { followNightMode() }
         isAwaitingStart = true
         startTarget = nil
         defer { postLinkNotices() }
@@ -772,11 +794,15 @@ final class PlayerViewModel {
                     settings: settings
                 )
             } ?? .off
+            // Night Audio overrides the object render, which would be built
+            // only to be replaced; it's corrected in when Night Audio ends.
+            let nightAudio = prepareNightModeForLoad()
 
             isRemoteHLSSession = isRemoteHLS
             try await engine.load(
                 url: url, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: atmosAudioTrackIndices,
-                isRemoteHLS: isRemoteHLS, audioOffset: audioOffset.loadSeconds, spatialAudio: spatialAudio
+                isRemoteHLS: isRemoteHLS, audioOffset: audioOffset.loadSeconds,
+                spatialAudio: nightAudio ? .off : spatialAudio, nightAudio: nightAudio
             )
             let restoredAudioTrackID = pendingLinkOverrides?.choosesTracks == true
                 ? applyLinkTrackSelection() : applyStoredTrackSelection()
@@ -900,7 +926,8 @@ final class PlayerViewModel {
             sessionSpatialAudio = nil
             try await engine.load(
                 url: videoURL, externalSubtitles: externalSubtitles, knownAtmosAudioTrackIndices: [],
-                isRemoteHLS: false, audioOffset: audioOffset.loadSeconds
+                isRemoteHLS: false, audioOffset: audioOffset.loadSeconds, spatialAudio: .off,
+                nightAudio: prepareNightModeForLoad()
             )
             if pendingLinkOverrides?.choosesTracks == true { applyLinkTrackSelection() } else { applyStoredTrackSelection() }
             let linkStart = resolveLinkStart(
@@ -1610,8 +1637,10 @@ final class PlayerViewModel {
     /// Rebuilds the session with the rendering the playing track needs, when
     /// the loaded one differs: a mispredicted track at start, or an audio
     /// switch between formats. A failure keeps playing as loaded.
+    /// Skipped while Night Audio is in force, which overrides the render:
+    /// `applyNightMode(_:)` corrects once it ends.
     private func correctSpatialAudio(forEngineTrackID id: Int?) async {
-        guard let settings = sessionSpatialAudio else { return }
+        guard let settings = sessionSpatialAudio, !engineNightAudio else { return }
         let needed = SpatialAudioRules.rendering(
             for: id.flatMap { Self.audioStream(forEngineTrackID: $0, in: mediaStreams) }, settings: settings
         )
@@ -1632,6 +1661,45 @@ final class PlayerViewModel {
     private func cancelSpatialAudioCorrection() {
         spatialAudioCorrection?.cancel()
         spatialAudioCorrection = nil
+    }
+
+    // MARK: - Night Mode
+
+    private func followNightMode() {
+        let effect = nightMode.effect
+        engine.outputVolume = effect.volume
+        videoDimOpacity = effect.dimOpacity
+        nightModeObservation = nightMode.observeEffect { [weak self] effect in self?.applyNightMode(effect) }
+    }
+
+    /// Applies Night Mode as a load is about to start, returning the Night
+    /// Audio to load with.
+    private func prepareNightModeForLoad() -> Bool {
+        let effect = nightMode.effect
+        engine.outputVolume = effect.volume
+        videoDimOpacity = effect.dimOpacity
+        engineNightAudio = effect.nightAudio
+        return effect.nightAudio
+    }
+
+    /// The levels cost nothing to change; Night Audio is a rebuild at the
+    /// playhead, which the engine runs on its own and folds repeats into.
+    private func applyNightMode(_ effect: NightModeEffect) {
+        engine.outputVolume = effect.volume
+        videoDimOpacity = effect.dimOpacity
+        guard effect.nightAudio != engineNightAudio else { return }
+        engineNightAudio = effect.nightAudio
+        engine.setNightAudio(effect.nightAudio)
+        // Spatial Audio comes back after the shaping goes, so its rebuild
+        // reads the options with the shaping already off. Queued behind any
+        // audio switch, as `selectAudioTrack` queues its own.
+        guard !effect.nightAudio, sessionSpatialAudio != nil else { return }
+        let previous = spatialAudioCorrection
+        spatialAudioCorrection = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled else { return }
+            await self.correctSpatialAudio(forEngineTrackID: self.engine.audioTracks.first(where: \.isSelected)?.id)
+        }
     }
 
     // MARK: - A link's overrides (#406)
@@ -1843,6 +1911,8 @@ final class PlayerViewModel {
         audioOffset.cancelPending()
         progressReportTask?.cancel()
         cancelSpatialAudioCorrection()
+        nightModeObservation?.cancel()
+        nightModeObservation = nil
         #if DOWNLOADS
         if let downloadedItem {
             // Captured before `engine.stop()`, which synchronously zeroes

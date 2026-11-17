@@ -4,6 +4,9 @@
     "" : {
 
     },
+    "-9:59:59" : {
+
+    },
     "%@ (%@)" : {
       "localizations" : {
         "en" : {
@@ -74,26 +77,6 @@
     "%@ speakers (Default)" : {
 
     },
-    "%@%@ ms" : {
-      "comment" : "Audio offset value, e.g. +40 ms",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@%2$@ ms"
-          }
-        }
-      }
-    },
-    "%@'s security certificate can't be verified, but the server also answers over unencrypted HTTP at %@. Your password and everything you watch would be sent without encryption, readable by others on this network." : {
-
-    },
-    "%@'s security certificate can't be verified. If the server also accepts unencrypted HTTP connections, enter the port it uses for them." : {
-
-    },
-    "%@'s security certificate isn't valid for %@." : {
-
-    },
     "%@, %@" : {
       "localizations" : {
         "en" : {
@@ -127,6 +110,26 @@
         }
       }
     },
+    "%@'s security certificate can't be verified, but the server also answers over unencrypted HTTP at %@. Your password and everything you watch would be sent without encryption, readable by others on this network." : {
+
+    },
+    "%@'s security certificate can't be verified. If the server also accepts unencrypted HTTP connections, enter the port it uses for them." : {
+
+    },
+    "%@'s security certificate isn't valid for %@." : {
+
+    },
+    "%@%@ ms" : {
+      "comment" : "Audio offset value, e.g. +40 ms",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@%2$@ ms"
+          }
+        }
+      }
+    },
     "%lld" : {
 
     },
@@ -134,9 +137,6 @@
 
     },
     "%lld Episodes" : {
-
-    },
-    "%lld Items" : {
 
     },
     "%lld episodes couldn't be downloaded." : {
@@ -185,6 +185,9 @@
           }
         }
       }
+    },
+    "%lld Items" : {
+
     },
     "%lld min" : {
 
@@ -294,9 +297,6 @@
     "%llds" : {
 
     },
-    "-9:59:59" : {
-
-    },
     "0 seconds" : {
 
     },
@@ -306,13 +306,25 @@
     "1 episode couldn't be downloaded." : {
 
     },
+    "3D Depth Effects" : {
+
+    },
+    "4 Mbps" : {
+
+    },
+    "4 megabits per second" : {
+
+    },
+    "4K UHD" : {
+
+    },
+    "9:59:59" : {
+
+    },
     "10 Mbps" : {
 
     },
     "10 megabits per second" : {
-
-    },
-    "1080p Full HD" : {
 
     },
     "15 seconds" : {
@@ -333,15 +345,6 @@
     "30s (Default)" : {
 
     },
-    "3D Depth Effects" : {
-
-    },
-    "4 Mbps" : {
-
-    },
-    "4 megabits per second" : {
-
-    },
     "40 Mbps" : {
 
     },
@@ -354,22 +357,19 @@
     "45s" : {
 
     },
-    "480p SD" : {
-
-    },
-    "4K UHD" : {
-
-    },
     "60 seconds" : {
 
     },
     "60s" : {
 
     },
+    "480p SD" : {
+
+    },
     "720p HD" : {
 
     },
-    "9:59:59" : {
+    "1080p Full HD" : {
 
     },
     "A download plays as it was downloaded, so the mode and bitrate don't apply." : {
@@ -499,12 +499,6 @@
     "Audio" : {
 
     },
-    "Audio Offset" : {
-
-    },
-    "Audio Tracks" : {
-
-    },
     "Audio and music items can't be downloaded." : {
 
     },
@@ -518,6 +512,12 @@
 
     },
     "Audio later" : {
+
+    },
+    "Audio Offset" : {
+
+    },
+    "Audio Tracks" : {
 
     },
     "Audio, %@" : {
@@ -551,10 +551,19 @@
     "Bitrate" : {
 
     },
+    "Brightness" : {
+
+    },
+    "Brightness %lld%%" : {
+
+    },
     "Buffered" : {
 
     },
     "Build" : {
+
+    },
+    "bytes" : {
 
     },
     "Can't reach your Jellyfin server. If it's on your local network, make sure you're connected to the same Wi-Fi." : {
@@ -572,10 +581,10 @@
     "Change Server also signs you out and forgets this server, returning to first-time setup." : {
 
     },
-    "Change Server?" : {
+    "Change server?" : {
 
     },
-    "Change server?" : {
+    "Change Server?" : {
 
     },
     "Chapter %lld" : {
@@ -647,10 +656,10 @@
     "Connect Over HTTP?" : {
 
     },
-    "Connect Without Encryption?" : {
+    "Connect to Wi-Fi to scan for servers on your network." : {
 
     },
-    "Connect to Wi-Fi to scan for servers on your network." : {
+    "Connect Without Encryption?" : {
 
     },
     "Connecting" : {
@@ -665,7 +674,25 @@
     "Continue Watching" : {
 
     },
+    "Couldn't add to playlist" : {
+
+    },
+    "Couldn't build a download URL for this item." : {
+
+    },
+    "Couldn't build a playback URL for this item." : {
+
+    },
+    "Couldn't delete" : {
+
+    },
     "Couldn't Download Season" : {
+
+    },
+    "Couldn't fetch playback info for this item." : {
+
+    },
+    "Couldn't get a Quick Connect code from the server." : {
 
     },
     "Couldn't Load %@" : {
@@ -674,7 +701,25 @@
     "Couldn't Load Home" : {
 
     },
+    "Couldn't load this collection." : {
+
+    },
+    "Couldn't load this season's episodes." : {
+
+    },
     "Couldn't Load This Title" : {
+
+    },
+    "Couldn't load this title." : {
+
+    },
+    "Couldn't load your playlists." : {
+
+    },
+    "Couldn't reach %@." : {
+
+    },
+    "Couldn't reach a Jellyfin server at that address. Check it and try again." : {
 
     },
     "Couldn't read the audio track." : {
@@ -707,49 +752,10 @@
     "Couldn't read the subtitle track." : {
 
     },
-    "Couldn't Retry Download" : {
-
-    },
-    "Couldn't Start Download" : {
-
-    },
-    "Couldn't add to playlist" : {
-
-    },
-    "Couldn't build a download URL for this item." : {
-
-    },
-    "Couldn't build a playback URL for this item." : {
-
-    },
-    "Couldn't delete" : {
-
-    },
-    "Couldn't fetch playback info for this item." : {
-
-    },
-    "Couldn't get a Quick Connect code from the server." : {
-
-    },
-    "Couldn't load this collection." : {
-
-    },
-    "Couldn't load this season's episodes." : {
-
-    },
-    "Couldn't load this title." : {
-
-    },
-    "Couldn't load your playlists." : {
-
-    },
-    "Couldn't reach %@." : {
-
-    },
-    "Couldn't reach a Jellyfin server at that address. Check it and try again." : {
-
-    },
     "Couldn't remove item" : {
+
+    },
+    "Couldn't Retry Download" : {
 
     },
     "Couldn't retry this download." : {
@@ -762,6 +768,9 @@
 
     },
     "Couldn't sign in. Check your username and password." : {
+
+    },
+    "Couldn't Start Download" : {
 
     },
     "Couldn't start the download." : {
@@ -785,18 +794,6 @@
     "Current position: %@" : {
 
     },
-    "Direct play has no bitrate cap, so the bitrate is ignored." : {
-
-    },
-    "Downloads aren't on Apple TV." : {
-
-    },
-    "DTS:X Speaker Layout" : {
-
-    },
-    "DTS:X as Spatial Audio" : {
-
-    },
     "Dark" : {
 
     },
@@ -810,6 +807,9 @@
 
     },
     "Decrease" : {
+
+    },
+    "Decrease %@" : {
 
     },
     "Decrease Audio Offset" : {
@@ -855,6 +855,12 @@
     "Delete Episode" : {
 
     },
+    "Delete from Server" : {
+
+    },
+    "Delete from Server and Device" : {
+
+    },
     "Delete Season" : {
 
     },
@@ -862,12 +868,6 @@
 
     },
     "Delete Show" : {
-
-    },
-    "Delete from Server" : {
-
-    },
-    "Delete from Server and Device" : {
 
     },
     "Delete this download?" : {
@@ -940,10 +940,10 @@
     "Display" : {
 
     },
-    "Dolby Atmos Speaker Layout" : {
+    "Dolby Atmos as Spatial Audio" : {
 
     },
-    "Dolby Atmos as Spatial Audio" : {
+    "Dolby Atmos Speaker Layout" : {
 
     },
     "Dolby Digital" : {
@@ -982,6 +982,12 @@
     "Download Failed" : {
 
     },
+    "Download failed." : {
+
+    },
+    "Download movies and shows to watch offline, anywhere." : {
+
+    },
     "Download Paused" : {
 
     },
@@ -989,12 +995,6 @@
 
     },
     "Download Season in Which Version?" : {
-
-    },
-    "Download failed." : {
-
-    },
-    "Download movies and shows to watch offline, anywhere." : {
 
     },
     "Downloaded" : {
@@ -1015,7 +1015,19 @@
     "Downloads" : {
 
     },
+    "Direct play has no bitrate cap, so the bitrate is ignored." : {
+
+    },
+    "Downloads aren't on Apple TV." : {
+
+    },
     "Downloads, %@" : {
+
+    },
+    "DTS:X as Spatial Audio" : {
+
+    },
+    "DTS:X Speaker Layout" : {
 
     },
     "Duration: %@" : {
@@ -1024,13 +1036,7 @@
     "Dynamic Range" : {
 
     },
-    "Enter Address Manually" : {
-
-    },
-    "Enter Server Address" : {
-
-    },
-    "Enter Your Password" : {
+    "Earlier" : {
 
     },
     "Enter a port number between 1 and 65535." : {
@@ -1039,7 +1045,16 @@
     "Enter a valid server address, like 192.168.1.50:8096." : {
 
     },
+    "Enter Address Manually" : {
+
+    },
+    "Enter Server Address" : {
+
+    },
     "Enter the password for %@" : {
+
+    },
+    "Enter Your Password" : {
 
     },
     "Enter your server's local IP and port, a domain name, or a full URL." : {
@@ -1078,10 +1093,10 @@
     "File Size" : {
 
     },
-    "Find Your Server" : {
+    "Find movies, shows, and episodes on your server." : {
 
     },
-    "Find movies, shows, and episodes on your server." : {
+    "Find Your Server" : {
 
     },
     "Fine-tune the video bitrate the app requests for each resolution and quality level, in kilobits per second (Kbps). Everywhere else in the app continues to show the equivalent value in megabits per second (Mbps).\n\nDefaults assume a software-encoded HEVC transcode and may not be optimal for your own server's transcoder configuration." : {
@@ -1142,19 +1157,19 @@
     "Get Started" : {
 
     },
-    "Go Back" : {
+    "gigabytes" : {
 
     },
-    "HTTP Port" : {
+    "Go Back" : {
 
     },
     "Hearing Impaired" : {
 
     },
-    "Hide Player Controls" : {
+    "Hide playback stats" : {
 
     },
-    "Hide playback stats" : {
+    "Hide Player Controls" : {
 
     },
     "High" : {
@@ -1169,6 +1184,9 @@
     "How far ahead a file playing directly is loaded. Raise it if playback stops to buffer on a slow network; it uses more of this device's storage while playing. Not used when the server transcodes." : {
 
     },
+    "HTTP Port" : {
+
+    },
     "Image-based subtitle tracks can't be included in offline downloads." : {
 
     },
@@ -1181,10 +1199,16 @@
     "Increase" : {
 
     },
+    "Increase %@" : {
+
+    },
     "Increase Audio Offset" : {
 
     },
     "Info" : {
+
+    },
+    "iOS interrupted this download several times and it couldn't be completed. Try downloading again." : {
 
     },
     "It may have been removed from the server." : {
@@ -1199,13 +1223,19 @@
     "Kbps" : {
 
     },
-    "Keeps the height channels of DTS:X tracks for a receiver with height speakers, losslessly except over AirPlay. The receiver shows it as Dolby Atmos or multichannel PCM, never as DTS:X." : {
-
-    },
     "Keeps the height channels of Dolby TrueHD Atmos and DTS:X tracks, for a receiver with height speakers or for AirPods." : {
 
     },
     "Keeps the height channels of Dolby TrueHD Atmos tracks for a receiver with height speakers, losslessly except over AirPlay." : {
+
+    },
+    "Keeps the height channels of DTS:X tracks for a receiver with height speakers, losslessly except over AirPlay. The receiver shows it as Dolby Atmos or multichannel PCM, never as DTS:X." : {
+
+    },
+    "kilobytes" : {
+
+    },
+    "Later" : {
 
     },
     "Learn More…" : {
@@ -1221,6 +1251,9 @@
 
     },
     "Light" : {
+
+    },
+    "Limits dynamic range. Turns off Atmos and passthrough while on." : {
 
     },
     "Loading" : {
@@ -1250,6 +1283,9 @@
     "Max Streaming Bitrate" : {
 
     },
+    "megabytes" : {
+
+    },
     "Mono" : {
 
     },
@@ -1271,9 +1307,6 @@
     "Movies, shows, episodes…" : {
 
     },
-    "NOW" : {
-
-    },
     "Network" : {
 
     },
@@ -1283,10 +1316,10 @@
     "Next Episode Countdown" : {
 
     },
-    "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles & Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel." : {
+    "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles & Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel. Night Mode quiets and dims playback, by hand or on a schedule." : {
 
     },
-    "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles and Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel." : {
+    "Next Episode Countdown sets how long before the end of an episode to count down the next one, if end credits aren't detected. Chapters in Scrubber overlays chapter markers on the scrubber with magnetic snapping while dragging. Subtitle Style can follow your choices in Settings › Accessibility › Subtitles and Captioning. Audio Offset delays or advances audio to correct lip sync for your TV or receiver. Titles can override it from the player's Audio panel. Night Mode quiets and dims playback, by hand or on a schedule." : {
 
     },
     "Next Item" : {
@@ -1298,10 +1331,25 @@
     "Next Up" : {
 
     },
-    "No Downloads" : {
+    "Night" : {
+
+    },
+    "Night Audio" : {
+
+    },
+    "Night Audio unavailable" : {
+
+    },
+    "Night Mode" : {
+
+    },
+    "Night Mode On" : {
 
     },
     "No cast or crew information available." : {
+
+    },
+    "No Downloads" : {
 
     },
     "No episodes available." : {
@@ -1337,6 +1385,9 @@
     "Normal" : {
 
     },
+    "Not available when transcoding" : {
+
+    },
     "Not on Wi-Fi" : {
 
     },
@@ -1346,7 +1397,7 @@
     "Nothing to play here." : {
 
     },
-    "OK" : {
+    "NOW" : {
 
     },
     "Off" : {
@@ -1356,6 +1407,9 @@
 
     },
     "Offset" : {
+
+    },
+    "OK" : {
 
     },
     "On" : {
@@ -1412,6 +1466,9 @@
     "Paused" : {
 
     },
+    "petabytes" : {
+
+    },
     "Picture in Picture" : {
 
     },
@@ -1433,9 +1490,6 @@
     "Playback" : {
 
     },
-    "Playback Source" : {
-
-    },
     "Playback couldn't continue after the audio output changed." : {
 
     },
@@ -1446,6 +1500,9 @@
 
     },
     "Playback position" : {
+
+    },
+    "Playback Source" : {
 
     },
     "Playing" : {
@@ -1508,6 +1565,9 @@
     "Quick Connect is off on this server." : {
 
     },
+    "Quiets and dims playback, by hand or on a schedule." : {
+
+    },
     "Random Item" : {
 
     },
@@ -1553,10 +1613,10 @@
     "Remove from Favorites" : {
 
     },
-    "Remove from Playlist" : {
+    "Remove from history" : {
 
     },
-    "Remove from history" : {
+    "Remove from Playlist" : {
 
     },
     "Renders the fonts, colours and on-screen positioning authored into ASS and SSA subtitles. Turn this off to show them as plain text instead. Other subtitle formats are unaffected." : {
@@ -1638,13 +1698,22 @@
     "Scanning" : {
 
     },
+    "Schedule" : {
+
+    },
+    "Schedule: %@" : {
+
+    },
+    "Schedule: Off" : {
+
+    },
     "Search" : {
 
     },
-    "Search Your Library" : {
+    "Search failed." : {
 
     },
-    "Search failed." : {
+    "Search Your Library" : {
 
     },
     "Searching for servers" : {
@@ -1655,6 +1724,16 @@
     },
     "Season %lld" : {
 
+    },
+    "season %lld episode %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "season %1$lld episode %2$lld"
+          }
+        }
+      }
     },
     "Season Downloaded" : {
 
@@ -1674,10 +1753,10 @@
     "Select" : {
 
     },
-    "Select All" : {
+    "Select a User Every Relaunch" : {
 
     },
-    "Select a User Every Relaunch" : {
+    "Select All" : {
 
     },
     "Server" : {
@@ -1689,6 +1768,18 @@
     "Servers found: %lld" : {
 
     },
+    "Set %@ to 0%%" : {
+
+    },
+    "Set %@ to 100%%" : {
+
+    },
+    "Set to 0%" : {
+
+    },
+    "Set to 100%" : {
+
+    },
     "Sets how long before the end of an episode to count down the next one, if end credits aren't detected." : {
 
     },
@@ -1698,6 +1789,9 @@
     "Show" : {
 
     },
+    "Show playback stats" : {
+
+    },
     "Show Playback Stats" : {
 
     },
@@ -1705,9 +1799,6 @@
 
     },
     "Show Player Controls" : {
-
-    },
-    "Show playback stats" : {
 
     },
     "Shows" : {
@@ -1731,13 +1822,13 @@
     "Sign In Another Way" : {
 
     },
+    "Sign in on another device with a code, instead of typing your password." : {
+
+    },
     "Sign In with Quick Connect" : {
 
     },
     "Sign Out" : {
-
-    },
-    "Sign in on another device with a code, instead of typing your password." : {
 
     },
     "Sign out of %@?" : {
@@ -1746,16 +1837,16 @@
     "Signed in" : {
 
     },
-    "Signing In…" : {
+    "Signing in as %@" : {
 
     },
-    "Signing in as %@" : {
+    "Signing in to **%@**" : {
 
     },
     "Signing in to %@" : {
 
     },
-    "Signing in to **%@**" : {
+    "Signing In…" : {
 
     },
     "Simultaneous Downloads" : {
@@ -1863,6 +1954,9 @@
     "Take it with you" : {
 
     },
+    "terabytes" : {
+
+    },
     "That code didn't work. Check it matches the one on the other device — codes expire after 10 minutes." : {
 
     },
@@ -1900,6 +1994,9 @@
     "The other device is now signed in as %@. It can take a few seconds to finish." : {
 
     },
+    "The schedule never turns Night Mode on or off while both times are the same." : {
+
+    },
     "The server couldn't authorize this code. It may already have been used — try getting a new code on the other device." : {
 
     },
@@ -1909,6 +2006,9 @@
     "The server sent an unexpected response." : {
 
     },
+    "the start" : {
+
+    },
     "The start time is past the end." : {
 
     },
@@ -1916,30 +2016,6 @@
 
     },
     "There's nothing like this title yet." : {
-
-    },
-    "This App" : {
-
-    },
-    "This App: %@" : {
-
-    },
-    "This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code." : {
-
-    },
-    "This library can't be found." : {
-
-    },
-    "This link works only before a server is set up." : {
-
-    },
-    "This show has no season %@." : {
-
-    },
-    "This Title" : {
-
-    },
-    "This Title Can't Be Found" : {
 
     },
     "This adds all %lld episodes of this season to \"%@\"." : {
@@ -1966,6 +2042,15 @@
 
     },
     "This adds every episode of this show to \"%@\"." : {
+
+    },
+    "This App" : {
+
+    },
+    "This App: %@" : {
+
+    },
+    "This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code." : {
 
     },
     "This clears every custom bitrate you've set above. It can't be undone." : {
@@ -2022,6 +2107,9 @@
     "This item is no longer available on the server." : {
 
     },
+    "This library can't be found." : {
+
+    },
     "This link can't be opened." : {
 
     },
@@ -2031,10 +2119,22 @@
     "This link is for another user." : {
 
     },
+    "This link works only before a server is set up." : {
+
+    },
     "This playlist is empty." : {
 
     },
+    "This show has no season %@." : {
+
+    },
     "This text is unavailable." : {
+
+    },
+    "This Title" : {
+
+    },
+    "This Title Can't Be Found" : {
 
     },
     "This title has no audio track %lld, so the usual one is playing." : {
@@ -2079,6 +2179,12 @@
     "Try Port" : {
 
     },
+    "Turn Off" : {
+
+    },
+    "Turn On" : {
+
+    },
     "Unlimited" : {
 
     },
@@ -2121,6 +2227,12 @@
     "Visible to Everyone" : {
 
     },
+    "Volume %lld%%" : {
+
+    },
+    "Volume Limit" : {
+
+    },
     "Waiting for approval" : {
 
     },
@@ -2151,16 +2263,19 @@
     "You need to sign in again." : {
 
     },
-    "You're Offline" : {
+    "You're not signed in." : {
 
     },
-    "You're not signed in." : {
+    "You're Offline" : {
 
     },
     "Your Jellyfin library, in its best light." : {
 
     },
     "Your Playlists" : {
+
+    },
+    "your server" : {
 
     },
     "Your Server" : {
@@ -2176,43 +2291,6 @@
 
     },
     "Zoom to Fit Screen" : {
-
-    },
-    "bytes" : {
-
-    },
-    "gigabytes" : {
-
-    },
-    "iOS interrupted this download several times and it couldn't be completed. Try downloading again." : {
-
-    },
-    "kilobytes" : {
-
-    },
-    "megabytes" : {
-
-    },
-    "petabytes" : {
-
-    },
-    "season %lld episode %lld" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "season %1$lld episode %2$lld"
-          }
-        }
-      }
-    },
-    "terabytes" : {
-
-    },
-    "the start" : {
-
-    },
-    "your server" : {
 
     }
   },

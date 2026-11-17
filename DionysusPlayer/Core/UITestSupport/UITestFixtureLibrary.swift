@@ -359,7 +359,12 @@ enum UITestFixtureLibrary {
     /// either without touching the process's launch arguments. Source ids
     /// extend the item's id (`movie-01-4k`) so a journey can name one.
     static func mediaSources(for item: BaseItemDto, scenario: UITestScenario) -> [MediaSourceInfo] {
-        let single = mediaSource(for: item)
+        var single = mediaSource(for: item)
+        if scenario == .transcode {
+            // The shape Jellyfin answers a transcode with: a path on the
+            // server, resolved against its address by the client.
+            single.transcodingUrl = "/videos/\(item.id)/master.m3u8?MediaSourceId=\(single.id ?? "")&PlaySessionId=uitest-play-session"
+        }
         guard scenario == .multipleVersions else { return [single] }
 
         /// The same file at another resolution and dynamic range: the video

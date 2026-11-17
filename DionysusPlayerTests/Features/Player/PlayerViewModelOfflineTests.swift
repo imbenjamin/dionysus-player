@@ -31,7 +31,8 @@ final class PlayerViewModelOfflineTests: XCTestCase {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
             client: client, userID: downloadedItem.userID, itemID: downloadedItem.itemID, engine: engine,
-            downloadedItem: downloadedItem, downloadStore: store
+            downloadedItem: downloadedItem, downloadStore: store,
+            nightMode: .isolated()
         )
         return (viewModel, engine)
     }
@@ -88,7 +89,8 @@ final class PlayerViewModelOfflineTests: XCTestCase {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
             client: client, userID: item.userID, itemID: item.itemID, engine: engine,
-            startFromBeginning: true, downloadedItem: item, downloadStore: store
+            startFromBeginning: true, downloadedItem: item, downloadStore: store,
+            nightMode: .isolated()
         )
 
         await viewModel.start()
@@ -215,7 +217,8 @@ final class PlayerViewModelOfflineTests: XCTestCase {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
             client: client, userID: item.userID, itemID: item.itemID, engine: engine,
-            downloadedItem: item, downloadStore: store
+            downloadedItem: item, downloadStore: store,
+            nightMode: .isolated()
         )
 
         await viewModel.start()
@@ -293,7 +296,8 @@ final class PlayerViewModelOfflineTests: XCTestCase {
         let client = JellyfinAPIClient(baseURL: baseURL, accessToken: "tok", session: MockURLProtocol.makeSession())
         let viewModel = PlayerViewModel(
             client: client, userID: item.userID, itemID: item.itemID, engine: FakePlaybackEngine(),
-            downloadedItem: item, downloadStore: store
+            downloadedItem: item, downloadStore: store,
+            nightMode: .isolated()
         )
 
         await viewModel.refreshServerVersion()

@@ -97,6 +97,29 @@ final class VoiceOverJourneyTests: UITestCase {
         refresh.awaitExistence("the Refresh button, back once the refresh ends")
     }
 
+    /// Under VoiceOver each Night level row is one adjustable element, its
+    /// name and value read together, rather than five buttons and a number.
+    /// XCUITest reports an adjustable SwiftUI element as Other and can't
+    /// send VoiceOver's swipe, so the 5% step itself is checked by hand with
+    /// VoiceOver (as the Apple TV's scrubber is), and its rule by
+    /// `NightModePanelTests`.
+    func testTheNightLevelsAreEachOneAdjustableElement() {
+        let player = openPlayer()
+        player.nightButton.tap()
+        player.nightToggle.awaitExistence("the Night panel")
+
+        for (level, row, name) in [("volume", player.nightVolume, "Volume Limit"),
+                                   ("brightness", player.nightBrightness, "Brightness")] {
+            row.awaitExistence("the \(name) row")
+            XCTAssertEqual(row.label, name)
+            XCTAssertEqual(row.value as? String, "100%")
+            for control in ["min", "decrease", "increase", "max"] {
+                XCTAssertFalse(player.nightControl(level, control).exists,
+                               "\(name)'s \(control) is part of the row's element, not one of its own")
+            }
+        }
+    }
+
     /// Without VoiceOver none of these controls is mounted, nor the probe.
     func testTheVoiceOverOnlyControlsAreAbsentWithoutVoiceOver() {
         launch(scenario: "skipIntro")

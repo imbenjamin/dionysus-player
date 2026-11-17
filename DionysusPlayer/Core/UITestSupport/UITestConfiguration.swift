@@ -235,6 +235,11 @@ enum UITestScenario: String {
     /// standing in for a server transcode (AetherEngine's `.remoteBypass`),
     /// so the player's offset controls are hidden.
     case audioOffsetUnavailable
+    /// `.standard`, but `/PlaybackInfo` answers every source with a
+    /// `TranscodingUrl`, so the player takes the server-transcode route
+    /// (`isRemoteHLS`) and the fake engine reports Night Audio unavailable,
+    /// as AetherEngine does on `.remoteBypass`.
+    case transcode
     /// `.standard`, but the fake engine stalls 2 s into playback, reporting
     /// `.buffering` for 3 s before playing on: a mid-play rebuffer, as a
     /// remux on a slow link has.

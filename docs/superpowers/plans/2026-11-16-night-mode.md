@@ -21,6 +21,8 @@ tag, 2026-11-16), XCTest and XCUITest.
 
 **Spec:** `docs/superpowers/specs/2026-11-16-night-mode-design.md`
 
+**Issue:** #363 ("[Feature] Night / Sleep mode"). The PR body says `Closes #363`.
+
 ## Global Constraints
 
 - Platforms: iOS 18 floor, tvOS 26.0 floor; Xcode 27.1 in CI, 27.2 locally.
@@ -36,7 +38,7 @@ tag, 2026-11-16), XCTest and XCUITest.
 - `PlaybackEngine` changes land in the protocol, `AetherPlaybackEngine`,
   `PreviewPlaybackEngine` and the test `FakePlaybackEngine` together.
 - Copy (exact): "Night Mode", "Night Audio", "Volume Limit", "Brightness",
-  "Turns off Atmos and receiver passthrough while on.", "Not available for
+  "Limits dynamic range. Turns off Atmos and passthrough while on." (Benjamin, 2026-11-16, replacing "Turns off Atmos and receiver passthrough while on."), "Not available for
   this stream", "Schedule", "Turn On", "Turn Off", "The schedule never turns
   Night Mode on or off while both times are the same."
 - Strings go through `Localizable.xcstrings`, synced by an Xcode.app build in
@@ -422,5 +424,5 @@ Apple TV (`docs`: memory "Physical device CLI deployment").
 - [ ] **Step 4: Restore the Simulators to SavareseHillFlix as Ben and shut
   them down** (memory: restore on hand-back).
 - [ ] **Step 5: Commit** `Document Night Mode and sync its strings`, then
-  after sign-off push and open the PR to `develop` (concise, "Generated with
+  after sign-off push and open the PR to `develop` with `Closes #363` in its body (concise, "Generated with
   Claude Code", no session URL).

@@ -224,6 +224,11 @@ Keychain as it's made.
   the label of a one-point probe over the main app,
   `A11yID.UITest.lastAnnouncement`; only the hero's go through it so far.
   Nothing is spoken: it tests what the app does, not VoiceOver.
+- `launch(environment:)` sets the app's environment; `["TZ": "America/New_York"]`
+  runs it in another time zone (Night Mode's schedule pickers are checked
+  there). `-UITestShowTimeZone YES` mounts a one-point probe whose label is
+  the app's `TimeZone.current.identifier` (`A11yID.UITest.timeZone`), so the
+  journey can see the zone took.
 - `-UITestCustomCaptionStyle YES` stands `SystemCaptionStyle.uiTestStyle`
   (twice the size, yellow, a window) in for the Simulator's caption settings,
   which a test can't change; the Subtitle Style journeys compare the
@@ -316,6 +321,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `thinDynamicRails` | Home's dynamic rails nearly all too thin, so it keeps loading |
 | `skipIntro` / `earlyCredits` | An intro from 0:00 to 83:20, listed twice (a copy ending 20s sooner first, as from two segment providers); credits from 0:05 on every episode and playlist member (Next Up at once, where something follows) |
 | `audioOffsetUnavailable` | The fake engine reports the audio offset unavailable (a server transcode's case), so the player hides its offset controls |
+| `transcode` | `/PlaybackInfo` gives every source a `TranscodingUrl`, so the player loads the fake engine on the server-transcode route (`isRemoteHLS`) and Night Audio reports unavailable |
 | `rebuffering` | The fake engine stalls 2 s into playback, reporting `.buffering` for 3 s (the Apple TV's stall spinner) |
 | `slowSeek` | The fake engine holds every seek in `.seeking` for 3 s before it lands (the Apple TV's spinner on a long jump) |
 | `introBeforeResume` | An intro from 0:00 to 1:00 and `slowSeek`'s held seek, so a resume sits at 0:00 over the intro until it lands (no Skip until then) |
@@ -592,7 +598,7 @@ engine's track id).
 | Link | Opens |
 |---|---|
 | `home`, `search?q=<text>`, `downloads` (iOS) | That tab; Search runs the query. On the Apple TV, `downloads` lands on Home and says why |
-| `profile[/<page>]` | Profile, or a page: `account`, `appearance`, `playback`, `playback/advanced`, `downloads` (iOS), `about`, `about/license`, `about/privacy` |
+| `profile[/<page>]` | Profile, or a page: `account`, `appearance`, `playback`, `playback/advanced`, `playback/night` (Night Mode), `downloads` (iOS), `about`, `about/license`, `about/privacy` |
 | `quickconnect/approve?code=<6 digits>` | Quick Connect approval with the code filled in, never submitted |
 | `library/<libraryID>` | The library's grid; `sort=title\|dateAdded\|releaseDate`, `order=asc\|desc`, `genre=`, `studio=`, `filter=favorites\|unwatched\|watched` |
 | `item/<id>` | The title's page, pushed on Home; `season=<id or number>` (a show), `section=cast\|chapters\|details\|similar` |
@@ -1112,6 +1118,11 @@ the detail.
 | `Core/Networking/RemoteImageLoaderTests` | Retry with backoff, caching, de-duplication |
 | `Core/Networking/ServerDiscoveryTests` | Parsing discovery replies; the subnet sweep |
 | `Core/Networking/TrickplayThumbnailProviderTests` | Trickplay tile maths and fetching |
+| `Core/NightMode/NightModeScheduleRulesTests` | Which value the schedule puts in force: a boundary passed or not, a window across midnight, equal times, several missed boundaries collapsing to the latest, the next wake, a time-zone change |
+| `Core/NightMode/NightModeStoreTests` | Night Mode's defaults, levels clamped to 0...100 in steps of 5, the schedule's storage |
+| `Core/NightMode/NightModeControllerTests` | The one on/off value: a manual flip held until the next boundary, the schedule's toggle changing nothing at once, the effect handed to a session |
+| `Core/NightMode/NightModeTimeFormatTests` | The schedule's times, 12- or 24-hour per the locale |
+| `Core/NightMode/NightModeTimeStepTests` | The Apple TV's 15-minute time steps, wrapping past midnight, an off-grid time stepping to the next quarter hour |
 | `Core/Persistence/DeviceIdentityTests` | The device id, made once and kept; client and device names |
 | `Core/Persistence/DownloadPreferencesStoreTests` | Download preferences |
 | `Core/Persistence/DownloadQualityLadderStoreTests` | Per-device ladder overrides |
@@ -1143,9 +1154,11 @@ the detail.
 | `Features/Login/QuickConnectViewModelTests` | Quick Connect polling, expiry and sign-in |
 | `Features/Login/UserAvatarTests` | The sign-in avatar's image URL, and a transparent picture hiding the monogram |
 | `Features/Player/ASSSubtitleMappingTests` | Which tracks go to libass, the ordinal mapping, the styling setting and the font source |
+| `Features/Player/NightModePanelTests` | The Night panel's rows and what they say (Night Audio's note, "Not available when transcoding") |
 | `Features/Player/PlaybackRequestTests` | A playback request's identity (start from the beginning, media version) |
 | `Features/Player/PlaybackStatsReportTests` | Playback Stats' rows |
 | `Features/Player/PlayerControlsOverlayTests` | The skip step |
+| `Features/Player/PlayerViewModelNightModeTests` | Night Mode applied to the engine at load and on change (shaping, volume, the dimming opacity), Spatial Audio's rebuild order around it |
 | `Features/Player/PlayerViewModelOfflineTests` | Offline playback of downloads |
 | `Features/Player/PlayerViewModelTests` | Resume, reporting, transport, tracks, versions, errors, the background reload and stopping while offline; a play link's start, tracks, version, Playback Stats and (DEBUG-only) mode and bitrate, for its one session |
 | `Features/Player/SubtitleOverlayLayoutTests` | Subtitle metrics on phone and TV |
@@ -1182,6 +1195,7 @@ the detail.
 | `TVHeroPlayTargetTests` | What Play on a series plays |
 | `TVKeyboardCommandTests` | The space bar as Play/Pause |
 | `TVMotionTests` | Reduce Motion dropping a moving animation; Increase Contrast drawing translucent text solid |
+| `TVNightModePageTests` | The Night Mode page's rows and its time steppers |
 | `TVOnboardingSpeechTests` | The Quick Connect code spoken; discovery announcements |
 | `TVPageKeepAliveTests` | Which pushed pages stay built |
 | `TVPlaybackSessionTests` | A session's start, end and reported outcome |
@@ -1196,6 +1210,7 @@ the detail.
 | `TVPlayerInfoArtTests` | The Info tab's art |
 | `TVPlayerInputModelTests` | The remote as a table: state, input, commands |
 | `TVPlayerInputTests` | The input model's driver: fades, resets, announcements |
+| `TVPlayerNightPanelTests` | The Night tab as a remote table: its rows, the focus path among a level's controls, hold-to-repeat |
 | `TVPlayerOverlaysTests` | Skip and Next Up as focus stops |
 | `TVPlayerPanelTests` | The swipe-down panel |
 | `TVPlayerPresenterTests` | No second player in the presented chain |
@@ -1231,18 +1246,19 @@ the detail.
 | `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), the Cast & Crew and Details tabs, deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
 | `AuthJourneyTests` | Welcome, server setup, discovery, the HTTP fallback, every sign-in path |
 | `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
-| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a library's grid with its facets, Profile's License, Privacy Policy and Advanced (and a page of the pane already showing), Quick Connect's code filled but not approved, a title's page, a show on the linked season, the Cast tab, a season or section the page doesn't have, playing over it (a show, the player closing first), a start time or chapter, tracks, Playback Stats, a playlist member with the rest queued, the downloaded copy, a missing or unplayable title, an unknown library or Profile page, Quick Connect turned off, another server, an unreadable link or start time, a missing chapter or download, a cold launch, a link held through sign-in; DEBUG-only: a bitrate `mode=direct` can't cap, a server link filling setup's address without connecting, and refused while signed in |
+| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a library's grid with its facets, Profile's License, Privacy Policy, Advanced and Night Mode (and a page of the pane already showing), Quick Connect's code filled but not approved, a title's page, a show on the linked season, the Cast tab, a season or section the page doesn't have, playing over it (a show, the player closing first), a start time or chapter, tracks, Playback Stats, a playlist member with the rest queued, the downloaded copy, a missing or unplayable title, an unknown library or Profile page, Quick Connect turned off, another server, an unreadable link or start time, a missing chapter or download, a cold launch, a link held through sign-in; DEBUG-only: a bitrate `mode=direct` can't cap, a server link filling setup's address without connecting, and refused while signed in |
 | `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
 | `DownloadsJourneyTests` | Downloading to completion (an item, or a season at once), a season's version question (once, per episode, cancelled), the row updating while open, bulk delete, cancelling a selection, and offline after a relaunch with `offline`: a downloaded movie and episode, and a show's page (one season flat, two as seasons) and a season's, each opened and played |
 | `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
 | `HeroLogoFallbackUITests` | The logo's text fallback timing |
 | `HomeJourneyTests` | The hero, See All, and a refresh scrolling rails back to their start |
 | `MediaVersionJourneyTests` | Choosing a version to play (#289): Play asking with the remembered version marked, Resume and Restart playing it silently, asking when nothing remembered is listed, auto-advance, an episode row's and a playlist row's Play, Playback Stats' Version row, and a plain play link never asking |
+| `NightModeJourneyTests` | The player's Night panel: the switch, each level reaching the fake engine and the Playback Stats row, "Not available when transcoding" on a server transcode (`transcode`), the schedule's summary |
 | `OfflineErrorJourneyTests` | `serverError`, `unauthorized` and `offline`; Try Again loading Home once the server answers (`librariesFailAtFirst`) |
 | `PlacedSubtitleJourneyTests` | Subtitles the source places: `\an8` and `\pos` text cues, a bitmap cue on a canvas taller than the picture, and one on anamorphic video (`anamorphicVideo`), each by its frame |
 | `PlayerFeedbackJourneyTests` | The scrub bubble's trickplay still at either end (`scrubThumbnails`), "Reconnecting…" until playback resumes (`reconnecting`), the PiP button left out without PiP and, by tap, covering the player until PiP ends (`pictureInPicture`) |
 | `PlayerJourneyTests` | Skips, the track and chapter pickers, Playback Stats' pages, the end of an item, Next Up (Play Now, Cancel, the countdown; `earlyCredits`) |
-| `ProfileJourneyTests` | The audio offset, Read-Ahead Buffer and Spatial Audio settings (the Spatial Audio toggles also in smoke: Profile broke on some devices for days, 2026-10), Quick Connect approval, Sign Out, Change Server |
+| `ProfileJourneyTests` | The audio offset, Read-Ahead Buffer and Spatial Audio settings, Night Mode's page (its schedule's Turn On read back by the player's summary, equal times' note) (the Spatial Audio toggles also in smoke: Profile broke on some devices for days, 2026-10), Quick Connect approval, Sign Out, Change Server |
 | `SearchJourneyTests` | No results, a long history keeping the field visible, history across a relaunch |
 | `SmokeJourneyTests` | The PR gate's journeys |
 | `StyledSubtitleJourneyTests` | Styled subtitles, the styling setting, fonts not gating the script |
@@ -1256,7 +1272,7 @@ the detail.
 | `AccountSwitchingJourneyTests` | Remembered accounts (a Quick Connect one too; refused, a password account opens its password screen and a Quick Connect one asks for a new code, `revokedSessions`), Forget This Account, Follow Apple TV Users, Select a User Every Relaunch |
 | `CollectionDetailJourneyTests` | Box sets and playlists, empty and loading |
 | `CollectionGridJourneyTests` | A library's grid: pills, sort, filters, Reset, returning from a detail page |
-| `DeepLinkPlacesJourneyTests` | `dionysus://` links to places (#406): Search's query, Profile and Home, Profile's License and Advanced, Quick Connect's code filled but not approved, a library's grid with its facets, an unknown library, Downloads landing on Home, a show's linked season focused, focus on the cast, chapters not shown; DEBUG-only: a server link filling Find Your Server's address without connecting, and refused while signed in |
+| `DeepLinkPlacesJourneyTests` | `dionysus://` links to places (#406): Search's query, Profile and Home, Profile's License, Advanced and Night Mode, Quick Connect's code filled but not approved, a library's grid with its facets, an unknown library, Downloads landing on Home, a show's linked season focused, focus on the cast, chapters not shown; DEBUG-only: a server link filling Find Your Server's address without connecting, and refused while signed in |
 | `DeepLinkPlaybackJourneyTests` | `dionysus://play` links' parameters (#406): a start time or chapter, Playback Stats with the setting off, a playlist member with the rest queued, a playlist over its page |
 | `DetailJourneyTests` | Detail pages: Menu, the keep-alive cap, rows, Full Details, no backdrop, failures |
 | `HomeJourneyTests` | The hero, See All, rails loading, a failing Home |
@@ -1268,12 +1284,12 @@ the detail.
 | `OnboardingJourneyTests` | Find Your Server, Who's Watching?, Quick Connect, the password screen; a wrong password, Other without Quick Connect, and an unverifiable HTTPS server's HTTP fallback (the port, accepting, cancelling) |
 | `PlayerAccessibleTransportJourneyTests` | The accessible transport, forced on |
 | `PlayerJourneyTests` | The player opens, takes the remote and closes, loading too |
-| `PlayerPanelJourneyTests` | The swipe-down panel's tabs and choices |
+| `PlayerPanelJourneyTests` | The swipe-down panel's tabs and choices, the Night tab dimming the picture and showing in Stats |
 | `PlayerReturnJourneyTests` | Leaving the player back to the page as it was |
 | `PlayerScrubJourneyTests` | Icons, scrubbing, scanning, glyphs |
 | `PlayerSegmentJourneyTests` | Skip Intro and Next Up |
 | `PlayerStatsJourneyTests` | The stats toggle and panel |
-| `ProfileJourneyTests` | Profile's rows, pickers, covers and Sign Out |
+| `ProfileJourneyTests` | Profile's rows, pickers, covers and Sign Out; Night Mode's cover, its schedule's times stepped 15 minutes (and held), equal times' note |
 | `SearchJourneyTests` | Search, Recent Searches, the full-screen layout |
 | `ShowDetailJourneyTests` | A show's page: Play, season tabs, episodes, badges |
 | `SidebarJourneyTests` | The sidebar: open, close, choose, fold, retry |

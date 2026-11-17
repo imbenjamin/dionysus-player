@@ -13,6 +13,9 @@ struct PlayerControlsOverlay: View {
     /// Whether the chapter picker is showing, a `@Binding` for the same reason
     /// `isShowingTrackPicker` is.
     @Binding var isShowingChapterPicker: Bool
+    /// Whether the Night panel (`NightModePanel`) is showing, a `@Binding`
+    /// for the same reason `isShowingTrackPicker` is.
+    @Binding var isShowingNightPanel: Bool
     var onClose: () -> Void
     /// The three toggle buttons take state in and report taps out through a
     /// closure rather than binding: `PlayerView` owns each, and none has a
@@ -110,7 +113,7 @@ struct PlayerControlsOverlay: View {
     /// All three scale together: scaling only the glyph made it outgrow its
     /// fixed badge at AX3XL and spill out, reading as a rendering fault.
     ///
-    /// Clamped, unlike the picker row heights: this row carries up to six
+    /// Clamped, unlike the picker row heights: this row carries up to seven
     /// buttons, and unbounded growth overflows a narrow phone long before an
     /// iPad runs out of room. The caps hold the ratio.
     @ScaledMetric(relativeTo: .title2) private var scaledTopControlSize: CGFloat = 44
@@ -241,7 +244,7 @@ struct PlayerControlsOverlay: View {
                     // Defensive: either picker's backdrop is added by a later
                     // `.overlay` and so claims a tap first while open, but don't
                     // rely on z-order alone.
-                    guard !isShowingTrackPicker, !isShowingChapterPicker else { return }
+                    guard !isShowingTrackPicker, !isShowingChapterPicker, !isShowingNightPanel else { return }
                     onDismissControls()
                 }
 
@@ -309,6 +312,29 @@ struct PlayerControlsOverlay: View {
                 // Under its button, which moves to the trailing page in book pose.
                 .padding(.leading, 20 + foldLayout.controlsLeadingInset)
                 .transition(.scale(scale: 0.92, anchor: .bottomLeading).combined(with: .opacity))
+            }
+        }
+        // The Night panel's catcher and panel, after the other two pickers'
+        // and anchored like the track picker under the top row, where its
+        // moon is. Opening any one is a tap that dismisses another, so only
+        // one is ever open.
+        .overlay {
+            if isShowingNightPanel {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(Self.trackPickerAnimation) { isShowingNightPanel = false }
+                    }
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if isShowingNightPanel {
+                NightModePanel(viewModel: viewModel, onInteract: onInteract)
+                    .padding(.top, topControlSize + 32)
+                    .padding(.leading, 20)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 16)
+                    .transition(.scale(scale: 0.92, anchor: .topTrailing).combined(with: .opacity))
             }
         }
         // Tabletop on an iPhone Duo: every control, the top row and logo
@@ -470,6 +496,8 @@ struct PlayerControlsOverlay: View {
                         .animation(.easeInOut(duration: 0.15), value: isRotationLocked)
                     }
 
+                    nightButton
+
                     trackSelectionButton
 
                     // Omitted rather than disabled: PiP is unavailable only on
@@ -573,6 +601,54 @@ struct PlayerControlsOverlay: View {
 
             titleRow
         }
+    }
+
+    /// What the moon shows: a plain `moon` while Night Mode is off, and
+    /// `moon.fill` on the rotation lock's white on-state badge while it's on,
+    /// the one place the player says it's in force (Night Mode spec,
+    /// "Indicator").
+    struct NightButtonFace: Equatable {
+        var systemImage: String
+        var hasBadge: Bool
+        var label: String
+        var value: String
+    }
+
+    nonisolated static func nightButtonFace(isOn: Bool) -> NightButtonFace {
+        NightButtonFace(
+            systemImage: isOn ? "moon.fill" : "moon",
+            hasBadge: isOn,
+            label: String(localized: "Night Mode"),
+            value: isOn ? String(localized: "On") : String(localized: "Off")
+        )
+    }
+
+    /// Opens the Night panel. Shown always: Night Mode applies to every
+    /// session, and the panel says where a part of it can't (Night Audio on
+    /// a server transcode).
+    private var nightButton: some View {
+        let face = Self.nightButtonFace(isOn: viewModel.nightMode.settings.isOn)
+        return Button {
+            onInteract()
+            withAnimation(Self.trackPickerAnimation) { isShowingNightPanel = true }
+        } label: {
+            // The rotation lock's badge-inside-a-larger-tap-target.
+            Image(systemName: face.systemImage)
+                .font(.system(size: topGlyphSize))
+                .foregroundStyle(face.hasBadge ? .black : .white)
+                .frame(width: topBadgeSize, height: topBadgeSize)
+                .background {
+                    if face.hasBadge {
+                        Circle().fill(Color.white)
+                    }
+                }
+                .frame(width: topControlSize, height: topControlSize)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(Text(verbatim: face.label))
+        .accessibilityValue(Text(verbatim: face.value))
+        .accessibilityIdentifier(A11yID.Player.nightButton)
+        .animation(.easeInOut(duration: 0.15), value: face.hasBadge)
     }
 
     /// Which picker page is showing: `.root` when both categories offer a

@@ -99,6 +99,147 @@ final class ProfileJourneyTests: UITestCase {
         XCTAssertTrue(learnMore.isHittable, "Done returns to the settings")
     }
 
+    // MARK: Night Mode
+
+    /// Profile → Playback → Night Mode, from its row.
+    private func openNightMode(extraArguments: [String] = [], environment: [String: String] = [:]) {
+        launch(extraArguments: extraArguments, environment: environment)
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openPlaybackSettings()
+        let row = app.buttons[A11yID.Profile.nightLink]
+        for _ in 0..<8 where !row.isHittable { ProfileScreen(app: app).scrollSettings() }
+        row.awaitExistence("the Night Mode row")
+        row.tap()
+        app.switches[A11yID.Profile.nightToggle].awaitExistence("the Night Mode page")
+    }
+
+    /// `value` can't be read through an `NSPredicate` reliably, so it's
+    /// polled.
+    private func poll(timeout: TimeInterval = 5, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        } while Date() < deadline
+        return false
+    }
+
+    /// The page's switch and levels are the player's: on here, a level
+    /// stepped, and Profile's row reads On on the way back.
+    func testNightModePageSetsTheSwitchAndLevels() {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        ProfileScreen(app: app).openPlaybackSettings()
+        let row = app.buttons[A11yID.Profile.nightLink]
+        for _ in 0..<8 where !row.isHittable { ProfileScreen(app: app).scrollSettings() }
+        row.awaitExistence("the Night Mode row")
+        // The row's reading is localized, so it's compared before and after
+        // rather than to "On".
+        let before = "\(row.label)|\(row.value as? String ?? "")"
+        row.tap()
+        app.switches[A11yID.Profile.nightToggle].awaitExistence("the Night Mode page")
+        let toggle = app.switches[A11yID.Profile.nightToggle]
+        XCTAssertEqual(toggle.value as? String, "0", "Off by default")
+        let brightness = app.staticTexts[A11yID.Profile.nightBrightness]
+        XCTAssertEqual(brightness.value as? String, "100%")
+        XCTAssertFalse(app.buttons[A11yID.Profile.nightControl("brightness", "increase")].isEnabled, "+ does nothing at 100%")
+
+        toggle.switches.firstMatch.tap()
+        XCTAssertTrue(poll { (toggle.value as? String) == "1" })
+        app.buttons[A11yID.Profile.nightControl("brightness", "decrease")].tap()
+        XCTAssertTrue(poll { (brightness.value as? String) == "95%" })
+        app.buttons[A11yID.Profile.nightControl("volume", "min")].tap()
+        XCTAssertTrue(poll { (app.staticTexts[A11yID.Profile.nightVolume].value as? String) == "0%" })
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        row.awaitExistence("the Night Mode row, back on Profile")
+        XCTAssertTrue(poll { "\(row.label)|\(row.value as? String ?? "")" != before }, "Row still reads \(before)")
+    }
+
+    /// The schedule's times show while it's on; Turn On set to 21:30 with
+    /// its picker's wheels reaches the player's summary. A 24-hour locale,
+    /// so the wheels and the summary read as the spec writes them.
+    func testNightModeScheduleTurnOnReachesThePlayer() {
+        openNightMode(extraArguments: ["-AppleLocale", "en_GB"])
+        let turnOn = app.datePickers[A11yID.Profile.nightTurnOn]
+        XCTAssertFalse(turnOn.exists, "No times while the schedule is off")
+        app.switches[A11yID.Profile.nightSchedule].switches.firstMatch.tap()
+        turnOn.awaitExistence("Turn On's picker")
+        XCTAssertTrue(app.datePickers[A11yID.Profile.nightTurnOff].exists, "Turn Off's picker")
+
+        turnOn.tap()
+        let wheels = app.pickerWheels
+        wheels.element(boundBy: 0).awaitExistence("the time wheels")
+        wheels.element(boundBy: 0).adjust(toPickerWheelValue: "21")
+        wheels.element(boundBy: 1).adjust(toPickerWheelValue: "30")
+        // Closes the wheels' popover.
+        app.navigationBars.firstMatch.tap()
+        wheels.element(boundBy: 0).awaitDisappearance("the time wheels, closed")
+
+        TabBar(app: app).home.tap()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        AssetDetailScreen(app: app).play()
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        player.nightButton.tap()
+        player.nightScheduleSummary.awaitExistence("the schedule's summary")
+        XCTAssertEqual(player.nightScheduleSummary.label, "Schedule: 21:30–07:00")
+    }
+
+    /// The same outside GMT: the picker shows and stores wall-clock times
+    /// in the device's own zone (New York, five hours behind GMT in
+    /// winter), so 22:00 reads 22:00 and 21:30 reaches the player as
+    /// 21:30, never shifted by the zone.
+    func testNightModeScheduleTurnOnReachesThePlayerOutsideGMT() {
+        openNightMode(
+            extraArguments: ["-AppleLocale", "en_GB", "-UITestShowTimeZone", "YES"],
+            environment: ["TZ": "America/New_York"]
+        )
+        let zone = app.staticTexts[A11yID.UITest.timeZone]
+        zone.awaitExistence("the time zone probe")
+        XCTAssertEqual(zone.label, "America/New_York", "The app runs in New York's zone")
+        app.switches[A11yID.Profile.nightSchedule].switches.firstMatch.tap()
+        let turnOn = app.datePickers[A11yID.Profile.nightTurnOn]
+        turnOn.awaitExistence("Turn On's picker")
+        XCTAssertTrue(turnOn.debugDescription.contains("22:00"), "Turn On shows 22:00, read \(turnOn.debugDescription)")
+
+        turnOn.tap()
+        let wheels = app.pickerWheels
+        wheels.element(boundBy: 0).awaitExistence("the time wheels")
+        wheels.element(boundBy: 0).adjust(toPickerWheelValue: "21")
+        wheels.element(boundBy: 1).adjust(toPickerWheelValue: "30")
+        app.navigationBars.firstMatch.tap()
+        wheels.element(boundBy: 0).awaitDisappearance("the time wheels, closed")
+
+        TabBar(app: app).home.tap()
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.primaryMovieID)
+        AssetDetailScreen(app: app).play()
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        player.nightButton.tap()
+        player.nightScheduleSummary.awaitExistence("the schedule's summary")
+        XCTAssertEqual(player.nightScheduleSummary.label, "Schedule: 21:30–07:00")
+    }
+
+    /// Both times the same: the page says the schedule never acts. Set
+    /// through `UserDefaults`' argument domain, as strings.
+    func testNightModeEqualTimesShowTheNote() {
+        openNightMode(extraArguments: [
+            "-nightMode.schedule.enabled", "YES",
+            "-nightMode.schedule.turnOn", "420",
+        ])
+        let note = app.staticTexts[A11yID.Profile.nightSameTimesNote]
+        for _ in 0..<4 where !note.exists { ProfileScreen(app: app).scrollSettings() }
+        note.awaitExistence("the equal-times note")
+        XCTAssertEqual(note.label, "The schedule never turns Night Mode on or off while both times are the same.")
+    }
+
     func testQuickConnectApprovesACode() {
         launch()
         HomeScreen(app: app).awaitLoaded()

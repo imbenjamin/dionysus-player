@@ -563,6 +563,22 @@ Privacy Policy), with iOS's footers.
   itself, so each sits under `onLongPressGesture(minimumDuration:perform:onPressingChanged:)`,
   and the press that ends a hold doesn't add a step of its own.
 
+- **Night Mode opens a cover of its own** (`TVNightModePage`, after Audio
+  Offset): the player's Night tab as settings rows (Night Mode and Night
+  Audio on/off, Volume Limit and Brightness as `[0%] [−] value [+] [100%]`,
+  each control a focus stop with Audio Offset's hold-to-repeat), then
+  Schedule and, while it's on, Turn On and Turn Off as `[−] 22:00 [+]` in
+  the same row (`TVNightStepperRow`; Benjamin, 2026-11-16, since tvOS has
+  no `DatePicker`): 15 minutes a press, wrapping past midnight, so neither
+  button is ever dimmed, and an off-grid time steps to the next or previous
+  quarter hour (`NightModeTimeStep`); 12- or 24-hour per the locale. Up/Down
+  keep the − or + column. Under VoiceOver each level and time is one
+  adjustable element. Equal times show a note, plain text rather than a
+  footer so VoiceOver reaches it. The schedule's rules are
+  `NightModeController.setSchedule`'s, shared with iOS. Its settings live in
+  the shared keychain, so launch arguments don't reach them here (they do on
+  iOS).
+
 - **Select on an on/off row flips it; a setting with more choices opens a page
   of them** (`TVSettingsPicker`, Benjamin, 2026-10-05): the countdown,
   Streaming and Max Streaming Bitrate. The current choice is ticked and
@@ -1025,8 +1041,8 @@ state, so XCUITest reads it from a test-only marker
   draws no copy of its own (checked with a forced SubRip track). Subtitle
   Appearance applies here too, from tvOS's Settings › Accessibility ›
   Subtitles and Captioning (`Core/Playback/CLAUDE.md`, "Subtitle Style").
-- **The swipe-down panel** (Info, Chapters, Audio, Subtitles; Chapters only
-  when the title has them) opens with Down or an icon and lifts the scrubber
+- **The swipe-down panel** (Info, Chapters, Audio, Subtitles, Night; Chapters
+  only when the title has them) opens with Down or an icon and lifts the scrubber
   to mid-screen. Tabs follow focus. Restart and a chapter play and close it; a
   track switch keeps it open. It closes on Menu, Up from the tabs, or 10s
   without a press; Menu closes it even while an audio switch reloads, when
@@ -1043,6 +1059,34 @@ state, so XCUITest reads it from a test-only marker
   track. `TVPlayerInputModel.audioRow(at:_:)` numbers the right column's rows
   on from the tracks; in the accessible transport the Offset row is one
   adjustable element. `Core/Playback/CLAUDE.md` has the rest.
+  **The Night tab** (after Subtitles) has four rows: Night Mode, Night
+  Audio (its note, "Limits dynamic range. Turns off Atmos and passthrough
+  while on.", beside the name while it fits whole, else under it, never cut
+  short, and read as part of the row's label), then Volume Limit and
+  Brightness, each `[0%] [−] value [+] [100%]` (Benjamin, 2026-11-16; what
+  the settings do is `Core/Playback/CLAUDE.md`, "Night Mode"). Each control
+  is a focus stop (`TVNightPanelRow.all` numbers them on from the switches,
+  as the Audio tab numbers its offset rows); the value isn't. Left/Right
+  move among a level's controls, Up/Down keep the control between the two
+  levels, and from Night Audio Down lands on Volume's −, since both levels
+  start at 100% where + does nothing. Select presses; **holding Select on −
+  or + repeats** (every 0.1 s after 0.4 s, as `TVAudioOffsetPage`): a second
+  Select recognizer (a long press, recognized alongside the tap) reports the
+  hold, and the model swallows the tap that ends it, for a moment only,
+  since a tap may not follow a long press at all. A control that would do
+  nothing is dimmed but stays a stop, so focus never jumps as a level hits
+  its end; focused, its glyph is solid black like any other's. The levels
+  can be set while Night Mode is off, and show greyed. In the accessible
+  transport each level is one adjustable element (5% a swipe) with "Set to
+  0%" and "Set to 100%" as named actions. While Night Mode is on the
+  elapsed time shows a moon (the tab's title carries none). **The dimming
+  is a black layer in `TVPlayerOverlay`**, above the subtitles and below
+  the controls: it covers the picture, the `AetherStillView` (in
+  `contentOverlayView`, under the overlay) and the cues, while the
+  transport and panel stay at full brightness. Only the player's own
+  overlay draws it, never the accessible transport's layer, which sits
+  above everything. It has no identifier: journeys read the level from
+  Playback Stats' "Night Mode" row.
   **The panel is laid out in screen coordinates** (title at 60, scrubber at
   440, tabs at 560) in an overlay of a screen-sized view: inside the safe area
   that layer started at the screen's top, and the chrome's gradients must

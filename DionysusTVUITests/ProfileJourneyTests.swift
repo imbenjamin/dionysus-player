@@ -13,7 +13,7 @@ final class ProfileJourneyTests: TVUITestCase {
 
     /// Profile has more rows than a sidebar.
     private func pressDownThroughProfile(until element: XCUIElement) {
-        pressDown(until: element, presses: 16)
+        pressDown(until: element, presses: 20)
     }
 
     func test_profile_showsWhoIsSignedIn_andTheVersions() {
@@ -30,8 +30,8 @@ final class ProfileJourneyTests: TVUITestCase {
         openProfile(app)
         for id in [A11yID.TV.Profile.approveQuickConnect, A11yID.TV.Profile.signOut, A11yID.TV.Profile.changeServer,
                    A11yID.TV.Profile.followsAppleTVUsers, A11yID.TV.Profile.autoCarousel, A11yID.TV.Profile.nextUpCountdown,
-                   A11yID.TV.Profile.chaptersInScrubber, A11yID.TV.Profile.subtitleAppearance, A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.advanced,
-                   A11yID.TV.Profile.license,
+                   A11yID.TV.Profile.chaptersInScrubber, A11yID.TV.Profile.subtitleAppearance, A11yID.TV.Profile.audioOffset, A11yID.TV.Profile.nightMode,
+                   A11yID.TV.Profile.advanced, A11yID.TV.Profile.license,
                    A11yID.TV.Profile.privacyPolicy] {
             pressDownThroughProfile(until: app.buttons[id])
         }
@@ -116,6 +116,150 @@ final class ProfileJourneyTests: TVUITestCase {
         XCTAssertTrue(app.buttons[A11yID.TV.Profile.statsButton].exists)
         press(.menu)
         XCTAssertTrue(waitForFocus(advanced))
+    }
+
+    // MARK: Night Mode
+
+    /// Profile → Playback → Night Mode, on its switch.
+    private func openNightMode(_ app: XCUIApplication) -> XCUIElement {
+        openProfile(app)
+        let row = app.buttons[A11yID.TV.Profile.nightMode]
+        pressDownThroughProfile(until: row)
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.nightToggle]), "The cover opens on Night Mode's switch")
+        return row
+    }
+
+    /// The cover's switch is the player's: Select flips it, and Menu closes
+    /// onto the row, which reads the new value.
+    func test_nightMode_opens_flips_andMenuReturnsToItsRow() {
+        let app = launchAtHome()
+        let row = app.buttons[A11yID.TV.Profile.nightMode]
+        openProfile(app)
+        pressDownThroughProfile(until: row)
+        let before = row.value as? String
+        press(.select)
+        let toggle = app.buttons[A11yID.TV.Profile.nightToggle]
+        XCTAssertTrue(waitForFocus(toggle))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (toggle.value as? String) != before })
+        press(.menu)
+        XCTAssertTrue(waitForFocus(row), "Menu closes onto the row")
+        XCTAssertNotEqual(row.value as? String, before)
+    }
+
+    /// A level's controls are focus stops: Left/Right move among them and
+    /// Select presses.
+    func test_nightMode_levelSteps() {
+        let app = launchAtHome()
+        _ = openNightMode(app)
+        // Down lands on whichever of the row's controls is nearest; the
+        // leftmost is 0%, and − is one to its right.
+        let min = app.buttons[A11yID.TV.Profile.nightControl("brightness", "min")]
+        let decrease = app.buttons[A11yID.TV.Profile.nightControl("brightness", "decrease")]
+        let brightnessControls = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND hasFocus == true", "tv.profile.night.brightness."
+        ))
+        for _ in 0..<6 where brightnessControls.count == 0 { press(.down); _ = waitForFocus(min, timeout: 0.5) }
+        for _ in 0..<4 where !min.hasFocus { press(.left); _ = waitForFocus(min, timeout: 0.5) }
+        press(.right)
+        XCTAssertTrue(waitForFocus(decrease))
+        let value = app.descendants(matching: .any)[A11yID.TV.Profile.nightBrightness]
+        XCTAssertEqual(value.value as? String, "100%")
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (value.value as? String) == "95%" }, "\(value.value ?? "")")
+        press(.left)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.nightControl("brightness", "min")]))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (value.value as? String) == "0%" })
+    }
+
+    /// Night Mode's cover, with a 24-hour clock so the times read as the
+    /// spec writes them, and the schedule turned on: focus on Schedule.
+    private func openScheduleOn() -> (app: XCUIApplication, row: XCUIElement) {
+        let app = launch(seedSession: true, extraArguments: ["-AppleLocale", "en_GB"])
+        let row = openNightMode(app)
+        let schedule = app.buttons[A11yID.TV.Profile.nightSchedule]
+        XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Profile.nightTurnOn].exists, "No times while the schedule is off")
+        pressDown(until: schedule, presses: 8)
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Profile.nightTurnOn].waitForExistence(timeout: 5))
+        return (app, row)
+    }
+
+    /// Focuses `control`, moving Down out of Schedule and then along the
+    /// row, since Down lands on whichever button is nearest.
+    private func focusTimeControl(_ app: XCUIApplication, _ time: String, _ control: String) {
+        let target = app.buttons[A11yID.TV.Profile.nightTimeControl(time, control)]
+        for _ in 0..<4 where !target.hasFocus {
+            let rowFocused = app.buttons.matching(NSPredicate(
+                format: "identifier BEGINSWITH %@ AND hasFocus == true", "tv.profile.night.\(time)."
+            )).count > 0
+            press(rowFocused ? (control == "increase" ? .right : .left) : .down)
+            _ = waitForFocus(target, timeout: 0.7)
+        }
+        XCTAssertTrue(waitForFocus(target), "\(time)'s \(control)")
+    }
+
+    /// The schedule's times show while it's on, each `[−] 22:00 [+]`: 15
+    /// minutes a press, Up/Down keeping the column, and Menu closes onto
+    /// the row.
+    func test_nightMode_schedule_stepsTheTimes() {
+        let (app, row) = openScheduleOn()
+        let turnOn = app.descendants(matching: .any)[A11yID.TV.Profile.nightTurnOn]
+        let turnOff = app.descendants(matching: .any)[A11yID.TV.Profile.nightTurnOff]
+        XCTAssertEqual(turnOn.value as? String, "22:00")
+        XCTAssertEqual(turnOff.value as? String, "07:00")
+
+        focusTimeControl(app, "turnOn", "increase")
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (turnOn.value as? String) == "22:15" }, "\(turnOn.value ?? "")")
+        press(.left)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.nightTimeControl("turnOn", "decrease")]))
+        press(.select)
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (turnOn.value as? String) == "21:45" }, "\(turnOn.value ?? "")")
+
+        press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.nightTimeControl("turnOff", "decrease")]), "Down keeps the − column")
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (turnOff.value as? String) == "06:45" }, "\(turnOff.value ?? "")")
+
+        press(.menu)
+        XCTAssertTrue(waitForFocus(row), "Menu closes onto the Night Mode row")
+    }
+
+    /// Holding Select on + repeats after a moment, and letting go stops it.
+    func test_nightMode_scheduleTime_holdingRepeats() {
+        let (app, _) = openScheduleOn()
+        let turnOn = app.descendants(matching: .any)[A11yID.TV.Profile.nightTurnOn]
+        focusTimeControl(app, "turnOn", "increase")
+        XCUIRemote.shared.press(.select, forDuration: 2)
+        let held = turnOn.value as? String
+        XCTAssertNotEqual(held, "22:00")
+        XCTAssertNotEqual(held, "22:15", "A two-second hold steps more than once")
+        // A held step lands every ~0.1 s, so a second without one is the
+        // repeat stopped.
+        sleep(1)
+        XCTAssertEqual(turnOn.value as? String, held, "Letting go stops the repeat")
+    }
+
+    /// Equal times: the cover says the schedule never acts. Turn Off is
+    /// stepped from 07:00 up to Turn On's 22:00.
+    func test_nightMode_equalTimes_showTheNote() {
+        let (app, _) = openScheduleOn()
+        let turnOff = app.descendants(matching: .any)[A11yID.TV.Profile.nightTurnOff]
+        let note = app.staticTexts[A11yID.TV.Profile.nightSameTimesNote]
+        XCTAssertFalse(note.exists)
+        focusTimeControl(app, "turnOn", "increase")
+        press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.nightTimeControl("turnOff", "increase")]))
+        for _ in 0..<70 where (turnOff.value as? String) != "22:00" {
+            press(.select)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        }
+        XCTAssertEqual(turnOff.value as? String, "22:00")
+        XCTAssertTrue(note.waitForExistence(timeout: 3), "The equal-times note")
     }
 
     /// Direct Play Always has no bitrate to cap, so its row goes, and comes

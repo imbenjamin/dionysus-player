@@ -19,7 +19,8 @@ final class TVPlayerCommandRunnerTests: XCTestCase {
             userID: "user-1", itemID: "item-1", engine: engine,
             trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
-            streamPreferenceStore: StreamPreferenceStore(defaults: defaults)
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+            nightMode: .isolated()
         )
         var closed = 0
         var advanced = 0
@@ -55,7 +56,8 @@ final class TVPlayerCommandRunnerTests: XCTestCase {
             trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
             streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
-            audioOffsetStore: AudioOffsetStore(defaults: defaults)
+            audioOffsetStore: AudioOffsetStore(defaults: defaults),
+            nightMode: .isolated()
         )
         let runner = TVPlayerCommandRunner(viewModel: viewModel, close: {}, playNext: {})
 
@@ -69,5 +71,32 @@ final class TVPlayerCommandRunnerTests: XCTestCase {
 
         runner.run([.setAudioOffsetScope(.allTitles)])
         XCTAssertEqual(viewModel.audioOffset.scope, .allTitles)
+    }
+
+    func test_nightCommands_reachTheController() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let nightMode = NightModeController.isolated()
+        let viewModel = PlayerViewModel(
+            client: JellyfinAPIClient(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: "tok", session: MockURLProtocol.makeSession()),
+            userID: "user-1", itemID: "item-1", engine: FakePlaybackEngine(),
+            trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
+            nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+            nightMode: nightMode
+        )
+        let runner = TVPlayerCommandRunner(viewModel: viewModel, close: {}, playNext: {})
+
+        runner.run([.setNightMode(true), .setNightAudio(false), .stepVolume(-5), .stepVolume(-5), .stepBrightness(-5)])
+        XCTAssertEqual(
+            nightMode.settings,
+            NightModeSettings(isOn: true, nightAudio: false, volumePercent: 90, brightnessPercent: 95,
+                              schedule: NightModeSettings.defaults.schedule)
+        )
+        runner.run([.setBrightness(0), .setVolume(100)])
+        XCTAssertEqual(nightMode.settings.brightnessPercent, 0)
+        XCTAssertEqual(nightMode.settings.volumePercent, 100)
+        runner.run([.stepBrightness(-5), .setNightMode(false)])
+        XCTAssertEqual(nightMode.settings.brightnessPercent, 0, "Clamped at 0")
+        XCTAssertFalse(nightMode.settings.isOn)
     }
 }

@@ -149,4 +149,68 @@ final class PlayerPanelJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForPlayerFocus(app, "content.audio.0"))
         XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Player.audioOffsetRow].exists)
     }
+
+    // MARK: Night
+
+    /// From the scrubber: the panel on Info, Right along to Night (after
+    /// Subtitles), Down onto Night Mode.
+    private func openNightTab(_ app: XCUIApplication) {
+        press(.down)
+        XCTAssertTrue(waitForPlayerFocus(app, "tab.info"))
+        press(.right, times: 4)
+        XCTAssertTrue(waitForPlayerFocus(app, "tab.night"))
+        press(.down)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.night.0"))
+    }
+
+    /// The dimming layer has no identifier (it's hidden from accessibility),
+    /// so its level is read from Playback Stats' "Night Mode" row, opened by
+    /// the play link (`TESTING.md`, deep links).
+    func test_nightTab_dimsAndShowsInStats() {
+        let app = launch(scenario: "standard", seedSession: true, extraArguments: keepTransportUp)
+        XCTAssertTrue(app.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 10))
+        app.open(URL(string: "dionysus://play/\(UITestFixtureIdentity.primaryMovieID)?stats=1")!)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.statsPanel].waitForExistence(timeout: 10))
+        let statsRow = app.descendants(matching: .any)[A11yID.TV.Player.statsValue("Night Mode")]
+        let indicator = app.descendants(matching: .any)[A11yID.TV.Player.nightIndicator]
+        XCTAssertFalse(statsRow.exists, "Off, Night Mode has no row")
+        XCTAssertFalse(indicator.exists)
+
+        openNightTab(app)
+        let toggle = app.descendants(matching: .any)[A11yID.TV.Player.nightToggle]
+        XCTAssertEqual(toggle.value as? String, "Off")
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (toggle.value as? String) == "On" })
+        XCTAssertTrue(indicator.waitForExistence(timeout: 3), "The moon by the time")
+
+        // Into Volume Limit on its −, then down to Brightness's −
+        // (`TVNightPanelRow.all`: 3 and 7).
+        press(.down, times: 2)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.night.3"))
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.nightControl("volume", "decrease")].exists)
+        let volume = app.descendants(matching: .any)[A11yID.TV.Player.nightVolume]
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (volume.value as? String) == "95%" })
+        press(.down)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.night.7"))
+        let brightness = app.descendants(matching: .any)[A11yID.TV.Player.nightBrightness]
+        press(.select, times: 2)
+        XCTAssertTrue(poll(timeout: 3) { (brightness.value as? String) == "90%" })
+
+        // Stats give way to the panel; Menu closes it and they're back.
+        press(.menu)
+        XCTAssertTrue(statsRow.waitForExistence(timeout: 5))
+        XCTAssertEqual(statsRow.value as? String, "Night Audio · Volume 95% · Brightness 90%")
+
+        // Brightness's 0%, left of its −: a black picture with sound.
+        openNightTab(app)
+        press(.down, times: 3)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.night.7"))
+        press(.left)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.night.6"))
+        press(.select)
+        XCTAssertTrue(poll(timeout: 3) { (brightness.value as? String) == "0%" })
+        press(.menu)
+        XCTAssertTrue(poll(timeout: 5) { (statsRow.value as? String) == "Night Audio · Volume 95% · Brightness 0%" })
+    }
 }

@@ -86,6 +86,9 @@ struct PlayerView: View {
     /// Whether `ChapterPickerOverlay` is showing, here for the same reason
     /// `isShowingTrackPicker` is.
     @State private var isShowingChapterPicker = false
+    /// Whether the Night panel is showing, here for the same reason
+    /// `isShowingTrackPicker` is.
+    @State private var isShowingNightPanel = false
     /// Mirrors `RotationLock`'s app-wide state for the button's icon;
     /// `toggleRotationLock()` and `close()` keep the two in sync.
     @State private var isRotationLocked = false
@@ -200,6 +203,23 @@ struct PlayerView: View {
                     .frame(maxHeight: .infinity, alignment: .top)
                     .ignoresSafeArea()
 
+                // Night Mode's Brightness: black over the picture and its
+                // subtitles, framed as they are (so tabletop dims only the
+                // picture above the fold), and under everything after it in
+                // this ZStack: Playback Stats, the controls and the Night
+                // panel, Skip and Next Up stay at full brightness. Decorative:
+                // no taps, nothing for VoiceOver, no identifier (journeys read
+                // Playback Stats' "Night Mode" row).
+                if viewModel.videoDimOpacity > 0 {
+                    Color.black
+                        .opacity(viewModel.videoDimOpacity)
+                        .frame(height: foldLayout.videoHeight)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+
                 // Between the video surface and `PlayerControlsOverlay`. Always
                 // mounted, with `showPlaybackStats` driving its internal opacity
                 // rather than inserting and removing it: a mount toggle here
@@ -222,6 +242,7 @@ struct PlayerView: View {
                     scrubTime: $scrubTime,
                     isShowingTrackPicker: $isShowingTrackPicker,
                     isShowingChapterPicker: $isShowingChapterPicker,
+                    isShowingNightPanel: $isShowingNightPanel,
                     onClose: { Task { await close() } },
                     isRotationLocked: isRotationLocked,
                     onToggleRotationLock: toggleRotationLock,
@@ -508,6 +529,9 @@ struct PlayerView: View {
         .onChange(of: isShowingTrackPicker) { _, _ in
             scheduleAutoHide()
         }
+        .onChange(of: isShowingNightPanel) { _, _ in
+            scheduleAutoHide()
+        }
         // The automatic half of the Up Next countdown: reaching 0 advances on its
         // own, and Play Now or Cancel preempt it.
         .onChange(of: viewModel?.nextUpSecondsRemaining) { _, secondsRemaining in
@@ -589,7 +613,7 @@ struct PlayerView: View {
         // never fires and every assertion races the 3s fade.
         guard !UITestHarness.keepsPlayerControlsVisible else { return }
         #endif
-        guard showControls, !isShowingTrackPicker, !isShowingChapterPicker,
+        guard showControls, !isShowingTrackPicker, !isShowingChapterPicker, !isShowingNightPanel,
               !voiceOverEnabled, viewModel?.state == .playing else { return }
         autoHideTask = Task {
             try? await Task.sleep(for: Self.autoHideDelay)

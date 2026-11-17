@@ -177,6 +177,7 @@ struct MainTabView: View {
         #if DEBUG
         // Nothing unless the harness simulates VoiceOver (TQ-12).
         .overlay(alignment: .topLeading) { UITestAnnouncementProbe() }
+        .overlay(alignment: .topTrailing) { UITestTimeZoneProbe() }
         #endif
         // Per-hero only where the bar sits over the hero: `HeroRailView`
         // publishes a backdrop only for a bar at the top, so anywhere else

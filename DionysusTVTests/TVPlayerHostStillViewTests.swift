@@ -30,7 +30,8 @@ final class TVPlayerHostStillViewTests: XCTestCase {
     private func makeViewModel(engine: PlaybackEngine) -> PlayerViewModel {
         PlayerViewModel(
             client: JellyfinAPIClient(baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: "tok", session: MockURLProtocol.makeSession()),
-            userID: "user-1", itemID: "item-1", engine: engine
+            userID: "user-1", itemID: "item-1", engine: engine,
+            nightMode: .isolated()
         )
     }
 }

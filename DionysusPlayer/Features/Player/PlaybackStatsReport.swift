@@ -178,7 +178,29 @@ extension PlaybackStatsReport {
         if let spatialAudio = stats.spatialAudio {
             rows.append(Row("Spatial Audio", spatialAudio))
         }
+        if let nightMode = stats.nightMode {
+            rows.append(Row("Night Mode", nightMode))
+        }
         return Section(title: String(localized: "Audio"), rows: rows)
+    }
+
+    /// The "Night Mode" row's value: the parts in force, each left out at its
+    /// normal value, so nil when Night Mode is off (its effect is `.none`).
+    static func describeNightMode(_ effect: NightModeEffect, nightAudioState: NightAudioState) -> String? {
+        var parts: [String] = []
+        if effect.nightAudio {
+            parts.append(nightAudioState == .unavailable
+                ? String(localized: "Night Audio unavailable") : String(localized: "Night Audio"))
+        }
+        let volume = Int((effect.volume * 100).rounded())
+        if volume < 100 {
+            parts.append(String(localized: "Volume \(volume)%"))
+        }
+        let brightness = Int(((1 - effect.dimOpacity) * 100).rounded())
+        if brightness < 100 {
+            parts.append(String(localized: "Brightness \(brightness)%"))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// `zoomMode` is `nil` on the Apple TV, which has no zoom.

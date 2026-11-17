@@ -109,7 +109,7 @@ final class TVVersionPickerTests: XCTestCase {
             baseURL: URL(string: "https://jellyfin.example.com")!, accessToken: "tok", session: MockURLProtocol.makeSession()
         )
         func viewModel(_ itemID: String) -> PlayerViewModel {
-            PlayerViewModel(client: client, userID: "user-1", itemID: itemID, engine: FakePlaybackEngine())
+            PlayerViewModel(client: client, userID: "user-1", itemID: itemID, engine: FakePlaybackEngine(), nightMode: .isolated())
         }
         let host = TVPlayerHostController(viewModel: viewModel("episode-s2e1"))
         var remembered: [String: String] = [:]

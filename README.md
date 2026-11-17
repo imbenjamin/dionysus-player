@@ -132,6 +132,11 @@ If you are unsure, please use the Stable Releases link.
   playlist playback (mixed movies/episodes, start-to-finish with its own
   client-driven "Up Next" — Jellyfin has no server-side equivalent for
   playlists).
+- **Night Mode** — one switch in the player (and in Profile → Playback) for
+  watching late: Night Audio compresses the dynamic range (it turns off Atmos
+  and passthrough while on), Volume Limit lowers the app's output and
+  Brightness dims the picture and subtitles, with a schedule that turns it on
+  and off. The levels are remembered until you change them.
 - **Subtitles** — authored ASS/SSA tracks render with their real typesetting
   through libass: the script's own fonts, positioning and on-picture signs,
   rather than just the dialogue text. Fonts the source container carries as

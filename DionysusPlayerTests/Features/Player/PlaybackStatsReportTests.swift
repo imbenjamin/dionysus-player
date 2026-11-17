@@ -55,6 +55,41 @@ final class PlaybackStatsReportTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.label == "Spatial Audio" })
     }
 
+    // MARK: Night Mode
+
+    /// What Night Mode is doing, after the audio rows; a part left at its
+    /// normal value isn't listed.
+    func test_nightModeRow_listsActiveParts() {
+        let effect = NightModeEffect(nightAudio: true, volume: 0.6, dimOpacity: 0.6)
+        var withNight = stats
+        withNight.nightMode = PlaybackStatsReport.describeNightMode(effect, nightAudioState: .applied)
+        let rows = PlaybackStatsReport.audio(withNight, sourceAudioStream: nil, readings: .init()).rows
+        XCTAssertEqual(rows.last?.label, "Night Mode")
+        XCTAssertEqual(rows.last?.value, "Night Audio · Volume 60% · Brightness 40%")
+
+        let volumeOnly = NightModeEffect(nightAudio: false, volume: 0.35, dimOpacity: 0)
+        XCTAssertEqual(PlaybackStatsReport.describeNightMode(volumeOnly, nightAudioState: .off), "Volume 35%")
+        let nightAudioOnly = NightModeEffect(nightAudio: true, volume: 1, dimOpacity: 0)
+        XCTAssertEqual(PlaybackStatsReport.describeNightMode(nightAudioOnly, nightAudioState: .off), "Night Audio")
+    }
+
+    /// A server transcode, where AVPlayer owns the audio: the compressor
+    /// can't apply, and the row says so.
+    func test_nightModeRow_saysUnavailable() {
+        let effect = NightModeEffect(nightAudio: true, volume: 1, dimOpacity: 0.2)
+        XCTAssertEqual(
+            PlaybackStatsReport.describeNightMode(effect, nightAudioState: .unavailable),
+            "Night Audio unavailable · Brightness 80%"
+        )
+    }
+
+    func test_noNightModeRow_whenOff() {
+        XCTAssertNil(PlaybackStatsReport.describeNightMode(.none, nightAudioState: .off))
+        XCTAssertNil(PlaybackStatsReport.describeNightMode(.none, nightAudioState: .unavailable))
+        let rows = PlaybackStatsReport.audio(stats, sourceAudioStream: nil, readings: .init()).rows
+        XCTAssertFalse(rows.contains { $0.label == "Night Mode" })
+    }
+
     func test_playback_omitsZoomWhereThereIsNone() {
         XCTAssertTrue(PlaybackStatsReport.playback(stats, state: .playing, zoomMode: .fit).rows.contains { $0.label == "Zoom" })
         XCTAssertFalse(PlaybackStatsReport.playback(stats, state: .playing, zoomMode: nil).rows.contains { $0.label == "Zoom" })

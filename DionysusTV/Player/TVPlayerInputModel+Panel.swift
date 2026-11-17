@@ -31,6 +31,12 @@ extension TVPlayerInputModel {
             panel.focus = focus
             state.panel = panel
             return commands
+        case (.up, .content(let index)) where panel.tab == .night:
+            panel.focus = nightUp(from: index)
+        case (.down, .content(let index)) where panel.tab == .night:
+            panel.focus = .content(nightDown(from: index))
+        case (.arrow(let direction), .content(let index)) where panel.tab == .night:
+            panel.focus = .content(nightArrow(direction, from: index))
         case (.up, .content(let index)):
             panel.focus = panel.tab.isList && index > 0 ? .content(index - 1) : .tabs
         case (.down, .content(let index)):
@@ -77,6 +83,7 @@ extension TVPlayerInputModel {
         case .chapters: context.chapterStarts.count
         case .audio: context.audioTrackIDs.count + offsetRowCount(context)
         case .subtitles: context.subtitleTrackIDs.count + 1
+        case .night: TVNightPanelRow.all.count
         }
     }
 
@@ -169,6 +176,7 @@ extension TVPlayerInputModel {
         case .chapters: context.chapterStarts.lastIndex { $0 <= context.currentTime } ?? 0
         case .audio: context.selectedAudioIndex ?? 0
         case .subtitles: context.selectedSubtitleIndex.map { $0 + 1 } ?? 0
+        case .night: 0
         }
     }
 
@@ -200,6 +208,9 @@ extension TVPlayerInputModel {
             if index == 0 { return ([.selectSubtitle(id: nil)], false) }
             guard context.subtitleTrackIDs.indices.contains(index - 1) else { return ([], false) }
             return ([.selectSubtitle(id: context.subtitleTrackIDs[index - 1])], false)
+        case .night:
+            // Nothing here closes the panel, so a change can be seen.
+            return (nightSelect(at: index, context), false)
         }
     }
 }

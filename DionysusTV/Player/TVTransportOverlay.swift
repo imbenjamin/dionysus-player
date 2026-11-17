@@ -278,10 +278,19 @@ struct TVTransportOverlay: View {
     /// Elapsed, the format chip and remaining, under the scrubber.
     private var timesRow: some View {
         HStack {
-            Text(TVPlaybackTimeFormat.string(shownTime))
-                .monospacedDigit()
-                .accessibilityLabel(TVPlaybackTimeFormat.spokenElapsed(shownTime))
-                .accessibilityIdentifier(A11yID.TV.Player.elapsed)
+            HStack(spacing: 14) {
+                Text(TVPlaybackTimeFormat.string(shownTime))
+                    .monospacedDigit()
+                    .accessibilityLabel(TVPlaybackTimeFormat.spokenElapsed(shownTime))
+                    .accessibilityIdentifier(A11yID.TV.Player.elapsed)
+                // While Night Mode is on: the one sign of it without opening
+                // the panel (spec, "Indicator").
+                if viewModel.nightMode.settings.isOn {
+                    Image(systemName: "moon.fill")
+                        .accessibilityLabel(String(localized: "Night Mode On"))
+                        .accessibilityIdentifier(A11yID.TV.Player.nightIndicator)
+                }
+            }
             Spacer()
             if let chip = TVTransportLayout.formatChipText(viewModel.videoFormatDescription) {
                 Text(chip)

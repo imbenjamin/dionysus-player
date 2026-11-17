@@ -936,6 +936,24 @@ struct PlayerScreen: Screen {
     var audioOffsetBack: XCUIElement { app.descendants(matching: .any)[A11yID.Player.audioOffsetBack] }
     func audioOffsetScope(_ key: String) -> XCUIElement { app.buttons[A11yID.Player.audioOffsetScope(key)] }
 
+    /// The top row's moon; its value reads "On" or "Off".
+    var nightButton: XCUIElement { app.buttons[A11yID.Player.nightButton] }
+    /// The Night panel's switches (value "1" or "0"). Tap a switch's own
+    /// knob, `.switches.firstMatch`, as `ProfileJourneyTests` does: the
+    /// row's centre is its label.
+    var nightToggle: XCUIElement { app.switches[A11yID.Player.nightToggle] }
+    var nightAudioToggle: XCUIElement { app.switches[A11yID.Player.nightAudio] }
+    /// A level's value text ("60%"), or under VoiceOver its whole row, one
+    /// adjustable element.
+    var nightVolume: XCUIElement { app.descendants(matching: .any)[A11yID.Player.nightVolume] }
+    var nightBrightness: XCUIElement { app.descendants(matching: .any)[A11yID.Player.nightBrightness] }
+    /// `level` is `volume` or `brightness`; `control` `min`, `decrease`,
+    /// `increase` or `max`.
+    func nightControl(_ level: String, _ control: String) -> XCUIElement {
+        app.buttons[A11yID.Player.nightControl(level, control)]
+    }
+    var nightScheduleSummary: XCUIElement { app.staticTexts[A11yID.Player.nightScheduleSummary] }
+
     /// The composited libass bitmap. Present only while an authored ASS
     /// track is selected AND libass has produced a frame, so its mere
     /// existence is the assertion; its `label` carries the cue text.

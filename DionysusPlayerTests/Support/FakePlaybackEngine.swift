@@ -99,6 +99,33 @@ final class FakePlaybackEngine: PlaybackEngine {
     enum AudioEvent: Equatable {
         case selectAudioTrack(Int)
         case setSpatialAudio(SpatialAudioRendering)
+        case setNightAudio(Bool)
+    }
+
+    /// The last load's `nightAudio`; nil before one.
+    private(set) var loadedNightAudio: Bool?
+    /// Every `setNightAudio(_:)`, repeats included (the engine folds them).
+    private(set) var nightAudioCalls: [Bool] = []
+    var outputVolume: Float = 1
+    /// `outputVolume` as each load found it, so a test can tell a load's own
+    /// volume from one an earlier session left behind.
+    private(set) var loadedOutputVolumes: [Float] = []
+    var onNightAudioStateChange: ((NightAudioState) -> Void)?
+    /// Reported as AetherEngine would: unavailable on a server transcode,
+    /// where AVPlayer owns the audio. Settable so a test can drive it.
+    var nightAudioState: NightAudioState = .off {
+        didSet { onNightAudioStateChange?(nightAudioState) }
+    }
+    private var isRemoteHLSSession = false
+
+    func setNightAudio(_ on: Bool) {
+        nightAudioCalls.append(on)
+        audioEvents.append(.setNightAudio(on))
+        reportNightAudio(on)
+    }
+
+    private func reportNightAudio(_ on: Bool) {
+        nightAudioState = on ? (isRemoteHLSSession ? .unavailable : .applied) : .off
     }
 
     func setSpatialAudio(_ rendering: SpatialAudioRendering) async throws {
@@ -110,9 +137,13 @@ final class FakePlaybackEngine: PlaybackEngine {
 
     func load(
         url: URL, externalSubtitles: [ExternalSubtitleSource], knownAtmosAudioTrackIndices: Set<Int>,
-        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering
+        isRemoteHLS: Bool, audioOffset: TimeInterval, spatialAudio: SpatialAudioRendering, nightAudio: Bool
     ) async throws {
         if let loadError { throw loadError }
+        loadedNightAudio = nightAudio
+        loadedOutputVolumes.append(outputVolume)
+        isRemoteHLSSession = isRemoteHLS
+        reportNightAudio(nightAudio)
         loadedSpatialAudio.append(spatialAudio)
         self.spatialAudio = spatialAudio
         loadedURLs.append(url)

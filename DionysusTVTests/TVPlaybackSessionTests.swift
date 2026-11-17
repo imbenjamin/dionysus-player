@@ -49,7 +49,8 @@ final class TVPlaybackSessionTests: XCTestCase {
             userID: "user-1", itemID: "item-1", engine: engine,
             trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
-            streamPreferenceStore: StreamPreferenceStore(defaults: defaults)
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+            nightMode: .isolated()
         )
         let session = TVPlaybackSession(viewModel: viewModel)
 
@@ -82,7 +83,8 @@ final class TVPlaybackSessionTests: XCTestCase {
             userID: "user-1", itemID: "item-1", engine: engine,
             trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
-            streamPreferenceStore: StreamPreferenceStore(defaults: defaults)
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+            nightMode: .isolated()
         )
         let session = TVPlaybackSession(viewModel: viewModel)
 
@@ -109,7 +111,8 @@ final class TVPlaybackSessionTests: XCTestCase {
             userID: "user-1", itemID: "item-1", engine: engine,
             trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
             nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
-            streamPreferenceStore: StreamPreferenceStore(defaults: defaults)
+            streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+            nightMode: .isolated()
         )
         let session = TVPlaybackSession(viewModel: viewModel)
 
@@ -132,7 +135,8 @@ final class TVPlaybackSessionTests: XCTestCase {
                 userID: "user-1", itemID: "item-1", engine: engine,
                 trackPreferenceStore: TrackPreferenceStore(defaults: defaults),
                 nextUpPreferenceStore: NextUpPreferenceStore(defaults: defaults),
-                streamPreferenceStore: StreamPreferenceStore(defaults: defaults)
+                streamPreferenceStore: StreamPreferenceStore(defaults: defaults),
+                nightMode: .isolated()
             ))
         }
         let handedOff = FakePlaybackEngine()

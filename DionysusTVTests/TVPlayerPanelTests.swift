@@ -30,14 +30,15 @@ final class TVPlayerPanelTests: XCTestCase, TVPlayerInputModelHarness {
         press(.right)
         press(.right)
         press(.right)
-        XCTAssertEqual(state.panel?.tab, .subtitles)
+        press(.right)
+        XCTAssertEqual(state.panel?.tab, .night, "Night is the last tab")
         press(.left)
-        XCTAssertEqual(state.panel?.tab, .audio)
+        XCTAssertEqual(state.panel?.tab, .subtitles)
     }
 
     func test_chaptersTab_isAbsentWithoutChapters() {
         context.chapterStarts = []
-        XCTAssertEqual(TVPlayerInputModel.availableTabs(context), [.info, .audio, .subtitles])
+        XCTAssertEqual(TVPlayerInputModel.availableTabs(context), [.info, .audio, .subtitles, .night])
         send(.down)
         press(.right)
         XCTAssertEqual(state.panel?.tab, .audio)

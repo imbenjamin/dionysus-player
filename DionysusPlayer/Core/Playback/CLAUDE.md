@@ -219,6 +219,79 @@ AirPlay as stereo. It needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   If stalls come back, the Read-Ahead Buffer can't help: the producer is the
   limit, not the network.
 
+## Night Mode
+
+One switch over three saved levels, like Night Shift (Benjamin, 2026-11-16,
+#363; design in `docs/superpowers/specs/2026-11-16-night-mode-design.md`):
+Night Audio, Volume Limit and Brightness, stored per device
+(`NightModeStore`: `UserDefaults` on iOS, the shared keychain on tvOS) and
+shown in the player (a moon button on iOS, the Night tab on the Apple TV) and
+in Profile → Playback → Night Mode.
+
+**There is one stored on/off value, always the one in force.** The switch
+sets it and the schedule sets it at each boundary; there is no separate
+override. A manual flip lasts until the next boundary, turning the schedule
+off keeps the value, and turning it on (or editing a time) changes nothing
+until a boundary passes. `NightModeScheduleRules` is the pure function of
+(schedule, last boundary applied, now): the latest boundary since the last
+one applied wins, so boundaries missed while the app wasn't running collapse
+at launch. A window may cross midnight; equal times never trigger (the page
+says so). `NightModeController` owns the value, wakes at the next boundary so
+one that passes mid-playback applies at once, and re-evaluates on foreground
+and on `significantTimeChangeNotification`.
+
+- **Night Audio is `AudioShaping(compressor: .night)`**, passed at load
+  (`LoadOptions.audioShaping`) and changed with `setAudioShaping`. It decodes
+  the audio to PCM, so **Atmos, TrueHD and DTS passthrough and the Spatial
+  Audio object render are traded for it, and it takes priority over Spatial
+  Audio** (AetherEngine's rule). The panel's note says so.
+- **Rebuild order.** The view model loads with Spatial Audio off while Night
+  Audio is on (`correctSpatialAudio` skips while it is). When it ends, the
+  shaping goes first and the Spatial Audio rebuild is queued after it
+  (`applyNightMode`), so that rebuild reads options with the shaping already
+  off.
+- **On a server transcode (`.remoteBypass`) it can't apply**: AVPlayer owns
+  the audio, `audioShapingState` reads `.unavailable` and the row says "Not
+  available when transcoding". The next stream that can, gets it.
+- **Toggling it holds the picture** while the engine rebuilds at the
+  playhead: AetherEngine quotes 0.3 s, **1 to 2 s measured on the Living Room
+  Apple TV** (accepted, Benjamin, 2026-11-16). Repeated calls fold.
+- **Volume Limit is `engine.volume`**, replayed on every load. The design
+  feared it might not reach audio passed undecoded to a receiver. **Measured
+  (Living Room, 2026-11-16): it applies on every route**, because the Apple
+  TV decodes everything to multichannel PCM before HDMI (the AVR shows "Multi
+  In" even for stream-copied E-AC-3); seen on Nobody 2 (DD+ stream copy), Life
+  of Brian (TrueHD) and Gravity (TrueHD Atmos rendered to a bed). So no note
+  ships.
+- **Brightness is a black layer** (opacity `1 - brightness`) in `PlayerView`
+  above `SubtitleOverlayView` and below Playback Stats, the controls and
+  every overlay, so subtitles dim and the controls never do. It is framed to
+  the picture (`foldLayout.videoHeight`, so tabletop dims the picture only),
+  ignores hits and is hidden from accessibility. **Picture in Picture isn't
+  dimmed** (the window is the system's). It dims Dolby Vision evenly
+  (checked on Gravity). The Apple TV's layer is in `TVPlayerOverlay`
+  (`DionysusTV/CLAUDE.md`, "The swipe-down panel").
+- **Device checks of the Atmos render need a Release build**: a Debug build
+  ran Gravity at about 0.2x real time and stalled. Night Mode itself works in
+  Debug. A development-signed Release build is `xcodebuild -configuration
+  Release CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development"
+  PROVISIONING_PROFILE_SPECIFIER="" DEVELOPMENT_TEAM=<team>`.
+- **Both levels are one row on both apps**, `[0%] [−] value [+] [100%]`
+  (`NightModeLevelRow`; Benjamin, 2026-11-16, option A of four after a
+  mockup): −/+ step 5% and repeat while held, a button that would do nothing
+  is dimmed. Under VoiceOver (`@VoiceOverEnabled`) a row is **one adjustable
+  element** (5% a swipe) with "Set to 0%" and "Set to 100%" as actions. The
+  levels can be set while Night Mode is off and show greyed.
+- **Tests.** `NightModeController.isolated()` (in `DionysusPlayerTests`) is a
+  controller over in-memory storage with no wakes, so a view model under test
+  never reads the device's own; `UITestHarness` clears `NightModeStore` between
+  launches. The `transcode` stub scenario puts the fake engine on the
+  server-transcode route. Journeys read what was applied from Playback Stats'
+  "Night Mode" row, which lists only the parts off their normal value (and is
+  absent when none is, Night Mode off included); the dimming layer has no identifier on
+  either app. `TESTING.md` lists the journeys, and the `-UITestShowTimeZone`
+  probe the schedule's time-zone check uses.
+
 ## Read-Ahead Buffer
 
 **How far ahead a direct-play file is loaded is a setting** (Profile →

@@ -239,6 +239,19 @@ final class AccessibilityAuditTests: TVUITestCase {
         try audit(app)
     }
 
+    /// Night Mode's cover with the schedule on, so the time rows are
+    /// audited too.
+    func test_profileNightMode() throws {
+        let app = openProfile()
+        pressDown(until: app.buttons[A11yID.TV.Profile.nightMode], presses: 16)
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.nightToggle]))
+        pressDown(until: app.buttons[A11yID.TV.Profile.nightSchedule], presses: 8)
+        press(.select)
+        XCTAssertTrue(app.buttons[A11yID.TV.Profile.nightTimeControl("turnOn", "increase")].waitForExistence(timeout: 5))
+        try audit(app)
+    }
+
     func test_profileSettingsPicker() throws {
         let app = openProfile()
         pressDown(until: app.buttons[A11yID.TV.Profile.nextUpCountdown], presses: 16)
@@ -351,6 +364,25 @@ final class AccessibilityAuditTests: TVUITestCase {
         XCTAssertTrue(waitForPlayerFocus(app, "content.audio.0"))
         press(.right)
         XCTAssertTrue(waitForPlayerFocus(app, "content.audio.3"))
+        try audit(app)
+    }
+
+    /// The Night tab, with Night Mode on so the moon by the time is audited
+    /// too.
+    func test_playerNightPanel() throws {
+        let app = openPlayer(extraArguments: ["-UITestDisableControlAutoHide", "YES"])
+        press(.down)
+        XCTAssertTrue(waitForPlayerFocus(app, "tab.info"))
+        press(.right, times: 4)
+        XCTAssertTrue(waitForPlayerFocus(app, "tab.night"))
+        press(.down)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.night.0"))
+        press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.nightIndicator].waitForExistence(timeout: 3))
+        // Onto Volume Limit's −, so a level's controls are audited focused.
+        press(.down, times: 2)
+        XCTAssertTrue(waitForPlayerFocus(app, "content.night.3"))
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.nightControl("volume", "max")].exists)
         try audit(app)
     }
 

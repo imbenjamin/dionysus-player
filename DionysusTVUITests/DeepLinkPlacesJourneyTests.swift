@@ -42,6 +42,13 @@ final class DeepLinkPlacesJourneyTests: TVUITestCase {
         XCTAssertTrue(any(app, A11yID.TV.Profile.advancedRows).waitForExistence(timeout: 10))
     }
 
+    func test_profileLink_opensNightMode() {
+        let app = launchAtHome()
+        app.open(link("profile/playback/night"))
+        XCTAssertTrue(any(app, A11yID.TV.Profile.nightRows).waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Profile.nightToggle]))
+    }
+
     /// Filled in, not approved: that stays a press of Authorize.
     func test_quickConnectLink_fillsTheCode_withoutApproving() {
         let app = launchAtHome()

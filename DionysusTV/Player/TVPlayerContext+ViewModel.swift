@@ -29,6 +29,11 @@ extension TVPlayerContext {
         audioOffset = offset.isAvailable
             ? AudioOffset(canDecrease: offset.canDecrease, canIncrease: offset.canIncrease, hasTitleOffset: offset.hasTitleOffset, scope: offset.scope)
             : nil
+        let night = viewModel.nightMode.settings
+        self.night = Night(
+            isOn: night.isOn, nightAudio: night.nightAudio,
+            volumePercent: night.volumePercent, brightnessPercent: night.brightnessPercent
+        )
         #if DEBUG
         autoHideDisabled = UITestConfiguration.disablesControlAutoHide
         #endif
