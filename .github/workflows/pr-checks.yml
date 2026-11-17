@@ -269,6 +269,8 @@ jobs:
     uses: ./.github/workflows/ui-tests.yml
     with:
       test-plan: UITests-Full
+      # Split across two jobs per environment (ui-tests.yml's header, #480).
+      shards: 2
 
   tv-ui-full:
     # The full tvOS UI suite for PRs into `stable`, as `ui-full` is for iOS:
