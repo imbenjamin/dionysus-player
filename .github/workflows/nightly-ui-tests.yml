@@ -38,6 +38,8 @@ jobs:
       # A nightly run has the time budget for it, and a test that only fails
       # once is reported as flaky rather than as a break.
       retry-tests-on-failure: true
+      # Split across two jobs per environment (ui-tests.yml's header, #480).
+      shards: 2
 
   tv-ui-tests:
     # The Apple TV app's full suite on tvOS 27.0 (tv-ui-tests.yml), split

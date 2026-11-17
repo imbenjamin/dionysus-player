@@ -27,7 +27,7 @@ name: tvOS UI tests
 # full runs, 2026-10-15). A retry relaunches the app and passes, so
 # `retry-tests-on-failure` gives each failing test up to five attempts.
 # The full plan is split by class across `shards` parallel jobs
-# (Scripts/tv-ui-test-shards.py): in one job it took about an hour of test
+# (Scripts/ui-test-shards.py): in one job it took about an hour of test
 # time, which left the 90-minute limit no room for retries (v1.2.0-alpha.3).
 on:
   workflow_call:
@@ -91,7 +91,7 @@ jobs:
         env:
           SHARDS: ${{ inputs.shards }}
         run: |
-          shards=$(python3 Scripts/tv-ui-test-shards.py "$SHARDS")
+          shards=$(python3 Scripts/ui-test-shards.py DionysusTVUITests TVUITestCase "$SHARDS")
           echo "shards=$shards" >> "$GITHUB_OUTPUT"
           echo "$shards" | jq -r '.[] | "Shard \(.index) of \(.count): \(if .tests == "" then "the whole plan" else .tests end)"'
 
@@ -181,8 +181,9 @@ jobs:
 
       - name: Upload UI test results
         # And when a test passed only on a retry: the job is green, and the
-        # bundle is the one place to see what the first attempt met.
-        if: failure() || steps.test.outputs.retried == 'true'
+        # bundle is the one place to see what the first attempt met. And on
+        # a cancel, for the reason ui-tests.yml gives (#480).
+        if: failure() || cancelled() || steps.test.outputs.retried == 'true'
         uses: actions/upload-artifact@v7
         with:
           # The second bundle exists only if the plan was run again after the

@@ -78,6 +78,8 @@ jobs:
     uses: ./.github/workflows/ui-tests.yml
     with:
       test-plan: UITests-Full
+      # Split across two jobs per environment (ui-tests.yml's header, #480).
+      shards: 2
 
   tv-ui-tests:
     # The Apple TV app's full UI suite on tvOS 27.0, as ui-tests runs the
