@@ -25,11 +25,12 @@ its release notes: 7.13.0's notes said "iOS 17" while its manifest said 18.
 image, since 2026-10-20), **and with Xcode 27.2 (27B52) on the Mac** (since
 2026-11-03, when 27.1 and the iOS 27.0/27.1 runtimes were removed there).
 Locally the iOS Simulators run iOS 27.2 (the iPhone Duo has its own 27.2
-runtime) and 18.6, the Apple TV ones tvOS 27.0 and 27.2; CI's are iOS 27.0,
-the Duo's 27.1, 18.6 and tvOS 27.0. So a break that shows only in CI may be
-27.1-only: CI is the gate. Moving CI to 27.2 is a deliberate change (the
-required check names carry the OS), and the image carries only a 27.2
-release candidate. AetherEngine is built and tested only with Xcode 27, and
+runtime) and 18.6, the Apple TV ones tvOS 27.0 and 27.2; CI's are iOS 27.2
+(27.0 until 2026-11-16, when runner image 20261112 stopped Xcode 27.1 seeing
+its iOS 27.0 Simulators, #473), the Duo's 27.1, 18.6 and tvOS 27.0. So a
+break that shows only in CI may be 27.1-only: CI is the gate. CI's iOS
+version is pinned, never "the newest": the required check names carry it,
+so changing it means updating both rulesets in the same change. AetherEngine is built and tested only with Xcode 27, and
 7.43.0 stopped compiling with Xcode 26, so no job can go back to an older
 image. CI also tests the iOS 18.6 floor (full plan only) and the iPhone Duo
 on iOS 27.1 in each pose, set through Device Hub by `Scripts/duo-pose/`

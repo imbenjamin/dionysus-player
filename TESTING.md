@@ -10,7 +10,7 @@ comment); the index at the end says where to look.
 | Target | Plan | What it is | Where it runs |
 | --- | --- | --- | --- |
 | `DionysusPlayerTests` | `UnitTests` | iOS unit tests (the scheme's default plan) | Every PR, every release |
-| `DionysusPlayerUITests` | `UITests-Smoke` | Seven iOS journeys (first-run sign-in, a seeded session, Home and a grid to a detail page, the player, Search, Profile's Spatial Audio settings) and the keychain-reset check | Every PR into `develop`: iPhone and iPad on iOS 27.0, the Duo closed and open on 27.1 |
+| `DionysusPlayerUITests` | `UITests-Smoke` | Seven iOS journeys (first-run sign-in, a seeded session, Home and a grid to a detail page, the player, Search, Profile's Spatial Audio settings) and the keychain-reset check | Every PR into `develop`: iPhone and iPad on iOS 27.2, the Duo closed and open on 27.1 |
 | | `UITests-Full` | Every iOS journey and audit | Nightly, PRs into `stable`, releases; iPhone and iPad on every supported iOS |
 | `DionysusTVTests` | `TVUnitTests` | The Apple TV app's own tests, plus the shared ones run on tvOS | Every PR |
 | `DionysusTVUITests` | `TVUITests-Smoke` | Seven Apple TV journeys: first launch to sign-in, Home, a detail page from Home and from a library, Search, the player | Every PR, tvOS 27.0; nightly on tvOS 26.5 as an allowed failure |
@@ -632,7 +632,7 @@ plan holds every smoke journey):
 
 | Device | iOS | Why | Smoke (`develop` PRs) | Full plan |
 | --- | --- | --- | --- | --- |
-| iPhone 16, iPad (A16) | 27.0 | The `xcode-27` image's only iOS 27.0 runtime | ✓ | ✓ |
+| iPhone 16, iPad (A16) | 27.2 | The newest release runtime on the `xcode-27` image; 27.0 until 2026-11-16, when image 20261112 stopped Xcode 27.1 seeing its Simulators (#473) | ✓ | ✓ |
 | iPhone 16, iPad (A16) | 18.6 | The deployment floor | | ✓ |
 | iPhone Duo, closed | 27.1 | The outer display | ✓ | ✓ |
 | iPhone Duo, open | 27.1 | The inner display, held wide | ✓ | ✓ |
@@ -908,12 +908,12 @@ fails when a pair differs in anything but the order and the configuration's id
 
 **Required checks.** Both branches require the iOS build and unit tests, the
 Release compile, GitGuardian and `tvOS build and unit tests`. `develop` adds
-the smoke checks: `UI smoke tests / iPhone, iOS 27.0` and `/ iPad, iOS 27.0`,
+the smoke checks: `UI smoke tests / iPhone, iOS 27.2` and `/ iPad, iOS 27.2`,
 `UI smoke tests / iPhone Duo closed, iOS 27.1` and `/ iPhone Duo open, iOS
 27.1`, and `tvOS UI smoke tests / Apple TV 4K, tvOS 27.0`. `stable` adds
 CodeQL's `Analyze (actions)` (`Analyze (swift)` is paused and off the
 ruleset, see `codeql.yml`), the eight `Full UI tests / …` checks (iPhone and
-iPad on iOS 27.0 and 18.6, and `iPhone Duo <pose>, iOS 27.1` for closed,
+iPad on iOS 27.2 and 18.6, and `iPhone Duo <pose>, iOS 27.1` for closed,
 open, book and tabletop) and `Full tvOS UI tests / Apple TV 4K, tvOS 27.0`,
 which is why a PR into `stable` runs both full plans (`pr-checks.yml`'s
 `ui-full` and `tv-ui-full` jobs, named to match) and no smoke. A smoke job
@@ -1065,6 +1065,14 @@ What no suite can reach, and how it was or should be checked.
   Partially Open, then Rotate Right), `Scripts/duo-pose/set-duo-pose.sh
   <udid> <pose>` or `/duology-ship:duo-poses`, and capture the inner display
   with `xcrun simctl io <udid> screenshot --display=primary-1`.
+- **Never tap at a point of `app`'s own frame on the inner display**
+  (`app.coordinate(withNormalizedOffset:)`): XCUITest reports it in the
+  display's native portrait (669 by 951) while the window and every element
+  are laid out held wide (951 by 669), so the point lands elsewhere (a "tap
+  above the popover" hit the Play button it hung from, 2026-11-16). Tap
+  relative to an element; `AssetDetailScreen.dismissVersionQuestion()` taps
+  a popover's `PopoverDismissRegion`, clear of the side bar (not part of the
+  region) and the fold.
 - **A journey never scrolls with `app.swipeUp()`**: it starts at the window's
   centre, on the fold in book and tabletop, and scrolls nothing. Settings go
   through `ProfileScreen.scrollSettings()`; elsewhere, swipe on a row.
