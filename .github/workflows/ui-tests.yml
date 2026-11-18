@@ -47,6 +47,16 @@ name: UI tests
 # Accessibility API, which the image's bash is trusted for (probed
 # 2026-10-28), and fails the job if the pose didn't take. A plan's tests
 # don't run in parallel, so they run on the posed Simulator itself.
+#
+# Each environment's plan can be split by test class across `shards` parallel
+# jobs ("…, part 1 of 2"; Scripts/ui-test-shards.py), as tv-ui-tests.yml
+# splits the Apple TV's. The full plan needs it: in one job it ran past the
+# 150-minute limit on the iPad and the iPhone Duo with every test passing
+# (#480; the iPad's tests alone took about 115 min on iOS 27.0 and 127 on
+# 27.2). One small job per environment (`ui-tests-result`,
+# `duo-ui-tests-result`) then reports under the environment's own name, which
+# the rulesets require; it passes only when every part of that environment
+# recorded a pass. A smoke run is one part per environment ("part 1 of 1").
 on:
   workflow_call:
     inputs:
@@ -74,9 +84,19 @@ on:
         required: false
         type: boolean
         default: false
+      shards:
+        description: >-
+          How many parallel jobs to split each environment's plan across, by
+          test class. Only for a plan that runs whole classes (UITests-Full);
+          a plan that selects single tests (UITests-Smoke) stays at 1, or its
+          classes would run whole.
+        required: false
+        type: number
+        default: 1
       timeout-minutes:
         description: >-
-          Per-environment job timeout. The full plan took 46 min on iPhone and
+          Per-job timeout, for each part of a split plan. Unsplit, the full
+          plan took 46 min on iPhone and
           54 min on iPad on 2026-09-26; on 2026-10-22 iPad iOS 27.0 took 62
           min, and a slow runner (a Simulator that lost 16 min before testing
           began) ran the v1.2.0-beta.1 release's leg past 90 with no test
@@ -92,6 +112,44 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    # Which classes each part runs, and the iOS versions, which the parts and
+    # the per-environment results below both read. On Linux: it only reads
+    # the sources.
+    name: Plan the shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.shards.outputs.shards }}
+      os: ${{ steps.os.outputs.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Split the test classes
+        id: shards
+        env:
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          shards=$(python3 Scripts/ui-test-shards.py DionysusPlayerUITests UITestCase "$SHARDS")
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+          echo "$shards" | jq -r '.[] | "Part \(.index) of \(.count): \(if .tests == "" then "the whole plan" else .tests end)"'
+
+      - name: List the iOS versions
+        # Objects rather than a version list plus `include:` entries for the
+        # runner and Xcode: an `include:` entry that matches no combination is
+        # added as a job of its own, so with `latest-only` the 18.6 entry
+        # would become a stray job with no device. `cached-runtime` marks the
+        # leg whose runtime comes from `floor-runtime`.
+        id: os
+        env:
+          LATEST_ONLY: ${{ inputs.latest-only }}
+        run: |
+          latest='{"version": "27.2", "runner": "xcode-27", "xcode": "27.1", "cached-runtime": false}'
+          floor='{"version": "18.6", "runner": "xcode-27", "xcode": "27.1", "cached-runtime": true}'
+          if [ "$LATEST_ONLY" = true ]; then os="[$latest]"; else os="[$latest, $floor]"; fi
+          echo "os=$(echo "$os" | jq -c .)" >> "$GITHUB_OUTPUT"
+
   floor-runtime:
     # Puts macos-15's iOS 18.6 Simulator runtime in the Actions cache for the
     # floor jobs (see the top of this file). Only a lookup when it's already
@@ -154,17 +212,12 @@ jobs:
           key: ${{ steps.locate.outputs.key }}
 
   ui-tests:
-    # ⚠️ This name is part of a required status check. For a reusable
-    # workflow GitHub reports each job as "<caller job name> / <this name>" —
-    # e.g. "UI smoke tests / iPhone, iOS 27.2" — and the branch rulesets
-    # require them by that exact string ("develop protection" the smoke ones,
-    # "Secure stable" the "Full UI tests" ones). Renaming it, or changing a
-    # device or an OS below, means updating both rulesets in the same breath,
-    # or every PR waits forever on a check that no longer reports.
-    name: ${{ matrix.family }}, iOS ${{ matrix.os.version }}
-    needs: floor-runtime
+    # One part of one environment's plan. The environment's own check, the
+    # one the rulesets require, is `ui-tests-result` below.
+    name: ${{ matrix.family }}, iOS ${{ matrix.os.version }}, part ${{ matrix.shard.index }} of ${{ matrix.shard.count }}
+    needs: [plan, floor-runtime]
     # Runs when the runtime job succeeded, or was skipped (`latest-only`).
-    if: ${{ !cancelled() && needs.floor-runtime.result != 'failure' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.floor-runtime.result != 'failure' }}
     runs-on: ${{ matrix.os.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
 
@@ -175,17 +228,10 @@ jobs:
       # `#available(iOS 26, *)`, is the first thing worth knowing.
       fail-fast: false
       matrix:
-        # Objects rather than a version list plus `include:` entries for the
-        # runner and Xcode: an `include:` entry that matches no combination is
-        # added as a job of its own, so with `latest-only` the 18.6 entry
-        # would become a stray job with no device. `cached-runtime` marks the
-        # leg whose runtime comes from `floor-runtime`.
-        os: >-
-          ${{ fromJSON(inputs.latest-only
-            && '[{"version": "27.2", "runner": "xcode-27", "xcode": "27.1", "cached-runtime": false}]'
-            || '[{"version": "27.2", "runner": "xcode-27", "xcode": "27.1", "cached-runtime": false},
-                 {"version": "18.6", "runner": "xcode-27", "xcode": "27.1", "cached-runtime": true}]') }}
+        # The iOS versions are listed in `plan` (see there).
+        os: ${{ fromJSON(needs.plan.outputs.os) }}
         family: [iPhone, iPad]
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
         include:
           - family: iPhone
             device: iPhone 16
@@ -296,12 +342,17 @@ jobs:
           device-type: ${{ matrix.device }}
           ios-version: ${{ matrix.os.version }}
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
+          only-testing: ${{ matrix.shard.tests }}
           result-bundle-path: .build/UITestResults.xcresult
 
       - name: Upload UI test results
         # And when a test passed only on a retry: the job is green, and the
-        # bundle is the one place to see what the first attempt met.
-        if: failure() || steps.test.outputs.retried == 'true'
+        # bundle is the one place to see what the first attempt met. And
+        # when the job was cancelled: xcodebuild's output reaches the job's
+        # log only when the step ends, so a cancelled job otherwise leaves
+        # nothing to read (#480: two iPad jobs cancelled mid-plan, no cause
+        # left behind). `.build/test-attempt-*.log` is written as it goes.
+        if: failure() || cancelled() || steps.test.outputs.retried == 'true'
         uses: actions/upload-artifact@v7
         with:
           # A failed UI test's .xcresult carries the screenshots and the
@@ -309,7 +360,7 @@ jobs:
           # the runner actually saw.
           # The second bundle exists only if the plan was run again after the
           # test runner crashed (build-and-test's "Test" step).
-          name: ui-test-results-${{ inputs.test-plan }}-${{ matrix.family }}-iOS-${{ matrix.os.version }}
+          name: ui-test-results-${{ inputs.test-plan }}-${{ matrix.family }}-iOS-${{ matrix.os.version }}-part-${{ matrix.shard.index }}
           path: |
             .build/UITestResults.xcresult
             .build/UITestResults-attempt-2.xcresult
@@ -319,13 +370,82 @@ jobs:
           # The glob makes `.build` the search root, and it is hidden: without
           # this every path above is skipped and nothing uploads.
           include-hidden-files: true
+          # A re-run of this job uploads again under the same name.
+          overwrite: true
+
+      - name: Record this part's result
+        # Read by `ui-tests-result`. `needs` can't tell a matrix's jobs apart,
+        # so each part leaves its own result behind. A part that never gets
+        # here (its runner lost) leaves none, which counts as a failure.
+        if: always()
+        shell: bash
+        env:
+          STATUS: ${{ job.status }}
+          PART: ${{ matrix.shard.index }}
+        run: |
+          mkdir -p part-result
+          echo "$STATUS" > "part-result/part-$PART"
+
+      - name: Upload this part's result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-part-result-${{ inputs.test-plan }}-${{ matrix.family }}-iOS-${{ matrix.os.version }}-part-${{ matrix.shard.index }}
+          path: part-result
+          retention-days: 1
+          overwrite: true
+
+  ui-tests-result:
+    # ⚠️ This name is part of a required status check. For a reusable
+    # workflow GitHub reports each job as "<caller job name> / <this name>" —
+    # e.g. "UI smoke tests / iPhone, iOS 27.2" — and the branch rulesets
+    # require them by that exact string ("develop protection" the smoke ones,
+    # "Secure stable" the "Full UI tests" ones). Renaming it, or changing a
+    # device or an OS (in `plan`), means updating both rulesets in the same
+    # breath, or every PR waits forever on a check that no longer reports.
+    #
+    # One result per environment for the parts above. `always()`, not
+    # `!cancelled()`: a skipped required check counts as passed.
+    name: ${{ matrix.family }}, iOS ${{ matrix.os.version }}
+    needs: [plan, ui-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two placeholders when `plan` failed, so this job still runs and fails.
+        os: >-
+          ${{ fromJSON(needs.plan.outputs.os || '[{"version": "27.2"}, {"version": "18.6"}]') }}
+        family: [iPhone, iPad]
+    steps:
+      - name: Checkout the result check
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: Scripts/ci/check-part-results.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Download every part's result
+        # Finds nothing when no part recorded one; the next step fails then.
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          pattern: ui-part-result-${{ inputs.test-plan }}-${{ matrix.family }}-iOS-${{ matrix.os.version }}-part-*
+          path: part-result
+          merge-multiple: true
+
+      - name: Every part passed
+        shell: bash
+        env:
+          SHARDS: ${{ inputs.shards }}
+        run: Scripts/ci/check-part-results.sh part-result "$SHARDS"
 
   duo-ui-tests:
-    # ⚠️ Part of required status checks, as `ui-tests`' name is: "UI smoke
-    # tests / iPhone Duo closed, iOS 27.1" and so on. Renaming it, or a pose,
-    # means updating both rulesets in the same breath.
-    name: iPhone Duo ${{ matrix.pose }}, iOS 27.1
-    if: ${{ inputs.duo-poses != '[]' }}
+    # One part of one pose's plan; the pose's own check is
+    # `duo-ui-tests-result` below.
+    name: iPhone Duo ${{ matrix.pose }}, iOS 27.1, part ${{ matrix.shard.index }} of ${{ matrix.shard.count }}
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' && inputs.duo-poses != '[]' }}
     runs-on: xcode-27
     timeout-minutes: ${{ inputs.timeout-minutes }}
 
@@ -334,6 +454,7 @@ jobs:
       fail-fast: false
       matrix:
         pose: ${{ fromJSON(inputs.duo-poses) }}
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
 
     steps:
       - name: Note when the job started
@@ -418,16 +539,16 @@ jobs:
           # So a rerun after a reboot sets the pose again.
           duo-pose: ${{ matrix.pose }}
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
+          only-testing: ${{ matrix.shard.tests }}
           result-bundle-path: .build/UITestResults.xcresult
 
       - name: Upload UI test results
-        # And when a test passed only on a retry: the job is green, and the
-        # bundle is the one place to see what the first attempt met.
-        if: failure() || steps.test.outputs.retried == 'true'
+        # As `ui-tests`: on a failure, a retry or a cancel.
+        if: failure() || cancelled() || steps.test.outputs.retried == 'true'
         uses: actions/upload-artifact@v7
         with:
           # See `ui-tests` for the second bundle.
-          name: ui-test-results-${{ inputs.test-plan }}-iPhone-Duo-${{ matrix.pose }}
+          name: ui-test-results-${{ inputs.test-plan }}-iPhone-Duo-${{ matrix.pose }}-part-${{ matrix.shard.index }}
           path: |
             .build/UITestResults.xcresult
             .build/UITestResults-attempt-2.xcresult
@@ -437,3 +558,61 @@ jobs:
           # The glob makes `.build` the search root, and it is hidden: without
           # this every path above is skipped and nothing uploads.
           include-hidden-files: true
+          overwrite: true
+
+      - name: Record this part's result
+        # See `ui-tests`.
+        if: always()
+        shell: bash
+        env:
+          STATUS: ${{ job.status }}
+          PART: ${{ matrix.shard.index }}
+        run: |
+          mkdir -p part-result
+          echo "$STATUS" > "part-result/part-$PART"
+
+      - name: Upload this part's result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-part-result-${{ inputs.test-plan }}-iPhone-Duo-${{ matrix.pose }}-part-${{ matrix.shard.index }}
+          path: part-result
+          retention-days: 1
+          overwrite: true
+
+  duo-ui-tests-result:
+    # ⚠️ Part of required status checks, as `ui-tests-result`'s name is: "UI
+    # smoke tests / iPhone Duo closed, iOS 27.1" and so on. Renaming it, or a
+    # pose, means updating both rulesets in the same breath.
+    #
+    # One result per pose for the parts above; see `ui-tests-result`.
+    name: iPhone Duo ${{ matrix.pose }}, iOS 27.1
+    needs: [plan, duo-ui-tests]
+    if: ${{ always() && inputs.duo-poses != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        pose: ${{ fromJSON(inputs.duo-poses) }}
+    steps:
+      - name: Checkout the result check
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: Scripts/ci/check-part-results.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Download every part's result
+        # Finds nothing when no part recorded one; the next step fails then.
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          pattern: ui-part-result-${{ inputs.test-plan }}-iPhone-Duo-${{ matrix.pose }}-part-*
+          path: part-result
+          merge-multiple: true
+
+      - name: Every part passed
+        shell: bash
+        env:
+          SHARDS: ${{ inputs.shards }}
+        run: Scripts/ci/check-part-results.sh part-result "$SHARDS"

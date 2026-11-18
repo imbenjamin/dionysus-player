@@ -627,7 +627,7 @@ Release builds don't read `mode`, `bitrate` or `server`.
 
 ## Where they run in CI
 
-Each UI-test job's "Build and test" step has its own timeout, ending 10 minutes before the job's (counted from the job's start, so setup, boot and a Duo pose come out of it), so a hang fails that step and the bundle and logs still upload (the job timeout cancels the job with no log and no upload). The full plan's jobs get 150 minutes: the Duo's build and plan take 92 to 96, and at 120 three Duo legs ran out of time in two nightlies with every test passing (2026-11-10 and 11).
+Each UI-test job's "Build and test" step has its own timeout, ending 10 minutes before the job's (counted from the job's start, so setup, boot and a Duo pose come out of it), so a hang fails that step and the bundle and logs still upload (the job timeout cancels the job with no log and no upload). The full plan's jobs get 150 minutes: the Duo's build and plan take 92 to 96, and at 120 three Duo legs ran out of time in two nightlies with every test passing (2026-11-10 and 11). Since #480 (2026-11-17) the full iOS plan is also split in two per environment (below): unsplit it ran past 150 on the iPad and the Duo, every test passing, once iOS 27 slowed the iPad's tests to about 115 minutes (27.0) and 127 (27.2) against 83 on iOS 18.6.
 
 **iOS** goes through one reusable workflow, `.github/workflows/ui-tests.yml`,
 which owns the matrix. A PR into `develop` runs the smoke plan; a PR into
@@ -661,11 +661,27 @@ one OS isn't a screen-size difference. Locally, Apple offers an iOS 18.2 runtime
 simctl runtime add <dmg>`); iPad (A16) needs 18.3, so use iPad (10th
 generation), the same 820×1180pt screen. Each environment runs with
 `fail-fast: false` and uploads its `.xcresult` as
-`ui-test-results-<plan>-<device>-iOS-<version>` (the Duo's,
-`ui-test-results-<plan>-iPhone-Duo-<pose>`; the Apple TV's,
-`tv-ui-test-results-<plan>-tvOS-<version>-part-<n>`) when it failed **or when
-a test passed only on a retry** (`build-and-test`'s `retried` output): a
-green job's bundle is the one place to see what the first attempt met. A
+`ui-test-results-<plan>-<device>-iOS-<version>-part-<n>` (the Duo's,
+`ui-test-results-<plan>-iPhone-Duo-<pose>-part-<n>`; the Apple TV's,
+`tv-ui-test-results-<plan>-tvOS-<version>-part-<n>`) when it failed, **when
+a test passed only on a retry** (`build-and-test`'s `retried` output) **or
+when the job was cancelled**: a green job's bundle is the one place to see
+what the first attempt met, and `xcodebuild`'s output reaches the job's log
+only when the step ends, so a cancelled job otherwise leaves nothing (#480:
+two iPad smoke jobs cancelled mid-plan, about 15 and 20 minutes in, inside
+every timeout, with no cause left behind).
+
+**Each environment's plan runs as parts** ("iPad, iOS 27.2, part 1 of 2"),
+split by test class with `Scripts/ui-test-shards.py` as the Apple TV's is:
+the full plan in two (`shards: 2`, from `pr-checks.yml`'s `ui-full`, the
+nightly and `release.yml`), the smoke plan whole ("part 1 of 1", since it
+selects single tests). A last job per environment, under the environment's
+own name (`iPad, iOS 27.2`, `iPhone Duo book, iOS 27.1`), is the check the
+rulesets require. It passes only when every part left a `success` result
+(`Scripts/ci/check-part-results.sh`, reading the small
+`ui-part-result-…-part-<n>` artifact each part uploads): `needs` can't tell
+a matrix's jobs apart, and a part whose runner was lost leaves no result,
+which fails it. A
 second bundle, `UITestResults-attempt-2.xcresult`, comes with it when the
 plan was run again after the test runner crashed (below).
 
@@ -714,7 +730,7 @@ tests, then named by destination, failed there. A failed job uploads
 `tv-ui-test-results-<plan>-tvOS-<version>-part-<n>`.
 
 The full plan runs as **four parallel jobs** (`shards: 4`), split by test class
-(`Scripts/tv-ui-test-shards.py`, weighted by test count, so a new class needs
+(`Scripts/ui-test-shards.py`, weighted by test count, so a new class needs
 no edit), each giving a failing test **up to five attempts**. A last job named
 `Apple TV 4K, tvOS <version>` passes only if every part did, so the required
 checks keep their names. Shard only a plan that runs whole classes: the smoke
