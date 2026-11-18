@@ -10,16 +10,16 @@ name: tvOS UI tests
 # launch (a detail page, a library, Search), so XCUITest kept seeing Home
 # and every journey that opened one failed, though the screen recording
 # showed the page. That held on both images and with Xcode 26.6 and 27.1;
-# tvOS 27.0 passes, and tvOS 26.5 passes on a Mac (2026-10-09, #319).
+# tvOS 27.0 passes (#319). tvOS 26.5 passed on a Mac until 2026-11-18 (#488).
 # Every Apple TV the app supports has the same 1920×1080pt screen.
 #
 # tvOS 26.5, the deployment floor's major, isn't on the image and is
 # downloaded (3.76 GB, about five minutes). Until it passes in CI it runs
 # nightly only, as an allowed failure, so it neither gates a PR nor turns
-# the nightly red. Since 2026-11-07 that's taken as a limit of the CI
-# machines (TQ-04): the same Xcode, runtime build and device pass on a Mac,
-# and Xcode 27.2, tvOS 26.0 and no result bundle all failed alike in CI
-# (TESTING.md, "Not tvOS 26.5").
+# the nightly red. Since 2026-11-07 that's taken as a limit of XCUITest on
+# tvOS 26 (TQ-04): Xcode 27.2, tvOS 26.0 and no result bundle all failed
+# alike in CI, and since 2026-11-18 a Mac fails every time too (#488;
+# TESTING.md, "Not tvOS 26.5").
 #
 # On tvOS 27.0 the same stale tree still shows up now and then: about 5% of
 # test attempts in CI see a page or a focus change late or never, spread
