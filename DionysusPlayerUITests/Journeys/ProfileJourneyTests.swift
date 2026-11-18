@@ -153,7 +153,9 @@ final class ProfileJourneyTests: UITestCase {
         app.buttons[A11yID.Profile.nightControl("volume", "min")].tap()
         XCTAssertTrue(poll { (app.staticTexts[A11yID.Profile.nightVolume].value as? String) == "0%" })
 
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        // Not the bar's first button: on the iPhone Duo the bars are one
+        // vertical side bar, and that found nothing (nightly, 2026-11-18).
+        app.navigationBackButton.tap()
         row.awaitExistence("the Night Mode row, back on Profile")
         XCTAssertTrue(poll { "\(row.label)|\(row.value as? String ?? "")" != before }, "Row still reads \(before)")
     }
