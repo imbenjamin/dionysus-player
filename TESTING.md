@@ -71,6 +71,22 @@ so the loop presses on to Playlists. Whichever test runs first takes it:
 `test_playlist` failed the same way when run first, and `test_boxSet` passed
 after it.
 
+**Likewise before `UITests-Full` on a Simulator you've just booted** (#431):
+
+```sh
+xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusPlayer \
+  -testPlan UITests-Full -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:DionysusPlayerUITests/AccessibilityAuditTests/testAddToPlaylistPickerHasNoAccessibilityIssues
+```
+
+In the first launch after an iOS 27.2 Simulator boots, a menu can be drawn
+and take no taps, while a tap outside it reaches the page beneath. The plan's
+first test opens the detail page's overflow, and its row ignored the tap in
+about two of three cold boots (2026-11-18), never in a later launch. The warm-up
+spends that launch: after one, the real run passed in all six cold boots tried.
+`AssetDetailScreen`'s overflow rows also close and reopen a menu that ignored
+the tap, which recovers it most of the time (10 of 12), not always.
+
 ## Unit tests
 
 They target the layer with the logic: models, the networking client, view
@@ -796,7 +812,9 @@ fails when a pair differs in anything but the order and the configuration's id
   every later test and a job re-run passed. So before the plan the workflow
   runs one journey as a warm-up (`warm-up-test`), its result ignored. The
   same lag shows on a tvOS 26.5 Simulator locally; "Running the tests" has
-  the local warm-up.
+  the local warm-up. The iOS jobs warm up too, on `UITests-Full` only, with
+  the Add to Playlist audit: in the first launch after boot a menu could
+  ignore its taps (#431). Smoke's first test opens no menu, so it has none.
 - **The Simulator boots after the build, not during it** (2026-11-03).
   Booting it while the app built, to give the test runner a settled device,
   was tried and taken out: the first iPhone 27.0 run built in 843 s against
