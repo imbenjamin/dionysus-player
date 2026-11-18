@@ -169,8 +169,9 @@ enum UITestScenario: String {
     /// tile reads as one with artwork does (M5).
     case missingTileArtwork
 
-    /// `.standard`, but every movie has a genre of its own, twelve in all,
-    /// so the Apple TV library's Genre list is long enough to scroll (M5).
+    /// `.standard`, but every movie has ten genres of its own, 120 in all,
+    /// so the Apple TV library's Genre list scrolls (M5), for long enough
+    /// that holding Down brings up the system's fast-scrolling bar (#475).
     case manyGenres
 
     /// `.standard`, but listing the Movies library's items answers 500, so

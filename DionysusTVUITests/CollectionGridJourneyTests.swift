@@ -142,6 +142,29 @@ final class CollectionGridJourneyTests: TVUITestCase {
         XCTAssertEqual(rows.label, genre.label, "Named for the pill")
     }
 
+    /// Holding Down on a long list brings up the system's fast-scrolling
+    /// bar, which takes focus. The page's focus state can't name it, and
+    /// reading that as focus leaving closed the list onto the grid (#475).
+    func test_holdingDown_onALongList_keepsItOpen_toTheEnd() {
+        let app = launchAtHome(scenario: "manyGenres")
+        _ = openMovies(app)
+        let genre = app.buttons[A11yID.TV.Library.filter("genre")]
+        press(.up)
+        XCTAssertTrue(waitForFocus(genre))
+        press(.select)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Library.option("genre", "all")]))
+        XCUIRemote.shared.press(.down, forDuration: 6)
+        // The bar runs to the end and, let go, hands focus to a row on
+        // screen there, not necessarily the last.
+        let focusedRow = app.buttons.matching(NSPredicate(format: "hasFocus == true AND identifier BEGINSWITH %@", A11yID.TV.Library.option("genre", "")))
+        XCTAssertTrue(poll(timeout: 3) { focusedRow.count == 1 }, "Focus is on a row of the list, which is still open")
+        // `manyGenres`: 120 genres after All Genres, the last "119", out of
+        // reach of a few presses unless the hold went most of the way.
+        let last = app.buttons[A11yID.TV.Library.option("genre", "119")]
+        for _ in 0..<8 where !last.hasFocus { press(.down) }
+        XCTAssertTrue(waitForFocus(last), "The hold carried focus to the end of the list")
+    }
+
     func test_openList_isNamedForItsPill() {
         let app = launchAtHome()
         _ = openMovies(app)

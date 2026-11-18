@@ -1051,7 +1051,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             if watched { copy.userData?.playbackPositionTicks = 0 }
         }
         if UITestConfiguration.scenario == .manyGenres, item.type == .movie {
-            copy.genres = ["Genre \(item.id)"]
+            copy.genres = (0..<10).map { "Genre \(item.id) \($0)" }
         }
         guard UITestConfiguration.scenario == .noDeletePermission else { return copy }
         copy.canDelete = false
