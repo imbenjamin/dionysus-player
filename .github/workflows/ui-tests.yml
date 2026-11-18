@@ -343,6 +343,10 @@ jobs:
           ios-version: ${{ matrix.os.version }}
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
           only-testing: ${{ matrix.shard.tests }}
+          # The first launch after the Simulator boots can show a menu that
+          # takes no taps (#431; TESTING.md, "The first test's warm-up").
+          # Full's first test opens one; Smoke's first opens none.
+          warm-up-test: ${{ inputs.test-plan == 'UITests-Full' && 'DionysusPlayerUITests/AccessibilityAuditTests/testAddToPlaylistPickerHasNoAccessibilityIssues' || '' }}
           result-bundle-path: .build/UITestResults.xcresult
 
       - name: Upload UI test results
@@ -540,6 +544,8 @@ jobs:
           duo-pose: ${{ matrix.pose }}
           retry-tests-on-failure: ${{ inputs.retry-tests-on-failure }}
           only-testing: ${{ matrix.shard.tests }}
+          # As `ui-tests` (#431).
+          warm-up-test: ${{ inputs.test-plan == 'UITests-Full' && 'DionysusPlayerUITests/AccessibilityAuditTests/testAddToPlaylistPickerHasNoAccessibilityIssues' || '' }}
           result-bundle-path: .build/UITestResults.xcresult
 
       - name: Upload UI test results

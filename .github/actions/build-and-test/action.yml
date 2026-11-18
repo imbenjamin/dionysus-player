@@ -88,8 +88,9 @@ inputs:
     description: >-
       A UI test (`Target/Class/test_name`) run once between the build and the
       plan, its result ignored. Empty runs none. On CI the first UI test of a
-      job could read an accessibility tree seconds behind the app (see
-      TESTING.md, "The first test's warm-up").
+      job could read an accessibility tree seconds behind the app on tvOS,
+      and on iOS meet a menu that ignores taps (#431; see TESTING.md, "The
+      first test's warm-up").
     required: false
     default: ""
 

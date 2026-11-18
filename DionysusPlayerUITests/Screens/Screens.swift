@@ -570,8 +570,48 @@ struct AssetDetailScreen: Screen {
     /// Reaches the delete affordance inside the overflow and taps it.
     func openDelete(file: StaticString = #filePath, line: UInt = #line) {
         openActionsOverflow(file: file, line: line)
-        deleteButton.awaitExistence("the delete action", file: file, line: line)
-        deleteButton.tap()
+        tapOverflowRow(deleteButton, "the delete action", file: file, line: line)
+    }
+
+    /// How long a tapped overflow row may stay on screen before the menu
+    /// counts as dead. A live tap takes it away within a second, into a
+    /// submenu as well (measured on a show page, 2026-11-18).
+    private static let deadMenuTimeout: TimeInterval = 5
+
+    /// Taps a row of the open overflow, and if the menu ignores the tap,
+    /// closes it and taps the row again in a fresh one (#431).
+    ///
+    /// In the first launch after an iOS 27.2 Simulator boots, the menu can be
+    /// drawn and stay up while taking no touches: the row is hittable, but a
+    /// tap, a second tap and 15 seconds all leave it there, while a tap
+    /// outside it reaches the page beneath. It did in about two of three cold
+    /// first runs of the Add to Playlist audit, the first test in the bundle
+    /// to open a menu, and never in a relaunch in the same boot (2026-11-18).
+    /// Nothing re-renders the menu while it's open, and pausing before
+    /// querying it changed nothing. Closed and opened again, the menu worked
+    /// 10 times in 11; the plan's retry, a relaunch, covers the eleventh.
+    private func tapOverflowRow(
+        _ row: XCUIElement, _ description: String,
+        file: StaticString, line: UInt
+    ) {
+        row.awaitExistence(description, file: file, line: line)
+        row.tap()
+        guard !row.waitForNonExistence(timeout: Self.deadMenuTimeout) else { return }
+
+        // Left of the menu, level with its first row: the navigation bar's
+        // empty middle, so the tap that falls through the dead menu does
+        // nothing but close it.
+        let frame = row.frame
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.minX - 40, dy: frame.midY))
+            .tap()
+        XCTAssertTrue(
+            row.waitForNonExistence(timeout: Self.deadMenuTimeout),
+            "The dead overflow menu didn't close.", file: file, line: line
+        )
+        openActionsOverflow(file: file, line: line)
+        row.awaitExistence(description, file: file, line: line)
+        row.tap()
     }
 
     /// One row of the Show/Season/Episode submenu `openDelete()` opens on a
@@ -588,8 +628,7 @@ struct AssetDetailScreen: Screen {
     /// submenu — see `addToPlaylistScope(_:)`.
     func openAddToPlaylist(file: StaticString = #filePath, line: UInt = #line) {
         openActionsOverflow(file: file, line: line)
-        addToPlaylistButton.awaitExistence("the Add to Playlist action", file: file, line: line)
-        addToPlaylistButton.tap()
+        tapOverflowRow(addToPlaylistButton, "the Add to Playlist action", file: file, line: line)
     }
 
     /// One row of the Add to Playlist submenu on a show/episode page, keyed
