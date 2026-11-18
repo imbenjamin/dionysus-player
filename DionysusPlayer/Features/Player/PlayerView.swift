@@ -210,15 +210,19 @@ struct PlayerView: View {
                 // panel, Skip and Next Up stay at full brightness. Decorative:
                 // no taps, nothing for VoiceOver, no identifier (journeys read
                 // Playback Stats' "Night Mode" row).
-                if viewModel.videoDimOpacity > 0 {
-                    Color.black
-                        .opacity(viewModel.videoDimOpacity)
-                        .frame(height: foldLayout.videoHeight)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
+                //
+                // Always mounted, so a scheduled switch can fade it
+                // (`videoDimFadeSeconds`): an inserted or removed layer would
+                // lose its fade to the ~10 Hz re-renders, as the controls'
+                // did (below).
+                Color.black
+                    .opacity(viewModel.videoDimOpacity)
+                    .animation(viewModel.videoDimFadeSeconds.map { .linear(duration: $0) }, value: viewModel.videoDimOpacity)
+                    .frame(height: foldLayout.videoHeight)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
 
                 // Between the video surface and `PlayerControlsOverlay`. Always
                 // mounted, with `showPlaybackStats` driving its internal opacity
@@ -309,6 +313,15 @@ struct PlayerView: View {
                         viewModel.dismissSkipSegment(segment)
                     }
                 )
+
+                // The schedule switching Night Mode mid-play (`NightModeNotice`):
+                // the toast's capsule, drawn here because `ToastHost` sits
+                // under this full-screen player. Over the picture's top,
+                // clear of the controls' top row, and taking no taps, so a
+                // tap there still shows or hides the controls.
+                NightModeNoticeOverlay(notice: viewModel.nightModeNotice, topClearance: 64)
+                    .frame(height: foldLayout.videoHeight)
+                    .frame(maxHeight: .infinity, alignment: .top)
 
                 // Above the transport chrome (added after it in this ZStack)
                 // — while a PiP window has this session's picture, nothing

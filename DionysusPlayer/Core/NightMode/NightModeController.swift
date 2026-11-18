@@ -2,13 +2,29 @@ import Foundation
 import Observation
 import UIKit
 
+/// What set off a change to `NightModeController.effect`. The player eases a
+/// scheduled change in and says so (`PlayerViewModel.applyNightMode`); a
+/// change by hand applies at once, since the person making it is watching.
+enum NightModeChangeCause: Equatable, Sendable {
+    /// A switch, a level or a setting changed by hand.
+    case manual
+    /// A schedule boundary passed, turning Night Mode on or off.
+    case schedule(turnsOn: Bool)
+}
+
+/// One change to `NightModeController.effect`, as its observers receive it.
+struct NightModeChange: Equatable, Sendable {
+    var effect: NightModeEffect
+    var cause: NightModeChangeCause
+}
+
 /// A subscription to `NightModeController.effect`; it stops on `cancel()` or
 /// when released.
 @MainActor
 final class NightModeObservation {
-    fileprivate var handler: (@MainActor (NightModeEffect) -> Void)?
+    fileprivate var handler: (@MainActor (NightModeChange) -> Void)?
 
-    fileprivate init(handler: @escaping @MainActor (NightModeEffect) -> Void) {
+    fileprivate init(handler: @escaping @MainActor (NightModeChange) -> Void) {
         self.handler = handler
     }
 
@@ -110,21 +126,29 @@ final class NightModeController {
             calendar: calendar
         ) {
             store.lastBoundaryApplied = boundary.date
-            update { $0.isOn = boundary.turnsOn }
+            applyScheduledBoundary(turnsOn: boundary.turnsOn)
         }
         scheduleWake()
     }
 
-    /// Calls `handler` whenever `effect` changes, not on a write that leaves
-    /// it as it was (a level edited while off).
-    func observeEffect(_ handler: @escaping @MainActor (NightModeEffect) -> Void) -> NightModeObservation {
+    /// What a schedule boundary does: switches Night Mode, as the schedule's
+    /// change. `evaluate()` calls it when a boundary passes; under the UI-test
+    /// harness, `-UITestNightModeScheduledSwitchAfter` stands in for one, since
+    /// a journey can't wait for a time of day.
+    func applyScheduledBoundary(turnsOn: Bool) {
+        update(cause: .schedule(turnsOn: turnsOn)) { $0.isOn = turnsOn }
+    }
+
+    /// Calls `handler` whenever `effect` changes, with what changed it, not on
+    /// a write that leaves it as it was (a level edited while off).
+    func observeEffect(_ handler: @escaping @MainActor (NightModeChange) -> Void) -> NightModeObservation {
         let observation = NightModeObservation(handler: handler)
         observations.removeAll { $0.value == nil }
         observations.append(WeakObservation(value: observation))
         return observation
     }
 
-    private func update(_ change: (inout NightModeSettings) -> Void) {
+    private func update(cause: NightModeChangeCause = .manual, _ change: (inout NightModeSettings) -> Void) {
         let before = settings.effect
         var changed = settings
         change(&changed)
@@ -134,7 +158,7 @@ final class NightModeController {
         let after = changed.effect
         guard after != before else { return }
         for entry in observations {
-            entry.value?.handler?(after)
+            entry.value?.handler?(NightModeChange(effect: after, cause: cause))
         }
     }
 

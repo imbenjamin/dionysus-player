@@ -150,28 +150,46 @@ struct ToastHost: View {
     private static let navigationBarClearance: CGFloat = 52
 
     private func content(for toast: Toast) -> some View {
-        capsule(around: label(for: toast))
+        ToastCapsule(message: toast.message, systemImage: toast.systemImage)
             .onTapGesture { ToastCenter.shared.dismiss() }
+            .accessibilityIdentifier(A11yID.Toast.message)
+    }
+
+    private var transition: AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .move(edge: .top).combined(with: .opacity)
+    }
+}
+
+/// The toast's capsule on its own, for a place `ToastHost` can't reach: the
+/// full-screen player sits above it, so the player draws its Night Mode
+/// notice (`NightModeNotice`) with this, in the same style.
+struct ToastCapsule: View {
+    let message: String
+    let systemImage: String
+
+    var body: some View {
+        capsule(around: label)
             // One element, not a glyph plus a label: the glyph is decorative
             // (it repeats what the text says), and left to itself VoiceOver
             // would read its SF Symbol name aloud — the exact failure
             // `AccessibilityAuditTests` gates on.
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(toast.message)
-            .accessibilityIdentifier(A11yID.Toast.message)
+            .accessibilityLabel(message)
     }
 
-    private func label(for toast: Toast) -> some View {
+    private var label: some View {
         HStack(spacing: 10) {
             // The one explicit colour here. A brand accent on a filled
             // symbol reads against both a light and a dark backdrop, and
             // unlike the text below it carries no meaning of its own to
             // lose if the contrast pass leaves it alone.
-            Image(systemName: toast.systemImage)
+            Image(systemName: systemImage)
                 .font(.headline)
                 .foregroundStyle(Color.dionysusHighlight)
             // Deliberately sets **no** foreground style. See `capsule(around:)`.
-            Text(toast.message)
+            Text(message)
                 .font(.subheadline.weight(.medium))
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -204,10 +222,33 @@ struct ToastHost: View {
             content.background(Capsule().fill(.thickMaterial))
         }
     }
+}
 
-    private var transition: AnyTransition {
-        reduceMotion
-            ? .opacity
-            : .move(edge: .top).combined(with: .opacity)
+/// The player's notice that the schedule switched Night Mode
+/// (`PlayerViewModel.nightModeNotice`), top centre in whatever frame it's
+/// given: the picture on iOS (so tabletop shows it above the fold), the
+/// screen on the Apple TV. It drops in like a toast, and takes no taps or
+/// focus; VoiceOver hears it from `PlayerViewModel`'s announcement.
+struct NightModeNoticeOverlay: View {
+    let notice: NightModeNotice?
+    /// Below the frame's top safe area, to clear what the player draws
+    /// there.
+    var topClearance: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack {
+            if let notice {
+                ToastCapsule(message: notice.message, systemImage: notice.systemImage)
+                    .accessibilityIdentifier(A11yID.Player.nightModeNotice)
+                    .padding(.top, topClearance)
+                    .padding(.horizontal, 24)
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .allowsHitTesting(false)
+        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.8), value: notice)
     }
 }

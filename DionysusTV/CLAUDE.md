@@ -1086,7 +1086,10 @@ state, so XCUITest reads it from a test-only marker
   transport and panel stay at full brightness. Only the player's own
   overlay draws it, never the accessible transport's layer, which sits
   above everything. It has no identifier: journeys read the level from
-  Playback Stats' "Night Mode" row.
+  Playback Stats' "Night Mode" row. A switch the schedule makes mid-play
+  fades it and shows iOS's notice, top centre with the controls (so over
+  the accessible transport's layer too; `Core/Playback/CLAUDE.md`, "Night
+  Mode").
   **The panel is laid out in screen coordinates** (title at 60, scrubber at
   440, tabs at 560) in an overlay of a screen-sized view: inside the safe area
   that layer started at the screen's top, and the chrome's gradients must

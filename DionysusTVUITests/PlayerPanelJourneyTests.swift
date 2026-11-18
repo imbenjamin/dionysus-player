@@ -163,6 +163,29 @@ final class PlayerPanelJourneyTests: TVUITestCase {
         XCTAssertTrue(waitForPlayerFocus(app, "content.night.0"))
     }
 
+    /// The schedule switching Night Mode mid-play says so over the picture,
+    /// and the switch applies. The harness stands in for the boundary
+    /// (`-UITestNightModeScheduledSwitchAfter`); the levels stay at their
+    /// defaults, since launch arguments don't reach the shared keychain, so
+    /// Night Audio is what the stats row shows.
+    func test_scheduledSwitch_saysSo_andApplies() {
+        let app = launch(scenario: "standard", seedSession: true, extraArguments: keepTransportUp + [
+            "-UITestNightModeScheduledSwitchAfter", "4"
+        ])
+        XCTAssertTrue(app.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 10))
+        app.open(URL(string: "dionysus://play/\(UITestFixtureIdentity.primaryMovieID)?stats=1")!)
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.statsPanel].waitForExistence(timeout: 10))
+        let notice = app.descendants(matching: .any)[A11yID.Player.nightModeNotice]
+        let statsRow = app.descendants(matching: .any)[A11yID.TV.Player.statsValue("Night Mode")]
+
+        XCTAssertTrue(notice.waitForExistence(timeout: 15), "The scheduled switch's notice")
+        XCTAssertEqual(notice.label, "Night Mode starting as scheduled")
+        XCTAssertTrue(statsRow.waitForExistence(timeout: 5))
+        XCTAssertEqual(statsRow.value as? String, "Night Audio")
+        XCTAssertTrue(app.descendants(matching: .any)[A11yID.TV.Player.nightIndicator].exists, "The moon by the time")
+        XCTAssertTrue(poll(timeout: 8) { !notice.exists }, "The notice leaves on its own")
+    }
+
     /// The dimming layer has no identifier (it's hidden from accessibility),
     /// so its level is read from Playback Stats' "Night Mode" row, opened by
     /// the play link (`TESTING.md`, deep links).

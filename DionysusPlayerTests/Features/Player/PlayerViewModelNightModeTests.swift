@@ -283,6 +283,132 @@ final class PlayerViewModelNightModeTests: XCTestCase {
         XCTAssertEqual(engine.nightAudioCalls, [true])
     }
 
+    // MARK: - A scheduled switch eases in and says so (2026-11-17)
+
+    /// A started player, Night Mode's levels set, the schedule's transition
+    /// shortened so the ramp runs out within the test.
+    private func startedForScheduledSwitch(engine: FakePlaybackEngine) async -> PlayerViewModel {
+        nightMode.setVolumePercent(60)
+        nightMode.setBrightnessPercent(40)
+        stubStart()
+        let viewModel = makeViewModel(engine: engine)
+        viewModel.nightModeTransitionDuration = .milliseconds(300)
+        await viewModel.start()
+        return viewModel
+    }
+
+    private func waitUntil(timeout: Duration = .seconds(3), _ condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return condition()
+    }
+
+    func test_scheduledSwitch_fadesRampsAndSaysStarting() async {
+        let engine = FakePlaybackEngine()
+        let viewModel = await startedForScheduledSwitch(engine: engine)
+
+        nightMode.applyScheduledBoundary(turnsOn: true)
+
+        XCTAssertEqual(viewModel.videoDimOpacity, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(viewModel.videoDimFadeSeconds ?? 0, 0.3, accuracy: 0.0001, "The views fade over the transition")
+        XCTAssertEqual(engine.outputVolume, 1, "The volume ramps rather than stepping")
+        XCTAssertEqual(viewModel.nightModeNotice, .starting)
+        XCTAssertEqual(NightModeNotice.starting.message, "Night Mode starting as scheduled")
+        XCTAssertEqual(engine.nightAudioCalls, [true], "Night Audio's rebuild can't ease, so starts at once")
+
+        var heard: Set<Float> = []
+        let reached = await waitUntil {
+            heard.insert(engine.outputVolume)
+            return abs(engine.outputVolume - 0.6) < 0.0001
+        }
+        XCTAssertTrue(reached, "The ramp reaches the limit; it read \(engine.outputVolume)")
+        XCTAssertTrue(heard.contains { $0 < 1 && $0 > 0.6 }, "It passes through the levels between")
+    }
+
+    func test_scheduledEnd_saysEnding_andRampsBackUp() async {
+        nightMode.setOn(true)
+        let engine = FakePlaybackEngine()
+        let viewModel = await startedForScheduledSwitch(engine: engine)
+        XCTAssertEqual(engine.outputVolume, 0.6, accuracy: 0.0001)
+
+        nightMode.applyScheduledBoundary(turnsOn: false)
+
+        XCTAssertEqual(viewModel.nightModeNotice, .ending)
+        XCTAssertEqual(NightModeNotice.ending.message, "Night Mode ending as scheduled")
+        XCTAssertEqual(viewModel.videoDimOpacity, 0)
+        let reached = await waitUntil { engine.outputVolume == 1 }
+        XCTAssertTrue(reached, "Back to full volume; it read \(engine.outputVolume)")
+    }
+
+    /// The schedule's own wake goes the same way as the harness's stand-in.
+    func test_boundaryPassingMidPlay_isTheScheduledSwitch() async {
+        clock = date(hour: 21, minute: 30)
+        nightMode.setSchedule(NightModeSchedule(
+            isEnabled: true, turnOn: TimeOfDay(hour: 22, minute: 0), turnOff: TimeOfDay(hour: 7, minute: 0)
+        ))
+        let viewModel = await startedForScheduledSwitch(engine: FakePlaybackEngine())
+
+        clock = date(hour: 22, minute: 1)
+        nightMode.evaluate()
+
+        XCTAssertEqual(viewModel.nightModeNotice, .starting)
+        XCTAssertNotNil(viewModel.videoDimFadeSeconds)
+    }
+
+    func test_changeByHand_appliesAtOnce_withoutNotice() async {
+        let engine = FakePlaybackEngine()
+        let viewModel = await startedForScheduledSwitch(engine: engine)
+
+        nightMode.setOn(true)
+
+        XCTAssertEqual(engine.outputVolume, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(viewModel.videoDimOpacity, 0.6, accuracy: 0.0001)
+        XCTAssertNil(viewModel.videoDimFadeSeconds, "A change by hand doesn't fade")
+        XCTAssertNil(viewModel.nightModeNotice)
+    }
+
+    /// A level changed mid-ramp wins: the ramp stops where it is and the new
+    /// limit applies at once, for good.
+    func test_changeByHand_cancelsARunningRamp() async {
+        let engine = FakePlaybackEngine()
+        let viewModel = await startedForScheduledSwitch(engine: engine)
+        nightMode.applyScheduledBoundary(turnsOn: true)
+
+        nightMode.setVolumePercent(30)
+
+        XCTAssertEqual(engine.outputVolume, 0.3, accuracy: 0.0001)
+        XCTAssertNil(viewModel.videoDimFadeSeconds)
+        try? await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(engine.outputVolume, 0.3, accuracy: 0.0001, "The cancelled ramp never writes again")
+    }
+
+    func test_notice_leavesOnItsOwn() async {
+        let viewModel = await startedForScheduledSwitch(engine: FakePlaybackEngine())
+        viewModel.nightModeNoticeDuration = .milliseconds(100)
+
+        nightMode.applyScheduledBoundary(turnsOn: true)
+        XCTAssertEqual(viewModel.nightModeNotice, .starting)
+
+        let gone = await waitUntil { viewModel.nightModeNotice == nil }
+        XCTAssertTrue(gone)
+    }
+
+    func test_stop_dropsTheNoticeAndTheRamp() async {
+        let engine = FakePlaybackEngine()
+        let viewModel = await startedForScheduledSwitch(engine: engine)
+        nightMode.applyScheduledBoundary(turnsOn: true)
+
+        await viewModel.stop()
+        let volumeAtStop = engine.outputVolume
+
+        XCTAssertNil(viewModel.nightModeNotice)
+        try? await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(engine.outputVolume, volumeAtStop, "A closed player's ramp stops")
+    }
+
     /// A closed player leaves the engine alone: the next one applies its own.
     func test_stop_stopsFollowingNightMode() async {
         let engine = FakePlaybackEngine()

@@ -345,6 +345,15 @@ enum UITestConfiguration {
         isActive ? UserDefaults.standard.string(forKey: "UITestEarlyCreditsItem") : nil
     }
 
+    /// Seconds after a player first opens at which the harness stands in for
+    /// a schedule boundary, switching Night Mode the other way as the
+    /// schedule would (`UITestHarness.scheduleNightModeSwitchIfAsked`): a
+    /// journey can't wait for a time of day. Nil unless asked.
+    static var nightModeScheduledSwitchDelay: Double? {
+        guard isActive, UserDefaults.standard.object(forKey: "UITestNightModeScheduledSwitchAfter") != nil else { return nil }
+        return UserDefaults.standard.double(forKey: "UITestNightModeScheduledSwitchAfter")
+    }
+
     /// The tvOS player's accessible transport, which otherwise needs
     /// VoiceOver or Switch Control running; XCUITest can run neither.
     static var forcesAccessibleTransport: Bool { flag("UITestAccessibleTransport") }
