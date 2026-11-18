@@ -38,9 +38,13 @@ final class NightModeJourneyTests: UITestCase {
         return player
     }
 
-    /// Taps the panel's empty backdrop, closing it.
+    /// Taps the panel's backdrop where the moon sits, closing it. The
+    /// backdrop covers the moon while the panel is open, and the panel hangs
+    /// below the top row, so this point is backdrop in every layout. A fixed
+    /// point near the bottom-left landed on the Chapter button on the iPhone
+    /// Duo, whose taller layouts put it higher (nightly, 2026-11-18).
     private func closePanel(_ player: PlayerScreen) {
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.9)).tap()
+        player.nightButton.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         player.nightToggle.awaitDisappearance("the Night panel, closed")
     }
 
