@@ -208,6 +208,10 @@ Keychain as it's made.
   episode near its end. One item only, so the item advanced to doesn't
   advance again mid-assertion (the Apple TV's auto-advance version
   journeys, #289).
+- `-UITestNightModeScheduledSwitchAfter <seconds>` switches Night Mode the
+  other way that long after the first player opens, as a schedule boundary
+  would (`UITestHarness.scheduleNightModeSwitchIfAsked`, once a launch), so
+  a journey sees the player's notice without waiting for a time of day.
 - `-UITestScenario <name>` picks the stub's behaviour (below).
 - `-UITestSeedLongSearchHistory` fills Search's history to its cap (#244).
 - `-UITestSeedMissingSearchHistory` seeds one recent search for an item the
@@ -1144,7 +1148,7 @@ the detail.
 | `Core/Networking/TrickplayThumbnailProviderTests` | Trickplay tile maths and fetching |
 | `Core/NightMode/NightModeScheduleRulesTests` | Which value the schedule puts in force: a boundary passed or not, a window across midnight, equal times, several missed boundaries collapsing to the latest, the next wake, a time-zone change |
 | `Core/NightMode/NightModeStoreTests` | Night Mode's defaults, levels clamped to 0...100 in steps of 5, the schedule's storage |
-| `Core/NightMode/NightModeControllerTests` | The one on/off value: a manual flip held until the next boundary, the schedule's toggle changing nothing at once, the effect handed to a session |
+| `Core/NightMode/NightModeControllerTests` | The one on/off value: a manual flip held until the next boundary, the schedule's toggle changing nothing at once, the effect handed to a session with its cause (the schedule or by hand) |
 | `Core/NightMode/NightModeTimeFormatTests` | The schedule's times, 12- or 24-hour per the locale |
 | `Core/NightMode/NightModeTimeStepTests` | The Apple TV's 15-minute time steps, wrapping past midnight, an off-grid time stepping to the next quarter hour |
 | `Core/Persistence/DeviceIdentityTests` | The device id, made once and kept; client and device names |
@@ -1182,7 +1186,7 @@ the detail.
 | `Features/Player/PlaybackRequestTests` | A playback request's identity (start from the beginning, media version) |
 | `Features/Player/PlaybackStatsReportTests` | Playback Stats' rows |
 | `Features/Player/PlayerControlsOverlayTests` | The skip step |
-| `Features/Player/PlayerViewModelNightModeTests` | Night Mode applied to the engine at load and on change (shaping, volume, the dimming opacity), Spatial Audio's rebuild order around it |
+| `Features/Player/PlayerViewModelNightModeTests` | Night Mode applied to the engine at load and on change (shaping, volume, the dimming opacity), Spatial Audio's rebuild order around it; a scheduled switch's fade, volume ramp and notice, a change by hand cancelling a ramp |
 | `Features/Player/PlayerViewModelOfflineTests` | Offline playback of downloads |
 | `Features/Player/PlayerViewModelTests` | Resume, reporting, transport, tracks, versions, errors, the background reload and stopping while offline; a play link's start, tracks, version, Playback Stats and (DEBUG-only) mode and bitrate, for its one session |
 | `Features/Player/SubtitleOverlayLayoutTests` | Subtitle metrics on phone and TV |
@@ -1277,7 +1281,7 @@ the detail.
 | `HeroLogoFallbackUITests` | The logo's text fallback timing |
 | `HomeJourneyTests` | The hero, See All, and a refresh scrolling rails back to their start |
 | `MediaVersionJourneyTests` | Choosing a version to play (#289): Play asking with the remembered version marked, Resume and Restart playing it silently, asking when nothing remembered is listed, auto-advance, an episode row's and a playlist row's Play, Playback Stats' Version row, and a plain play link never asking |
-| `NightModeJourneyTests` | The player's Night panel: the switch, each level reaching the fake engine and the Playback Stats row, "Not available when transcoding" on a server transcode (`transcode`), the schedule's summary |
+| `NightModeJourneyTests` | The player's Night panel: the switch, each level reaching the fake engine and the Playback Stats row, "Not available when transcoding" on a server transcode (`transcode`), the schedule's summary, the notice when the schedule switches it mid-play |
 | `OfflineErrorJourneyTests` | `serverError`, `unauthorized` and `offline`; Try Again loading Home once the server answers (`librariesFailAtFirst`) |
 | `PlacedSubtitleJourneyTests` | Subtitles the source places: `\an8` and `\pos` text cues, a bitmap cue on a canvas taller than the picture, and one on anamorphic video (`anamorphicVideo`), each by its frame |
 | `PlayerFeedbackJourneyTests` | The scrub bubble's trickplay still at either end (`scrubThumbnails`), "Reconnecting…" until playback resumes (`reconnecting`), the PiP button left out without PiP and, by tap, covering the player until PiP ends (`pictureInPicture`) |
@@ -1308,7 +1312,7 @@ the detail.
 | `OnboardingJourneyTests` | Find Your Server, Who's Watching?, Quick Connect, the password screen; a wrong password, Other without Quick Connect, and an unverifiable HTTPS server's HTTP fallback (the port, accepting, cancelling) |
 | `PlayerAccessibleTransportJourneyTests` | The accessible transport, forced on |
 | `PlayerJourneyTests` | The player opens, takes the remote and closes, loading too |
-| `PlayerPanelJourneyTests` | The swipe-down panel's tabs and choices, the Night tab dimming the picture and showing in Stats |
+| `PlayerPanelJourneyTests` | The swipe-down panel's tabs and choices, the Night tab dimming the picture and showing in Stats, the notice when the schedule switches Night Mode mid-play |
 | `PlayerReturnJourneyTests` | Leaving the player back to the page as it was |
 | `PlayerScrubJourneyTests` | Icons, scrubbing, scanning, glyphs |
 | `PlayerSegmentJourneyTests` | Skip Intro and Next Up |

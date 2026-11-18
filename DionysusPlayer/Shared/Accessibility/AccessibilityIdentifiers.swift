@@ -433,6 +433,9 @@ enum A11yID {
         /// `player.night.brightness.min`.
         static func nightControl(_ level: String, _ control: String) -> String { "player.night.\(level).\(control)" }
         static let nightScheduleSummary = "player.night.scheduleSummary"
+        /// The capsule over the picture when the schedule switches Night
+        /// Mode mid-play (`NightModeNotice`); on both apps.
+        static let nightModeNotice = "player.night.notice"
     }
 
     /// Playback Stats rows read by journeys on both apps, with one identifier

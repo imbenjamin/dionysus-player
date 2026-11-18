@@ -264,6 +264,10 @@ final class PlayerViewModel {
     let nightMode: NightModeController
     /// The black layer's opacity over the picture: Night Mode's Brightness.
     private(set) var videoDimOpacity: Double = 0
+    /// How long the views take to reach `videoDimOpacity`: the schedule's
+    /// fade, or nil (at once) for a change by hand and at a load. Set with
+    /// the opacity, so each change carries its own.
+    private(set) var videoDimFadeSeconds: Double?
     /// Whether Night Audio's compressor is shaping this session, as the
     /// engine reports it.
     private(set) var nightAudioState: NightAudioState = .off
@@ -271,6 +275,19 @@ final class PlayerViewModel {
     @ObservationIgnored private var nightModeObservation: NightModeObservation?
     /// The Night Audio the engine was last given, by a load or a change.
     @ObservationIgnored private var engineNightAudio = false
+    /// Shown over the picture while the schedule's switch eases in; nil the
+    /// rest of the time. Only an open player follows the controller, so it
+    /// never shows elsewhere.
+    private(set) var nightModeNotice: NightModeNotice?
+    /// How long a scheduled switch takes to dim and to reach its volume
+    /// (Benjamin, 2026-11-17). Settable so tests needn't wait it out.
+    @ObservationIgnored var nightModeTransitionDuration: Duration = .seconds(2)
+    /// How long the notice stays: the toast's own time, so it outlasts the
+    /// fade it explains.
+    @ObservationIgnored var nightModeNoticeDuration: Duration = ToastCenter.visibleDuration
+    /// The running volume ramp; a newer change cancels it.
+    @ObservationIgnored private var volumeRamp: Task<Void, Never>?
+    @ObservationIgnored private var noticeDismissal: Task<Void, Never>?
     #if DOWNLOADS
     /// Set via the download-taking convenience `init`. When non-nil, `start()`,
     /// `stop()` and progress reporting route through the local-only offline
@@ -1668,15 +1685,21 @@ final class PlayerViewModel {
     private func followNightMode() {
         let effect = nightMode.effect
         engine.outputVolume = effect.volume
+        videoDimFadeSeconds = nil
         videoDimOpacity = effect.dimOpacity
-        nightModeObservation = nightMode.observeEffect { [weak self] effect in self?.applyNightMode(effect) }
+        nightModeObservation = nightMode.observeEffect { [weak self] change in self?.applyNightMode(change) }
+        #if DEBUG
+        UITestHarness.scheduleNightModeSwitchIfAsked(nightMode)
+        #endif
     }
 
     /// Applies Night Mode as a load is about to start, returning the Night
     /// Audio to load with.
     private func prepareNightModeForLoad() -> Bool {
         let effect = nightMode.effect
+        cancelVolumeRamp()
         engine.outputVolume = effect.volume
+        videoDimFadeSeconds = nil
         videoDimOpacity = effect.dimOpacity
         engineNightAudio = effect.nightAudio
         return effect.nightAudio
@@ -1684,9 +1707,24 @@ final class PlayerViewModel {
 
     /// The levels cost nothing to change; Night Audio is a rebuild at the
     /// playhead, which the engine runs on its own and folds repeats into.
-    private func applyNightMode(_ effect: NightModeEffect) {
-        engine.outputVolume = effect.volume
-        videoDimOpacity = effect.dimOpacity
+    ///
+    /// A change by hand applies at once. The schedule's eases in over
+    /// `nightModeTransitionDuration` and says so, since it arrives
+    /// unannounced mid-film: the dimming fades (the views animate it) and the
+    /// volume ramps. Night Audio's rebuild can't ease, and starts at once.
+    private func applyNightMode(_ change: NightModeChange) {
+        let effect = change.effect
+        if case .schedule(let turnsOn) = change.cause {
+            rampVolume(to: effect.volume)
+            videoDimFadeSeconds = Self.seconds(nightModeTransitionDuration)
+            videoDimOpacity = effect.dimOpacity
+            showNightModeNotice(NightModeNotice(turnsOn: turnsOn))
+        } else {
+            cancelVolumeRamp()
+            engine.outputVolume = effect.volume
+            videoDimFadeSeconds = nil
+            videoDimOpacity = effect.dimOpacity
+        }
         guard effect.nightAudio != engineNightAudio else { return }
         engineNightAudio = effect.nightAudio
         engine.setNightAudio(effect.nightAudio)
@@ -1699,6 +1737,47 @@ final class PlayerViewModel {
             await previous?.value
             guard let self, !Task.isCancelled else { return }
             await self.correctSpatialAudio(forEngineTrackID: self.engine.audioTracks.first(where: \.isSelected)?.id)
+        }
+    }
+
+    /// Steps `engine.outputVolume` to `target` over
+    /// `nightModeTransitionDuration`, 20 steps a second, from wherever it is
+    /// (a ramp still running included). The engine has no ramp of its own;
+    /// at that rate the steps aren't heard.
+    private func rampVolume(to target: Float) {
+        cancelVolumeRamp()
+        let start = engine.outputVolume
+        let steps = max(Int(Self.seconds(nightModeTransitionDuration) * 20), 1)
+        let interval = nightModeTransitionDuration / steps
+        volumeRamp = Task { [weak self] in
+            for step in 1...steps {
+                try? await Task.sleep(for: interval)
+                guard let self, !Task.isCancelled else { return }
+                self.engine.outputVolume = start + (target - start) * Float(step) / Float(steps)
+            }
+        }
+    }
+
+    private func cancelVolumeRamp() {
+        volumeRamp?.cancel()
+        volumeRamp = nil
+    }
+
+    private static func seconds(_ duration: Duration) -> Double {
+        Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
+    }
+
+    /// Shows the notice, replacing one still up, and says it to VoiceOver,
+    /// which can't reach a capsule that leaves on its own.
+    private func showNightModeNotice(_ notice: NightModeNotice) {
+        noticeDismissal?.cancel()
+        nightModeNotice = notice
+        VoiceOverAnnouncement.post(notice.message)
+        let duration = nightModeNoticeDuration
+        noticeDismissal = Task { [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            self?.nightModeNotice = nil
         }
     }
 
@@ -1913,6 +1992,9 @@ final class PlayerViewModel {
         cancelSpatialAudioCorrection()
         nightModeObservation?.cancel()
         nightModeObservation = nil
+        cancelVolumeRamp()
+        noticeDismissal?.cancel()
+        nightModeNotice = nil
         #if DOWNLOADS
         if let downloadedItem {
             // Captured before `engine.stop()`, which synchronously zeroes

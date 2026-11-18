@@ -256,6 +256,19 @@ and on `significantTimeChangeNotification`.
 - **Toggling it holds the picture** while the engine rebuilds at the
   playhead: AetherEngine quotes 0.3 s, **1 to 2 s measured on the Living Room
   Apple TV** (accepted, Benjamin, 2026-11-16). Repeated calls fold.
+- **A switch the schedule makes mid-play eases in and says so**
+  (Benjamin, 2026-11-17): the dimming fades and the volume ramps over 2 s
+  (`nightModeTransitionDuration`; the views animate to
+  `videoDimFadeSeconds`, and `rampVolume` steps `engine.volume` 20 times a
+  second), and a capsule in the toast's style says "Night Mode starting as
+  scheduled" or "… ending as scheduled" for 2.5 s, announced to VoiceOver
+  (`NightModeNotice`, drawn by `NightModeNoticeOverlay` in each player, since
+  `ToastHost` sits under the full-screen player). The controller hands each
+  change its cause (`NightModeChange`); a change by hand applies at once,
+  says nothing and cancels a running ramp. Night Audio's rebuild can't ease
+  and starts at once. Only an open player follows the controller, so the
+  notice never shows elsewhere. The dim layer is always mounted on both
+  apps, or the ~10 Hz re-renders cut its fade.
 - **Volume Limit is `engine.volume`**, replayed on every load. The design
   feared it might not reach audio passed undecoded to a receiver. **Measured
   (Living Room, 2026-11-16): it applies on every route**, because the Apple

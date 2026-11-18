@@ -117,6 +117,29 @@ final class NightModeJourneyTests: UITestCase {
                       player.nightAudioToggle.label)
     }
 
+    /// The schedule switching Night Mode mid-play says so over the picture,
+    /// and the switch applies (read from Playback Stats; the fade and the
+    /// ramp are unit-tested). The harness stands in for the boundary
+    /// (`-UITestNightModeScheduledSwitchAfter`), since a journey can't wait
+    /// for a time of day.
+    func test_scheduledSwitch_saysSo_andApplies() {
+        let player = openPlayerWithStats(extraArguments: [
+            "-nightMode.volumePercent", "60",
+            "-nightMode.brightnessPercent", "40",
+            "-UITestNightModeScheduledSwitchAfter", "4"
+        ])
+        let statsRow = player.statsValue("Night Mode")
+        player.statsPageIndicator.awaitExistence("Playback Stats, opened by the link")
+        XCTAssertFalse(player.nightModeNotice.exists, "Nothing to say before the switch")
+
+        player.nightModeNotice.awaitExistence("the scheduled switch's notice", timeout: 15)
+        XCTAssertEqual(player.nightModeNotice.label, "Night Mode starting as scheduled")
+        XCTAssertTrue(poll { statsRow.label == "Night Audio · Volume 60% · Brightness 40%" },
+                      "Stats read \(statsRow.label)")
+        XCTAssertEqual(player.nightButton.value as? String, "On")
+        player.nightModeNotice.awaitDisappearance("the notice, gone on its own")
+    }
+
     /// The schedule is a one-line summary in the player, edited in
     /// Profile. Turned on through `UserDefaults`' argument domain, where
     /// "YES" arrives as a string (`NightModeStore` reads it as a Bool). With

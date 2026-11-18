@@ -981,6 +981,9 @@ struct PlayerScreen: Screen {
         app.buttons[A11yID.Player.nightControl(level, control)]
     }
     var nightScheduleSummary: XCUIElement { app.staticTexts[A11yID.Player.nightScheduleSummary] }
+    /// The capsule saying the schedule switched Night Mode; its label is the
+    /// message.
+    var nightModeNotice: XCUIElement { app.descendants(matching: .any)[A11yID.Player.nightModeNotice] }
 
     /// The composited libass bitmap. Present only while an authored ASS
     /// track is selected AND libass has produced a frame, so its mere

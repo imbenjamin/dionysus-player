@@ -38,17 +38,22 @@ struct TVPlayerOverlay: View {
                 // still (`AetherStillView`, beneath this overlay) and the
                 // subtitles, below the transport and the panel, which stay
                 // at full brightness. Only in the player's own overlay: the
-                // accessible transport's layer sits above everything.
-                if viewModel.videoDimOpacity > 0 {
-                    Color.black
-                        .opacity(viewModel.videoDimOpacity)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
+                // accessible transport's layer sits above everything. Always
+                // mounted, so a scheduled switch fades it
+                // (`videoDimFadeSeconds`) rather than cutting in.
+                Color.black
+                    .opacity(viewModel.videoDimOpacity)
+                    .animation(viewModel.videoDimFadeSeconds.map { .linear(duration: $0) }, value: viewModel.videoDimOpacity)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
             if drawsControls {
                 controls
+                // The schedule switching Night Mode mid-play: with the
+                // controls, so it sits over the accessible transport's layer
+                // too. Top centre, inside the title-safe area.
+                NightModeNoticeOverlay(notice: viewModel.nightModeNotice, topClearance: 0)
             }
         }
         .modifier(AccessibleLayerCommands(isOn: role == .accessibleLayer, input: input))

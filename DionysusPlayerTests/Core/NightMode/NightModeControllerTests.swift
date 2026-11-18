@@ -61,15 +61,37 @@ final class NightModeControllerTests: XCTestCase {
 
     func test_evaluate_afterStart_turnsOn_andNotifiesObserver() {
         controller.setSchedule(window)
-        var received: [NightModeEffect] = []
+        var received: [NightModeChange] = []
         let observation = controller.observeEffect { received.append($0) }
         clock = date(day: 10, hour: 22, minute: 1)
         controller.evaluate()
         XCTAssertTrue(controller.settings.isOn)
-        XCTAssertEqual(received, [controller.effect])
+        XCTAssertEqual(received, [NightModeChange(effect: controller.effect, cause: .schedule(turnsOn: true))])
         XCTAssertEqual(store.lastBoundaryApplied, date(day: 10, hour: 22))
         controller.evaluate()
         XCTAssertEqual(received.count, 1)
+        observation.cancel()
+    }
+
+    func test_scheduledEnd_reportsTheScheduleTurningOff() {
+        controller.setSchedule(window)
+        clock = date(day: 10, hour: 22, minute: 1)
+        controller.evaluate()
+        var received: [NightModeChange] = []
+        let observation = controller.observeEffect { received.append($0) }
+        clock = date(day: 11, hour: 7, minute: 1)
+        controller.evaluate()
+        XCTAssertEqual(received, [NightModeChange(effect: .none, cause: .schedule(turnsOn: false))])
+        observation.cancel()
+    }
+
+    func test_changesByHand_reportManual() {
+        var received: [NightModeChangeCause] = []
+        let observation = controller.observeEffect { received.append($0.cause) }
+        controller.setOn(true)
+        controller.setBrightnessPercent(50)
+        controller.setOn(false)
+        XCTAssertEqual(received, [.manual, .manual, .manual])
         observation.cancel()
     }
 
