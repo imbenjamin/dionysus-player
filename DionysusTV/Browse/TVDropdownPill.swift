@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct TVDropdownOption: Identifiable {
     let id: String
@@ -63,7 +64,6 @@ struct TVDropdownPill: View {
     @Binding var openPill: String?
     let focus: FocusState<String?>.Binding
 
-    private var isOpen: Bool { openPill == dropdown.id }
     /// The widest a pill's text gets before it's cut short.
     static let maxTitleWidth: CGFloat = 260
 
@@ -90,12 +90,6 @@ struct TVDropdownPill: View {
         // "selected" for the pill and again for the ticked row (M5).
         .accessibilityIdentifier(dropdown.identifier)
         .anchorPreference(key: TVDropdownAnchors.self, value: .bounds) { [dropdown.id: $0] }
-        // Focus that was in the list and has gone elsewhere (the rail, a
-        // pill) closes it, as pressing away from a menu does.
-        .onChange(of: focus.wrappedValue) { old, new in
-            guard isOpen, old?.hasPrefix(dropdown.optionPrefix) == true, new?.hasPrefix(dropdown.optionPrefix) != true else { return }
-            openPill = nil
-        }
     }
 
     private func open() {
@@ -118,6 +112,13 @@ struct TVDropdownList: View {
     let dropdown: TVDropdown
     @Binding var openPill: String?
     let focus: FocusState<String?>.Binding
+    /// Whether UIKit's focus is in the long list's scroll view: on a row, or
+    /// on the system's fast-scrolling bar, which the page's focus state
+    /// can't name (`TVScrollFocusWatcher`).
+    @State private var focusIsInScrollView = false
+    /// Set once a row has focus: the list opens with focus on its pill, a
+    /// pass before its row can take it.
+    @State private var focusHasEntered = false
 
     static let rowWidth: CGFloat = 440
     private static let inset: CGFloat = 18
@@ -136,6 +137,10 @@ struct TVDropdownList: View {
                         .accessibilityElement(children: .contain)
                         .accessibilityLabel(Text(verbatim: dropdown.name))
                         .accessibilityIdentifier(A11yID.TV.Library.listRows(dropdown.id))
+                        .background(TVScrollFocusWatcher { inside in
+                            focusIsInScrollView = inside
+                            closeIfFocusLeft()
+                        })
                 }
                 .frame(height: 640)
             } else {
@@ -151,6 +156,21 @@ struct TVDropdownList: View {
         .accessibilityLabel(Text(verbatim: dropdown.name))
         .accessibilityIdentifier(A11yID.TV.Library.list(dropdown.id))
         .onExitCommand(perform: close)
+        .onChange(of: focus.wrappedValue) { closeIfFocusLeft() }
+    }
+
+    /// Focus that has left the list (for the rail, a pill) closes it, as
+    /// pressing away from a menu does. Holding Down on a long list hands
+    /// focus to the system's fast-scrolling bar, which the page's focus state
+    /// reads as nil: taken for leaving, it closed the list and focus fell on
+    /// the grid (#475). The bar is in the scroll view, so focus there stays.
+    private func closeIfFocusLeft() {
+        if focus.wrappedValue?.hasPrefix(dropdown.optionPrefix) == true {
+            focusHasEntered = true
+            return
+        }
+        guard focusHasEntered, !focusIsInScrollView, openPill == dropdown.id else { return }
+        openPill = nil
     }
 
     /// Focus goes to the pill at once, and is kept there for a moment: a
@@ -229,5 +249,56 @@ private struct TVDropdownRowStyle: ButtonStyle {
             .background(isFocused ? Color.white : Color.clear, in: Capsule())
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: isFocused)
+    }
+}
+
+/// Reports whether UIKit's focus is inside the scroll view this sits in, on
+/// every focus update. SwiftUI's focus state names only the views given a
+/// value; the system's own focusable views in a scroll view (the
+/// fast-scrolling bar a held direction brings up) read as nil there.
+struct TVScrollFocusWatcher: UIViewRepresentable {
+    let onFocusUpdate: (_ isInside: Bool) -> Void
+
+    func makeUIView(context: Context) -> WatcherView { WatcherView() }
+
+    func updateUIView(_ view: WatcherView, context: Context) {
+        view.onFocusUpdate = onFocusUpdate
+    }
+
+    final class WatcherView: UIView {
+        var onFocusUpdate: ((Bool) -> Void)?
+        private var observer: NSObjectProtocol?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+            guard window != nil else { return }
+            observer = NotificationCenter.default.addObserver(forName: UIFocusSystem.didUpdateNotification, object: nil, queue: .main) { [weak self] note in
+                let next = (note.userInfo?[UIFocusSystem.focusUpdateContextUserInfoKey] as? UIFocusUpdateContext)?.nextFocusedItem
+                nonisolated(unsafe) let item = next
+                MainActor.assumeIsolated { self?.focusDidUpdate(to: item) }
+            }
+        }
+
+        private func focusDidUpdate(to item: UIFocusItem?) {
+            guard let scrollView = enclosingScrollView else { return }
+            onFocusUpdate?(Self.environment(item, isInside: scrollView))
+        }
+
+        private var enclosingScrollView: UIScrollView? {
+            sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? UIScrollView }.first
+        }
+
+        /// Walks the focus environments up from `item`: a SwiftUI row isn't
+        /// a view, but its environments lead through its scroll view.
+        static func environment(_ item: UIFocusEnvironment?, isInside scrollView: UIScrollView) -> Bool {
+            var environment = item
+            while let current = environment {
+                if current === scrollView { return true }
+                environment = current.parentFocusEnvironment
+            }
+            return false
+        }
     }
 }

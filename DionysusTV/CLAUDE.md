@@ -463,7 +463,13 @@ always shown (Benjamin, 2026-10-02).
   bounds, not hung from it, since the pill row is a focus section that
   confines movement to its frame; focus is held on the pill a moment after a
   choice while the grid reloads. Menu closes an open list, as does focus
-  leaving it. A pill's text is one line, cut with an ellipsis past 260pt
+  leaving it. **Leaving is judged by UIKit's focus, not the page's focus
+  state** (`TVScrollFocusWatcher`): holding Down on a long list (a Studio
+  list runs to 500) hands focus to the system's fast-scrolling bar, which
+  the focus state reads as nil, and taking that for leaving closed the list
+  onto the grid (#475). The bar runs to the end and, let go, hands focus to
+  a row on screen there. Hiding the index (`indexDisplayMode`) doesn't stop
+  it taking focus. A pill's text is one line, cut with an ellipsis past 260pt
   (`TVDropdownPill.maxTitleWidth`).
 - **Reset appears only while a filter is set** and clears all of them; focus
   then goes to the first pill.

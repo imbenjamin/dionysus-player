@@ -334,7 +334,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `largeCast` | Ten people on a movie, so Cast & Crew runs far past the action row |
 | `noBackdrop` | Items fetched on their own have no backdrop |
 | `missingTileArtwork` | The part-watched movie's artwork 404s |
-| `manyGenres` | Twelve genres, so the Genre list scrolls |
+| `manyGenres` | 120 genres, so the Genre list scrolls, long enough for the fast-scrolling bar |
 | `manyLibraries` | Seven libraries incl. Music, so the Apple TV sidebar folds them |
 | `manyUsers` | Six users, more than Who's Watching? fits in a row |
 | `librariesFailAtFirst` | `/Views` 500s for five seconds, then succeeds |
