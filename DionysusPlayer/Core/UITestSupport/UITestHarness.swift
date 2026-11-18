@@ -77,6 +77,22 @@ enum UITestHarness {
         isHeldSlowLogo(url)
     }
 
+    private static var hasScheduledNightModeSwitch = false
+
+    /// Under `-UITestNightModeScheduledSwitchAfter <seconds>`, switches
+    /// `nightMode` the other way that long after the first player opens, as
+    /// a schedule boundary would. Once a launch, so a journey's next title
+    /// doesn't switch it back.
+    static func scheduleNightModeSwitchIfAsked(_ nightMode: NightModeController) {
+        guard let delay = UITestConfiguration.nightModeScheduledSwitchDelay, !hasScheduledNightModeSwitch else { return }
+        hasScheduledNightModeSwitch = true
+        Task { [weak nightMode] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let nightMode else { return }
+            nightMode.applyScheduledBoundary(turnsOn: !nightMode.settings.isOn)
+        }
+    }
+
     /// Keeps the player's controls on screen. `PlayerView`'s auto-hide timer
     /// otherwise races every assertion: the overlay hides 3s after the last
     /// interaction unless VoiceOver is running, which XCUITest doesn't enable.
