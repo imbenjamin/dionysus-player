@@ -431,15 +431,18 @@ final class JellyfinAPIClientTests: XCTestCase {
         let client = makeClient()
         _ = try await authenticateSuccessfully(client, token: "token-1")
 
-        let viewsCounter = RequestCounter()
         let reauthCounter = RequestCounter()
+        let newTokenRequests = RequestCounter()
         MockURLProtocol.requestHandler = { request in
             switch request.url?.path {
             case "/Users/user-1/Views":
-                let count = viewsCounter.increment()
-                if count <= 3 {
+                // Answer by token, not by arrival order (#484): one request's
+                // retry with the new token can reach the mock before the other
+                // two originals, and refusing it by count signed in twice.
+                if (request.value(forHTTPHeaderField: "Authorization") ?? "").contains(#"Token="token-1""#) {
                     return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
                 }
+                newTokenRequests.increment()
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             case "/Users/AuthenticateByName":
                 reauthCounter.increment()
@@ -458,6 +461,7 @@ final class JellyfinAPIClientTests: XCTestCase {
         async let third = client.userViews(userID: "user-1")
         _ = try await (first, second, third)
 
+        XCTAssertEqual(newTokenRequests.count, 3, "every request should have succeeded with the new token")
         XCTAssertEqual(reauthCounter.count, 1, "three concurrent 401s should share one reauthentication, not each trigger their own")
     }
 
