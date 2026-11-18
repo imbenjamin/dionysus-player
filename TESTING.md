@@ -46,8 +46,10 @@ python3 -m unittest discover -s Scripts/ci -v
 ```
 
 Use whatever `xcrun simctl list devices available` shows. Check Apple TV
-journeys on a tvOS 26 Simulator as well as 27: 26.0 is the floor and focus
-behaves differently there.
+changes on a tvOS 26 Simulator as well as 27: 26.0 is the floor and focus
+behaves differently there. Since 2026-11-18 that check is by hand (idb, or
+the remote), not by journey: on the Mac, too, XCUITest now reads a stale tree
+on tvOS 26.5 every time ("Not tvOS 26.5", below; #488).
 
 The Apple TV commands name the 4th generation, on tvOS 27.2: Xcode 27.2 on the
 Mac won't resolve `name=Apple TV 4K (3rd generation)`, whose Simulator is on
@@ -787,7 +789,7 @@ fails when a pair differs in anything but the order and the configuration's id
   four of the seven smoke journeys fail. Not SwiftUI animation, remote query
   evaluation, the runner's simulator, the host (`macos-26` and `xcode-27`),
   Xcode (26.6 and 27.1) or a missing screen-changed notification; each was
-  tried. tvOS 27.0 passes on the same runner and 26.5 passes on a Mac. So 26.5
+  tried. tvOS 27.0 passes on the same runner. So 26.5
   runs nightly only, as `tvOS floor smoke tests` with `allow-failure`
   (downloading its runtime, about five minutes). When it passes, make it a PR
   check.
@@ -805,8 +807,20 @@ fails when a pair differs in anything but the order and the configuration's id
   brings it back (waiting 15 s, a full snapshot, `activate()`, remote
   presses), and a relaunch only sometimes does, so journeys can't wait it
   out. VoiceOver isn't affected: on the 26.5 Simulator it read Resume, Search
-  and Movies right every time, by ear and in 15 scripted trials. Check floor
-  journeys on a tvOS 26.5 Simulator locally.
+  and Movies right every time, by ear and in 15 scripted trials.
+
+  **Since 2026-11-18 the Mac sees it every time too** (#488): on the tvOS
+  26.5 Simulator, every journey that moves within the sidebar or opens a
+  page fails (the smoke plan's detail, player and grid journeys), on a
+  freshly erased device as well, and at the 2026-11-07 commit, so neither
+  the app nor the device's state brought it; nothing was installed on the
+  Mac in between. idb, reading the app's own accessibility, shows it right
+  (focus moves Home → Search → Movies, every row enabled), as does the screen.
+  So floor checks are by hand: the remote through idb (`idb ui key --udid
+  <udid> <code>`: up 82, down 81, left 80, right 79, Select 40, Menu 41),
+  `idb ui describe-point` on the focused item, and `xcrun simctl io <udid>
+  screenshot`. A journey's own launch arguments (`launch` in
+  `TVUITestCase`) put the app on the stub through `xcrun simctl launch`.
 - **The first test's warm-up**: on tvOS 27.0 in CI the first UI test sometimes
   read a tree seconds behind the app (PR #325), failing its retry too, while
   every later test and a job re-run passed. So before the plan the workflow
