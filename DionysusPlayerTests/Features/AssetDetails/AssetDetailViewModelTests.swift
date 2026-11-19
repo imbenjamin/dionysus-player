@@ -184,7 +184,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: seriesDto)
             case "/Shows/series-1/Seasons":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [seasonDto], totalRecordCount: 1))
-            case "/Items/series-1/Similar", "/Users/user-1/Items":
+            case "/Items/series-1/Similar", "/Users/user-1/Items",
+                 "/Shows/series-1/Episodes": // the show's watched episodes (#437)
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
@@ -293,7 +294,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: itemDto)
             case "/Shows/series-1/Seasons":
                 return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
-            case "/Items/series-1/Similar", "/Users/user-1/Items", "/Shows/NextUp":
+            case "/Items/series-1/Similar", "/Users/user-1/Items", "/Shows/NextUp",
+                 "/Shows/series-1/Episodes": // the show's watched episodes (#437)
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             default:
                 XCTFail("unexpected request to \(request.url?.path ?? "?")")
@@ -867,6 +869,9 @@ final class AssetDetailViewModelTests: XCTestCase {
                     id: "ep-7", name: "Ep 7", type: .episode,
                     userData: UserItemDataDto(playbackPositionTicks: nil, playedPercentage: 100, played: true)
                 ))
+            case "/Shows/series-1/Episodes":
+                // The show's watched episodes, re-read after playback (#437).
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
             default:
                 XCTFail("refreshItem() should re-fetch ep-7 (the selected episode), not series-1 — got \(request.url?.path ?? "?")")
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
@@ -1680,7 +1685,9 @@ final class AssetDetailViewModelTests: XCTestCase {
             case "/Users/user-1/Items/series-1":
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: seriesDto)
             case "/Shows/series-1/Episodes":
-                capturedEpisodesRequestURL = request.url
+                // The season-scoped lookup, not the show-wide one All Watched
+                // (#437) makes.
+                if request.url?.query?.contains("seasonId") == true { capturedEpisodesRequestURL = request.url }
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [season2FirstEpisode], totalRecordCount: 1))
             case "/Shows/NextUp":
                 nextUpWasConsulted = true
@@ -2391,7 +2398,7 @@ final class AssetDetailViewModelTests: XCTestCase {
         do {
             try await viewModel.delete(try XCTUnwrap(viewModel.seasons.first))
             XCTFail("expected a partial failure")
-        } catch let error as AssetDetailViewModel.PartialSeasonDeletionError {
+        } catch let error as AssetDetailViewModel.PartialDeletionError {
             XCTAssertEqual(error.deletedCount, 1)
             XCTAssertEqual(error.totalCount, 3)
         }
@@ -2401,6 +2408,230 @@ final class AssetDetailViewModelTests: XCTestCase {
             viewModel.folderlessSeasonEpisodes["season-1"]?.map(\.id), ["ep-2", "ep-3"],
             "a retry must not ask for the deleted episode again"
         )
+    }
+
+    // MARK: All Watched (#437)
+
+    /// A show of two seasons. s1e1 and s1e2 watched, s1e3 part-watched, s2e1
+    /// watched, s2e2 not, s2e3 watched but missing (`Virtual`, no file).
+    /// Deletions and watched writes stick, as on the server.
+    private final class WatchedShowStub: @unchecked Sendable {
+        let lock = NSLock()
+        var played: Set<String> = ["s1e1", "s1e2", "s2e1", "s2e3"]
+        var deleted: [String] = []
+        var notDeletable: Set<String> = []
+        var failing: String?
+        /// Jellyfin can take minutes to commit a watched write: off, the
+        /// write answers 204 and reads keep the old value.
+        var commitsWatched = true
+        /// The series lookup after a deletion answers 500 (a timeout or a
+        /// server error), not 404.
+        var seriesLookupFails = false
+        let virtual: Set<String> = ["s2e3"]
+        let all = ["s1e1", "s1e2", "s1e3", "s2e1", "s2e2", "s2e3"]
+
+        func locked<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
+
+        func episode(_ id: String) -> BaseItemDto {
+            var episode = BaseItemDto(id: id, name: id, type: .episode)
+            episode.seriesId = "series-1"
+            episode.seasonId = id.hasPrefix("s1") ? "season-1" : "season-2"
+            episode.locationType = virtual.contains(id) ? "Virtual" : "FileSystem"
+            episode.canDelete = !virtual.contains(id) && !notDeletable.contains(id)
+            episode.userData = UserItemDataDto(
+                playbackPositionTicks: id == "s1e3" ? 6_000_000_000 : 0,
+                playedPercentage: id == "s1e3" ? 25 : 0,
+                played: played.contains(id),
+                isFavorite: false
+            )
+            return episode
+        }
+
+        func handle(_ request: URLRequest) throws -> (HTTPURLResponse, Data) {
+            let path = request.url?.path ?? ""
+            if path.hasPrefix("/Users/user-1/PlayedItems/") {
+                let id = String(path.dropFirst("/Users/user-1/PlayedItems/".count))
+                locked {
+                    guard commitsWatched else { return }
+                    if request.httpMethod == "POST" { played.insert(id) } else { played.remove(id) }
+                }
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            }
+            if request.httpMethod == "DELETE", path.hasPrefix("/Items/") {
+                let id = String(path.dropFirst("/Items/".count))
+                if id == locked({ failing }) { return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data()) }
+                locked { deleted.append(id) }
+                return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
+            }
+            let remaining = locked { all.filter { !deleted.contains($0) }.map(episode) }
+            switch (path, request.queryDictionary["seasonId"]) {
+            case ("/Users/user-1/Items/series-1", _):
+                if locked({ seriesLookupFails && !deleted.isEmpty }) {
+                    return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+                }
+                let withFiles = remaining.filter { $0.locationType != "Virtual" }
+                guard !withFiles.isEmpty else { return MockURLProtocol.jsonResponse(for: request, status: 404, body: Data()) }
+                var series = BaseItemDto(id: "series-1", name: "House of Games", type: .series)
+                series.recursiveItemCount = withFiles.count
+                series.canDelete = true
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: series)
+            case let (itemPath, _) where itemPath.hasPrefix("/Users/user-1/Items/"):
+                let id = String(itemPath.dropFirst("/Users/user-1/Items/".count))
+                guard let match = remaining.first(where: { $0.id == id }) else {
+                    return MockURLProtocol.jsonResponse(for: request, status: 404, body: Data())
+                }
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: match)
+            case ("/Shows/series-1/Seasons", _):
+                let seasons = [1, 2].map { BaseItemDto(id: "season-\($0)", name: "Season \($0)", type: .season) }
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: 2))
+            case ("/Shows/series-1/Episodes", let seasonID):
+                let items = remaining.filter { seasonID == nil || $0.seasonId == seasonID }
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: items, totalRecordCount: items.count))
+            default:
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            }
+        }
+    }
+
+    private func loadedWatchedShow(_ stub: WatchedShowStub, itemID: String = "series-1") async -> AssetDetailViewModel {
+        MockURLProtocol.requestHandler = { try stub.handle($0) }
+        let viewModel = makeViewModel(itemID: itemID)
+        await viewModel.load()
+        return viewModel
+    }
+
+    func test_loadWatchedEpisodes_countsPlayedEpisodesWithFiles() async throws {
+        let viewModel = await loadedWatchedShow(WatchedShowStub())
+        let deletion = try XCTUnwrap(viewModel.watchedEpisodes)
+        XCTAssertEqual(deletion.watched.map(\.id), ["s1e1", "s1e2", "s2e1"], "not the part-watched or the missing one")
+        XCTAssertEqual(deletion.totalCount, 5)
+        XCTAssertEqual(deletion.show.id, "series-1")
+    }
+
+    func test_loadWatchedEpisodes_nilWhenAWatchedEpisodeIsNotDeletable() async {
+        let stub = WatchedShowStub()
+        stub.notDeletable = ["s1e2"]
+        let viewModel = await loadedWatchedShow(stub)
+        XCTAssertNil(viewModel.watchedEpisodes)
+    }
+
+    func test_loadWatchedEpisodes_nilWhenNothingIsWatched() async {
+        let stub = WatchedShowStub()
+        stub.played = []
+        let viewModel = await loadedWatchedShow(stub)
+        XCTAssertNil(viewModel.watchedEpisodes)
+    }
+
+    /// Review Focus 1: marked watched, then straight to Delete.
+    func test_toggleWatched_reloadsWatchedEpisodes() async throws {
+        let viewModel = await loadedWatchedShow(WatchedShowStub())
+        await viewModel.toggleWatched(itemID: "s2e2", currentlyWatched: false)
+        XCTAssertEqual(viewModel.watchedEpisodes?.watched.count, 4)
+    }
+
+    /// The server can take minutes to commit a watched write, so the count
+    /// follows the write itself, not only the server's reading of it (final
+    /// review, I1).
+    func test_toggleWatched_countsTheEpisodeBeforeTheServerCommitsIt() async throws {
+        let stub = WatchedShowStub()
+        let viewModel = await loadedWatchedShow(stub)
+        stub.locked { stub.commitsWatched = false }
+        await viewModel.toggleWatched(itemID: "s2e2", currentlyWatched: false)
+        XCTAssertEqual(viewModel.watchedEpisodes?.watched.map(\.id), ["s1e1", "s1e2", "s2e1", "s2e2"])
+    }
+
+    /// Marking a whole season watched counts every episode with a file in it.
+    func test_toggleWatched_season_countsItsEpisodesBeforeTheServerCommits() async throws {
+        let stub = WatchedShowStub()
+        let viewModel = await loadedWatchedShow(stub)
+        stub.locked { stub.commitsWatched = false }
+        await viewModel.toggleWatched(itemID: "season-2", currentlyWatched: false)
+        XCTAssertEqual(
+            viewModel.watchedEpisodes?.watched.map(\.id), ["s1e1", "s1e2", "s2e1", "s2e2"],
+            "Season 2's missing episode stays out"
+        )
+    }
+
+    /// A lookup that fails for another reason (a timeout, a 5xx) isn't the
+    /// show being gone: screens beneath keep it, and the page stays (final
+    /// review, I2).
+    func test_deleteWatched_seriesLookupFailing_doesNotAnnounceTheShowGone() async throws {
+        DeletedItemBroadcaster.shared.reset()
+        let stub = WatchedShowStub()
+        stub.seriesLookupFails = true
+        let viewModel = await loadedWatchedShow(stub)
+        let outcome = try await viewModel.delete(.watchedEpisodes(try XCTUnwrap(viewModel.watchedEpisodes)))
+        XCTAssertEqual(outcome, .stayAndRefresh)
+        XCTAssertEqual(DeletedItemBroadcaster.shared.lastDeletedItemID, "s2e1")
+    }
+
+    /// Review Focus 3 and 4: neither the missing nor the part-watched
+    /// episode is touched.
+    func test_deleteWatched_deletesOnlyTheSnapshot() async throws {
+        let stub = WatchedShowStub()
+        let viewModel = await loadedWatchedShow(stub)
+        let outcome = try await viewModel.delete(.watchedEpisodes(try XCTUnwrap(viewModel.watchedEpisodes)))
+        XCTAssertEqual(stub.locked { stub.deleted }, ["s1e1", "s1e2", "s2e1"])
+        XCTAssertEqual(outcome, .stayAndRefresh)
+        XCTAssertNil(viewModel.watchedEpisodes, "nothing watched is left")
+    }
+
+    func test_deleteWatched_dropsAnEmptiedSeason() async throws {
+        let stub = WatchedShowStub()
+        stub.played.insert("s1e3")
+        let viewModel = await loadedWatchedShow(stub)
+        _ = try await viewModel.delete(.watchedEpisodes(try XCTUnwrap(viewModel.watchedEpisodes)))
+        XCTAssertEqual(viewModel.seasons.map(\.id), ["season-2"], "Season 1 lost every episode, though the server still lists it")
+    }
+
+    func test_deleteWatched_stopsAtTheFirstFailure() async throws {
+        let stub = WatchedShowStub()
+        stub.failing = "s1e2"
+        let viewModel = await loadedWatchedShow(stub)
+        do {
+            try await viewModel.delete(.watchedEpisodes(try XCTUnwrap(viewModel.watchedEpisodes)))
+            XCTFail("expected a partial failure")
+        } catch let error as AssetDetailViewModel.PartialDeletionError {
+            XCTAssertEqual(error.deletedCount, 1)
+            XCTAssertEqual(error.totalCount, 3)
+        }
+        XCTAssertEqual(stub.locked { stub.deleted }, ["s1e1"], "nothing after the failure is attempted")
+        XCTAssertEqual(viewModel.watchedEpisodes?.watched.map(\.id), ["s1e2", "s2e1"])
+    }
+
+    /// Review Focus 2: every episode watched empties the show, which Jellyfin
+    /// then drops.
+    func test_deleteWatched_everyEpisode_popsOffTheEmptiedShow() async throws {
+        let stub = WatchedShowStub()
+        stub.played = Set(stub.all)
+        let onShow = await loadedWatchedShow(stub)
+        XCTAssertEqual(onShow.watchedEpisodes?.remainingCount, 0)
+        let showOutcome = try await onShow.delete(.watchedEpisodes(try XCTUnwrap(onShow.watchedEpisodes)))
+        XCTAssertEqual(showOutcome, .popOneLevel, "the show's own page pops onto what listed it")
+
+        let again = WatchedShowStub()
+        again.played = Set(again.all)
+        let onEpisode = await loadedWatchedShow(again, itemID: "s2e2")
+        let episodeOutcome = try await onEpisode.delete(.watchedEpisodes(try XCTUnwrap(onEpisode.watchedEpisodes)))
+        XCTAssertEqual(episodeOutcome, .popToRoot, "the show beneath is gone too")
+    }
+
+    /// Review Focus 5: an episode's own page, its episode among those deleted.
+    func test_deleteWatched_fromAPushedEpisodeAmongThem_popsOneLevel() async throws {
+        let viewModel = await loadedWatchedShow(WatchedShowStub(), itemID: "s1e1")
+        XCTAssertEqual(viewModel.item?.id, "s1e1", "precondition")
+        let outcome = try await viewModel.delete(.watchedEpisodes(try XCTUnwrap(viewModel.watchedEpisodes)))
+        XCTAssertEqual(outcome, .popOneLevel)
+    }
+
+    func test_deleteWatched_announcesOnce() async throws {
+        DeletedItemBroadcaster.shared.reset()
+        let viewModel = await loadedWatchedShow(WatchedShowStub())
+        _ = try await viewModel.delete(.watchedEpisodes(try XCTUnwrap(viewModel.watchedEpisodes)))
+        XCTAssertEqual(DeletedItemBroadcaster.shared.lastDeletedItemID, "s2e1")
     }
 
     /// Failing on the very first episode is an ordinary failed delete, with
@@ -2413,7 +2644,7 @@ final class AssetDetailViewModelTests: XCTestCase {
             try await viewModel.delete(try XCTUnwrap(viewModel.seasons.first))
             XCTFail("expected a failure")
         } catch {
-            XCTAssertFalse(error is AssetDetailViewModel.PartialSeasonDeletionError, "was \(error)")
+            XCTAssertFalse(error is AssetDetailViewModel.PartialDeletionError, "was \(error)")
         }
         XCTAssertEqual(deletes.paths, ["/Items/ep-1"])
     }

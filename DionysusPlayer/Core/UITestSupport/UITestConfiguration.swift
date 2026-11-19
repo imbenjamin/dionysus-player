@@ -44,6 +44,11 @@ enum UITestScenario: String {
     /// Jellyfin refuses it. Delete Season then goes episode by episode.
     case folderlessSeasons
 
+    /// `.standard`'s catalogue with every Season 1 episode watched (played,
+    /// no resume point), so Delete offers All Watched (#437): 3 of the
+    /// show's 6 episodes.
+    case watchedEpisodes
+
     /// `.standard`'s catalogue with several versions of some titles, as a
     /// library holds when a title exists in more than one file: the first
     /// movie in 4K HDR10 and 1080p, the second as the original and a Director's

@@ -171,7 +171,10 @@ If you are unsure, please use the Stable Releases link.
   the server says *that* user may delete *that* item (Jellyfin's own
   per-item `CanDelete`, which respects per-folder delete rights, not just
   the global permission), so it's invisible to accounts without the right.
-  A local download of the same item can be removed at the same time.
+  A show's watched episodes can go in one step (All Watched), with a
+  confirmation saying how many go, how many remain, and that they go for
+  every user. A local download of the same item can be removed at the same
+  time.
 - **Accounts** — Jellyfin sign-in by password or Quick Connect (a code
   approved from another signed-in client), approving other devices' Quick
   Connect codes from the Account screen, silent session restore, per-server

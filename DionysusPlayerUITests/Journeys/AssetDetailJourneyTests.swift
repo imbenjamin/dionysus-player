@@ -483,6 +483,47 @@ final class AssetDetailJourneyTests: UITestCase {
         XCTAssertFalse(detail.playButton.label.contains("S1:E"), "Play should leave Season 1. Was: \(detail.playButton.label)")
     }
 
+    /// All Watched (#437): Season 1 is watched in this scenario, so its
+    /// three episodes go and Season 2's stay. The confirmation names the
+    /// counts and the show (the stub's numbers and name, not the copy).
+    func testDeletingAllWatchedEpisodesLeavesTheRest() {
+        launch(scenario: "watchedEpisodes")
+        let home = HomeScreen(app: app)
+        home.awaitLoaded()
+        home.openItem(UITestFixtureIdentity.showsLibraryID)
+
+        let collection = CollectionScreen(app: app)
+        collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+        collection.card(UITestFixtureIdentity.seriesID).tap()
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 1))
+            .awaitExistence("the Season 1, Episode 1 row")
+
+        detail.openDelete()
+        detail.deleteTarget(UITestFixtureIdentity.seriesName).awaitExistence("the show's row in the Delete submenu")
+        let allWatched = detail.lastDeleteRow
+        allWatched.awaitExistence("All Watched, the submenu's last row")
+        allWatched.tap()
+
+        detail.deleteConfirmationText(containing: "for \(UITestFixtureIdentity.seriesName).")
+            .awaitExistence("the counts, naming the show")
+        XCTAssertTrue(
+            detail.deleteConfirmationText(containing: "3 ").exists,
+            "Three of six episodes are watched, and three remain."
+        )
+        detail.confirmDelete()
+
+        detail.episodeRow(UITestFixtureIdentity.episodeID(season: 2, episode: 1))
+            .awaitExistence("Season 2's first episode, once Season 1's are gone")
+        XCTAssertFalse(
+            detail.episodeRow(UITestFixtureIdentity.episodeID(season: 1, episode: 1)).exists,
+            "The watched episodes should be gone."
+        )
+        XCTAssertFalse(detail.playButton.label.contains("S1:E"), "Play should leave Season 1. Was: \(detail.playButton.label)")
+    }
+
     // MARK: - Playlist item removal
 
     /// The only removal path this feature has: long-press a row, tap

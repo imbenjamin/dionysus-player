@@ -101,6 +101,7 @@ struct TVShowDetailView: View {
         AssetActionTargets(
             item: item, seriesItem: viewModel.seriesItem, seasons: viewModel.seasons,
             selectedSeasonID: seasonID, playbackEpisode: viewModel.showPlaybackEpisode,
+            watchedEpisodes: viewModel.watchedEpisodes,
             canDeleteSeason: viewModel.canDelete(season:)
         )
     }

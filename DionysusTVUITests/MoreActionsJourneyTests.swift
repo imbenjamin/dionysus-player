@@ -398,6 +398,47 @@ final class MoreActionsJourneyTests: TVUITestCase {
         assertDeleteOffersPlaysEpisode(app, playsEpisode: nil)
     }
 
+    /// All Watched (#437): the Delete submenu's last row, below its own
+    /// divider. Its identifier on tvOS 26; on tvOS 27, where submenu rows have
+    /// none, the lowest row (its label is localized copy, never matched).
+    private func allWatchedRow(_ app: XCUIApplication) -> XCUIElement {
+        let byID = app.cells.otherElements.matching(NSPredicate(format: "identifier CONTAINS %@", ".watched.")).firstMatch
+        if byID.exists { return byID }
+        let rows = app.cells.otherElements.allElementsBoundByIndex.filter { !$0.label.isEmpty }
+        return rows.max { $0.frame.minY < $1.frame.minY } ?? byID
+    }
+
+    /// Season 1 is watched in this scenario: its three episodes go, Season 2
+    /// stays, and the question names the counts and the show.
+    func test_deleteAllWatched_leavesTheUnwatchedSeason() {
+        let app = launchAtHome(scenario: "watchedEpisodes")
+        openSeries(app)
+        openDeleteSubmenu(app)
+        let season = submenuRow(app, seasonRow)
+        XCTAssertTrue(season.waitForExistence(timeout: 5))
+        let allWatched = allWatchedRow(app)
+        XCTAssertTrue(allWatched.exists, "All Watched is offered")
+        XCTAssertGreaterThan(allWatched.frame.minY, season.frame.minY, "Below the show, season and episode")
+
+        pressDown(toFocus: allWatched)
+        press(.select)
+        let confirm = app.buttons[A11yID.TV.Actions.deleteConfirm]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        let message = app.staticTexts.matching(NSPredicate(
+            format: "label CONTAINS %@", "3 episodes will remain for \(UITestFixtureIdentity.seriesName).")).firstMatch
+        XCTAssertTrue(message.exists, "The question names the counts and the show")
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.confirmationCancel]), "The question opens on Cancel")
+        press(.up)
+        XCTAssertTrue(waitForFocus(confirm))
+        press(.select)
+
+        XCTAssertTrue(episodeTile(app, season: 2, 1).waitForExistence(timeout: 15), "The unwatched season's episodes show")
+        XCTAssertFalse(episodeTile(app, season: 1, 1).exists)
+        XCTAssertFalse(app.buttons[A11yID.TV.Detail.season("season-1")].exists, "The emptied season leaves the tabs")
+        XCTAssertTrue(app.buttons[A11yID.TV.Detail.play].exists, "The show is still there")
+        XCTAssertTrue(waitFocused(any(app, A11yID.TV.Detail.more), timeout: 10), "Focus back on More")
+    }
+
     /// A season with no folder (Benjamin's library): offered once its
     /// episodes are known to be deletable, and deleted episode by episode.
     func test_folderlessSeason_isOffered_andDeleted() {

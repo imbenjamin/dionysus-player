@@ -65,7 +65,7 @@ struct AssetActionsButton: View {
     /// `EnvironmentValues.popNavigationToRoot`); the fallback is `dismiss()`.
     @Environment(\.popNavigationToRoot) private var popToRoot
 
-    @State private var pendingTarget: MediaItem?
+    @State private var pendingTarget: AssetDeleteRequest?
     @State private var errorMessage: String?
     /// The entity whose "Add to Playlist" sheet is open, driving `.sheet(item:)`
     /// directly rather than pairing a `Bool` with a stored target — same reason
@@ -78,11 +78,11 @@ struct AssetActionsButton: View {
     private var targets: AssetActionTargets {
         AssetActionTargets(viewModel: viewModel, selectedSeasonID: selectedSeasonID)
     }
-    private var deletableTargets: [MediaItem] { targets.deletable }
+    private var deleteRequests: [AssetDeleteRequest] { targets.deleteRequests }
     private var playlistTargets: [MediaItem] { targets.addable }
 
     var body: some View {
-        if !deletableTargets.isEmpty || !playlistTargets.isEmpty {
+        if !deleteRequests.isEmpty || !playlistTargets.isEmpty {
             control
                 .sheet(item: $playlistTarget) { target in
                     AddToPlaylistSheet(
@@ -96,10 +96,10 @@ struct AssetActionsButton: View {
                     isPresented: confirmationBinding,
                     titleVisibility: .visible,
                     presenting: pendingTarget
-                ) { target in
-                    confirmationActions(for: target)
-                } message: { target in
-                    Text(AssetActionTargets.deleteConfirmationMessage(for: target))
+                ) { request in
+                    confirmationActions(for: request)
+                } message: { request in
+                    Text(request.confirmationMessage)
                 }
                 .alert(
                     "Couldn't delete",
@@ -117,7 +117,7 @@ struct AssetActionsButton: View {
     private var control: some View {
         Menu {
             addToPlaylistMenuContent
-            if !deletableTargets.isEmpty {
+            if !deleteRequests.isEmpty {
                 // Destructive action last and visually separated, per iOS
                 // convention, and what stands between a mis-tap on "Add to
                 // Playlist" and one on "Delete".
@@ -137,14 +137,14 @@ struct AssetActionsButton: View {
     // MARK: - Delete
 
     /// The delete action as rows inside the overflow menu: a lone target is a
-    /// flat row, several become a submenu.
+    /// flat row, several become a submenu (All Watched among them, #437).
     @ViewBuilder
     private var deleteMenuContent: some View {
-        if deletableTargets.count == 1, let only = deletableTargets.first {
+        if deleteRequests.count == 1, let only = deleteRequests.first {
             Button(role: .destructive) {
                 pendingTarget = only
             } label: {
-                Label(AssetActionTargets.deleteActionLabel(for: only), systemImage: "trash")
+                Label(only.actionLabel, systemImage: "trash")
             }
             .disabled(isPending)
             .accessibilityIdentifier(A11yID.AssetDetail.deleteButton)
@@ -160,18 +160,27 @@ struct AssetActionsButton: View {
 
     @ViewBuilder
     private var deleteTargetRows: some View {
-        ForEach(deletableTargets, id: \.id) { target in
-            Button(role: .destructive) {
-                pendingTarget = target
-            } label: {
-                Label {
-                    Text(AssetActionTargets.rowLabel(for: target))
-                } icon: {
-                    Image(systemName: "trash")
-                }
-            }
-            .disabled(viewModel.deletingItemIDs.contains(target.id))
+        // No identifiers: SwiftUI drops one set on a row inside a `Menu`
+        // (`AssetDetailScreen.deleteTarget`), so journeys find All Watched as
+        // the submenu's last row. It's last, below its own divider (Benjamin,
+        // 2026-11-19): a batch of episodes, apart from the single entities.
+        ForEach(deleteRequests) { request in
+            if case .watchedEpisodes = request { Divider() }
+            deleteRow(request)
         }
+    }
+
+    private func deleteRow(_ request: AssetDeleteRequest) -> some View {
+        Button(role: .destructive) {
+            pendingTarget = request
+        } label: {
+            Label {
+                Text(request.rowLabel)
+            } icon: {
+                Image(systemName: "trash")
+            }
+        }
+        .disabled(viewModel.deletingItemIDs.contains(request.id))
     }
 
     // MARK: - Add to playlist
@@ -219,16 +228,16 @@ struct AssetActionsButton: View {
     }
 
     @ViewBuilder
-    private func confirmationActions(for target: MediaItem) -> some View {
-        let downloads = downloadedItemIDs(under: target)
+    private func confirmationActions(for request: AssetDeleteRequest) -> some View {
+        let downloads = downloadedItemIDs(under: request)
         if downloads.isEmpty {
-            Button("Delete", role: .destructive) { perform(on: target, alsoDeletingDownloads: []) }
+            Button("Delete", role: .destructive) { perform(on: request, alsoDeletingDownloads: []) }
                 .accessibilityIdentifier(A11yID.AssetDetail.deleteConfirmButton)
         } else {
-            Button("Delete from Server", role: .destructive) { perform(on: target, alsoDeletingDownloads: []) }
+            Button("Delete from Server", role: .destructive) { perform(on: request, alsoDeletingDownloads: []) }
                 .accessibilityIdentifier(A11yID.AssetDetail.deleteConfirmButton)
             Button("Delete from Server and Device", role: .destructive) {
-                perform(on: target, alsoDeletingDownloads: downloads)
+                perform(on: request, alsoDeletingDownloads: downloads)
             }
             .accessibilityIdentifier(A11yID.AssetDetail.deleteWithDownloadButton)
         }
@@ -240,13 +249,13 @@ struct AssetActionsButton: View {
         Button("Cancel", role: .cancel) {}
     }
 
-    private func perform(on target: MediaItem, alsoDeletingDownloads downloadIDs: [String]) {
+    private func perform(on request: AssetDeleteRequest, alsoDeletingDownloads downloadIDs: [String]) {
         // A bare `Task`, not `viewModel.track(...)`: tracked tasks are cancelled
         // by `AssetDetailView.onDisappear`, and this one causes that
         // disappearance. See `AssetDetailViewModel.delete(_:)`.
         Task {
             do {
-                let outcome = try await viewModel.delete(target)
+                let outcome = try await viewModel.delete(request)
                 // Only once the server has accepted the deletion; otherwise a
                 // failed request still strips the user's local copy, which may
                 // be the only one left.
@@ -271,14 +280,19 @@ struct AssetActionsButton: View {
 
     // MARK: - Downloads
 
-    /// Local downloads orphaned by deleting `target`: the item itself for a
+    /// Local downloads orphaned by deleting `request`: the item itself for a
     /// movie or episode, every downloaded episode beneath it for a season or
-    /// show. Drives whether the dialog offers the "and Device" option.
-    private func downloadedItemIDs(under target: MediaItem) -> [String] {
+    /// show, each downloaded one of All Watched's episodes. Drives whether the
+    /// dialog offers the "and Device" option.
+    private func downloadedItemIDs(under request: AssetDeleteRequest) -> [String] {
         // Establishes a dependency on the store's contents so the dialog
         // re-evaluates when a download completes or is removed — the mechanism
         // `DownloadButton.downloadedItem` documents.
         _ = downloadManager.store.changeCount
+        guard case .item(let target) = request else {
+            let episodeIDs = Set(request.affectedItemIDs)
+            return downloadManager.store.allItems().map(\.itemID).filter(episodeIDs.contains)
+        }
         switch target.kind {
         case .series:
             return downloadManager.store.allItems().filter { $0.seriesID == target.id }.map(\.itemID)
@@ -292,7 +306,7 @@ struct AssetActionsButton: View {
     // MARK: - Copy
 
     private var confirmationTitle: String {
-        guard let target = pendingTarget else { return String(localized: "Delete") }
-        return AssetActionTargets.deleteActionLabel(for: target)
+        guard let request = pendingTarget else { return String(localized: "Delete") }
+        return request.actionLabel
     }
 }
