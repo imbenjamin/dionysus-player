@@ -623,6 +623,19 @@ struct AssetDetailScreen: Screen {
         app.collectionViews.cells.buttons[entityName]
     }
 
+    /// The open Delete submenu's last row: All Watched (#437), which sits
+    /// below its own divider and, being localized copy, can't be found by
+    /// its label (and has no identifier, as above).
+    var lastDeleteRow: XCUIElement {
+        app.collectionViews.cells.allElementsBoundByIndex.last?.buttons.firstMatch
+            ?? app.collectionViews.cells.buttons.firstMatch
+    }
+
+    /// The confirmation dialog's message, as one text.
+    func deleteConfirmationText(containing text: String) -> XCUIElement {
+        app.sheets.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    }
+
     /// Reaches "Add to Playlist" and taps it, opening `AddToPlaylistSheet`.
     /// On a show/episode page this instead opens the Show/Season/Episode
     /// submenu — see `addToPlaylistScope(_:)`.

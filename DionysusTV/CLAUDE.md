@@ -326,6 +326,10 @@ with iOS's `AssetActionsButton`) on the shared `AssetDetailViewModel` and
   it (`tvPopPage`), and deleting a show's last episode or season pops to the
   root (`tvPopToRoot`; Jellyfin drops the emptied show), as
   `DeletionOutcome` says.
+- **All Watched (#437) is the Delete submenu's last row, below a divider**,
+  as on iOS (root `CLAUDE.md`, "Deleting a season"). Its label is localized
+  and tvOS 27 strips a submenu row's identifier, so
+  `MoreActionsJourneyTests` takes it as the lowest row there.
 - **Both pops are bound to the page that asked** (`TVMainView` sets them per
   pushed page): a slow delete (a folderless season goes episode by episode)
   can land after Menu has left the page, and popping whatever was on top

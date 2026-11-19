@@ -142,6 +142,70 @@
     "%lld episodes couldn't be downloaded." : {
 
     },
+    "%lld episodes that are watched will be deleted for all users." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@ will be deleted for all users."
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg episode that is watched"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg episodes that are watched"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld episodes will remain for %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@ will remain for %2$@."
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg episode"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg episodes"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld height channels" : {
       "localizations" : {
         "en" : {
@@ -434,6 +498,9 @@
 
     },
     "All" : {
+
+    },
+    "All Watched" : {
 
     },
     "All Decades" : {
@@ -868,6 +935,9 @@
 
     },
     "Delete Show" : {
+
+    },
+    "Delete Watched Episodes" : {
 
     },
     "Delete this download?" : {
@@ -1359,6 +1429,9 @@
 
     },
     "No episodes available." : {
+
+    },
+    "No episodes will remain, and %@ will be removed." : {
 
     },
     "No items match these filters." : {
@@ -2057,6 +2130,9 @@
 
     },
     "This Apple TV will forget the account, so signing in again needs its password or a new Quick Connect code." : {
+
+    },
+    "This cannot be undone." : {
 
     },
     "This clears every custom bitrate you've set above. It can't be undone." : {

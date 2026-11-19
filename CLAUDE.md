@@ -515,6 +515,18 @@ them one at a time, stopping at the first failure with "Deleted N of M".
 `LibraryManager.DeleteItem` leaves the emptied season listed until a library
 scan, so the page drops it itself. A season with a folder is one request.
 
+**All Watched deletes a show's watched episodes** (#437; iOS and Apple TV),
+last in the Delete submenu below its own divider (Benjamin, 2026-11-19).
+`AssetDetailViewModel.loadWatchedEpisodes()` reads the whole show's episodes
+with `CanDelete` as the page loads and after playback, a Watched toggle or a
+deletion. Watched is `Played`; a resume point isn't, and a missing episode
+(`Virtual`) counts in neither number. It's offered only when every watched
+episode is deletable. The confirmation gives both counts and says the
+episodes go **for all users** (Watched is per user, the file isn't), and
+exactly the episodes it counted are deleted, through the folderless season's
+one-at-a-time path. Seasons it empties leave the page, and emptying the show
+pops off it. Both menus work from `AssetActionTargets.deleteRequests`.
+
 ### Transient confirmations (`Shared/Components/Toast.swift`)
 
 `ToastCenter.shared.post(Toast(message:))` shows a brief self-dismissing

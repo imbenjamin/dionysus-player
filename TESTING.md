@@ -319,6 +319,7 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `offline` | Every request fails as unreachable |
 | `noDeletePermission` | `CanDelete: false` everywhere, `DELETE` refused |
 | `folderlessSeasons` | Made-up seasons, so Delete Season goes episode by episode |
+| `watchedEpisodes` | Season 1's episodes all watched, so Delete offers All Watched (3 of 6) |
 | `multipleVersions` | Several versions of some titles (movie 1 in 4K HDR10 and 1080p, movie 2 as Original and Director's Cut, Season 1 in 4K and 1080p, Season 2 mixed); `/PlaybackInfo` filters by `MediaSourceId` |
 | `noPlaylistEditPermission` | Every playlist's permission lookup 404s; adds and removals 403 |
 | `slowLogoImage` | Every logo held 18s from its own request, never cached or shared between views, so the watched view shows its fallback |

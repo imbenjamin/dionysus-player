@@ -420,6 +420,10 @@ final class AssetDetailViewModel {
             canEditPlaylist = await canEditPlaylistResult?.canEdit ?? false
 
             loadState = .loaded
+
+            // After `.loaded`, so a long show's episode list never holds the
+            // page; until it answers, Delete simply lacks All Watched.
+            await loadWatchedEpisodes()
         } catch {
             loadState = .failed(
                 (error as? LocalizedError)?.errorDescription ?? String(localized: "Couldn't load this title.")
@@ -466,10 +470,11 @@ final class AssetDetailViewModel {
         case popToRoot
     }
 
-    /// A folderless season's deletion that stopped partway: some episodes are
-    /// gone from the server and the rest aren't, which the message says, since
-    /// the plain error alone would read as nothing having happened.
-    struct PartialSeasonDeletionError: LocalizedError {
+    /// An episode-by-episode deletion (a folderless season, or All Watched)
+    /// that stopped partway: some episodes are gone from the server and the
+    /// rest aren't, which the message says, since the plain error alone would
+    /// read as nothing having happened.
+    struct PartialDeletionError: LocalizedError {
         let deletedCount: Int
         let totalCount: Int
         let underlying: Error
@@ -477,6 +482,67 @@ final class AssetDetailViewModel {
         var errorDescription: String? {
             String(localized: "Deleted \(deletedCount) of \(totalCount) episodes, then stopped: \(underlying.localizedDescription)")
         }
+    }
+
+    /// The show's watched episodes, as All Watched would delete them (#437);
+    /// `nil` off a show, with nothing watched, or when the server won't let
+    /// this user delete one of them. See `loadWatchedEpisodes()`.
+    private(set) var watchedEpisodes: WatchedEpisodesDeletion?
+
+    /// Every episode of the show with a file, as `loadWatchedEpisodes()` last
+    /// read them: what `watchedEpisodes` is computed from, and which seasons
+    /// All Watched empties.
+    private var showEpisodes: [MediaItem] = []
+
+    /// Watched writes this page made that the server hasn't confirmed yet, by
+    /// episode. Jellyfin can take minutes to commit one, so without these a
+    /// Delete opened straight after marking an episode watched counted it out
+    /// (final review, I1). Each goes once a read agrees, or when playback
+    /// ends (playback changes what's watched).
+    private var watchedOverrides: [String: Bool] = [:]
+
+    /// Reads the show's episodes, every season at once, with `CanDelete` and
+    /// the user's watched status, into `watchedEpisodes`. Run as a show's page
+    /// loads and refreshes (after playback, a watched toggle, a deletion), so
+    /// the menu's row and count are ready when it opens. A failed fetch keeps
+    /// what was there.
+    func loadWatchedEpisodes() async {
+        guard let seriesID, let show = seriesItem,
+              let result = try? await client.episodes(seriesID: seriesID, userID: userID, fields: "CanDelete")
+        else { return }
+        let images = await client.makeImageURLBuilder()
+        // A missing episode (listed from metadata) has nothing to delete, and
+        // counts toward neither number.
+        showEpisodes = result.items
+            .filter { $0.locationType != "Virtual" }
+            .map { MediaItem(dto: $0, images: images) }
+        for episode in showEpisodes where watchedOverrides[episode.id] == episode.isPlayed {
+            watchedOverrides[episode.id] = nil
+        }
+        recomputeWatchedEpisodes(show: show)
+    }
+
+    /// `watchedEpisodes` from `showEpisodes` with `watchedOverrides` laid over.
+    private func recomputeWatchedEpisodes(show: MediaItem) {
+        // Watched is Played; a resume point alone isn't.
+        let watched = showEpisodes.filter { watchedOverrides[$0.id] ?? $0.isPlayed }
+        guard !watched.isEmpty, watched.allSatisfy(\.canDelete) else {
+            watchedEpisodes = nil
+            return
+        }
+        watchedEpisodes = WatchedEpisodesDeletion(show: show, watched: watched, totalCount: showEpisodes.count)
+    }
+
+    /// A watched write that succeeded, laid over the show's episodes until
+    /// the server agrees: the episode itself, or every episode of a season or
+    /// of the show.
+    private func applyWatchedWrite(itemID: String, watched: Bool) {
+        guard let show = seriesItem else { return }
+        let affected = itemID == show.id
+            ? showEpisodes
+            : showEpisodes.filter { $0.id == itemID || $0.dto.seasonId == itemID }
+        for episode in affected { watchedOverrides[episode.id] = watched }
+        recomputeWatchedEpisodes(show: show)
     }
 
     /// Items with a deletion in flight, disabling the control and showing a
@@ -493,6 +559,15 @@ final class AssetDetailViewModel {
     /// `AssetDetailView.onDisappear` cancels tracked tasks, and this one often
     /// ends in a dismissal that would cancel the request causing it, leaving the
     /// deletion half-done.
+    /// A Delete menu row's deletion: an entity, or a show's watched episodes.
+    @discardableResult
+    func delete(_ request: AssetDeleteRequest) async throws -> DeletionOutcome {
+        switch request {
+        case .item(let target): try await delete(target)
+        case .watchedEpisodes(let deletion): try await deleteWatchedEpisodes(deletion)
+        }
+    }
+
     @discardableResult
     func delete(_ target: MediaItem) async throws -> DeletionOutcome {
         deletingItemIDs.insert(target.id)
@@ -634,23 +709,7 @@ final class AssetDetailViewModel {
     /// Announced once, not per episode: every announcement starts a
     /// `refreshItem()` on any page beneath, each with its own user-data polling.
     private func deleteEpisodeByEpisode(season: MediaItem) async throws -> DeletionOutcome {
-        let episodes = folderlessSeasonEpisodes[season.id] ?? []
-        var removedIDs: Set<String> = []
-        for episode in episodes {
-            do {
-                try await client.deleteItem(itemID: episode.id)
-            } catch {
-                // Nothing gone yet: the plain error, as a single delete gives.
-                guard !removedIDs.isEmpty else { throw error }
-                // The season stays, so the last episode that went is announced.
-                DeletedItemBroadcaster.shared.record(itemID: episodes[removedIDs.count - 1].id)
-                await repairPage(removing: removedIDs)
-                throw PartialSeasonDeletionError(
-                    deletedCount: removedIDs.count, totalCount: episodes.count, underlying: error
-                )
-            }
-            removedIDs.insert(episode.id)
-        }
+        let removedIDs = try await deleteEpisodes(folderlessSeasonEpisodes[season.id] ?? [])
 
         emptiedSeasonIDs.insert(season.id)
         DeletedItemBroadcaster.shared.record(itemID: season.id)
@@ -659,6 +718,72 @@ final class AssetDetailViewModel {
             await repairPage(removing: removedIDs.union([season.id]))
         }
         return outcome
+    }
+
+    /// Deletes `episodes` one at a time, in order, stopping at the first
+    /// failure, and returns their ids. Sequential so a refusal stops it with as
+    /// little gone as possible, and so the count in the error is exact. A
+    /// failure after the first repairs the page and announces the last episode
+    /// that went; the caller announces a full run itself.
+    private func deleteEpisodes(_ episodes: [MediaItem]) async throws -> Set<String> {
+        var removedIDs: Set<String> = []
+        for episode in episodes {
+            do {
+                try await client.deleteItem(itemID: episode.id)
+            } catch {
+                // Nothing gone yet: the plain error, as a single delete gives.
+                guard !removedIDs.isEmpty else { throw error }
+                DeletedItemBroadcaster.shared.record(itemID: episodes[removedIDs.count - 1].id)
+                await repairPage(removing: removedIDs)
+                throw PartialDeletionError(
+                    deletedCount: removedIDs.count, totalCount: episodes.count, underlying: error
+                )
+            }
+            removedIDs.insert(episode.id)
+        }
+        return removedIDs
+    }
+
+    /// All Watched (#437): deletes exactly the episodes the confirmation
+    /// counted, never a fresh read of what's watched now. Seasons it empties
+    /// leave the page, as a folderless season's do, since Jellyfin lists them
+    /// until a library scan.
+    private func deleteWatchedEpisodes(_ deletion: WatchedEpisodesDeletion) async throws -> DeletionOutcome {
+        let pendingID = AssetDeleteRequest.watchedEpisodes(deletion).id
+        deletingItemIDs.insert(pendingID)
+        defer { deletingItemIDs.remove(pendingID) }
+
+        let removedIDs = try await deleteEpisodes(deletion.watched)
+        let emptied = Dictionary(grouping: showEpisodes) { $0.dto.seasonId ?? "" }
+            .filter { !$0.key.isEmpty && $0.value.allSatisfy { removedIDs.contains($0.id) } }
+            .map(\.key)
+        emptiedSeasonIDs.formUnion(emptied)
+
+        // Jellyfin drops a show once its last episode goes: 404, or nothing
+        // left. The show's own page pops onto what listed it; any page beneath
+        // the show (an episode's) has nothing to go back to. Any other failure
+        // (a timeout, a 5xx) says nothing about the show, which stays (final
+        // review, I2).
+        let showID = deletion.show.id
+        var showIsGone = false
+        do {
+            showIsGone = try await client.item(userID: userID, itemID: showID).recursiveItemCount == 0
+        } catch let error as JellyfinAPIError where error.isNotFound {
+            showIsGone = true
+        } catch {}
+        if showIsGone {
+            DeletedItemBroadcaster.shared.record(itemID: showID)
+            return itemID == showID ? .popOneLevel : .popToRoot
+        }
+        // Announced once, not per episode (see `deleteEpisodeByEpisode`).
+        if let last = deletion.watched.last { DeletedItemBroadcaster.shared.record(itemID: last.id) }
+
+        // The page's own subject went: an episode reached by its own push, or
+        // the season a Season load shows.
+        let removedAndEmptied = removedIDs.union(emptied)
+        if removedAndEmptied.contains(itemID) { return .popOneLevel }
+        await repairPage(removing: removedAndEmptied)
+        return .stayAndRefresh
     }
 
     /// Restores the page after deleting something it displayed but needn't leave
@@ -699,6 +824,9 @@ final class AssetDetailViewModel {
             showPlaybackEpisode = nil
             await resolveShowPlaybackEpisode(seriesID: seriesID, images: images)
         }
+
+        // What All Watched would delete has changed with it.
+        await loadWatchedEpisodes()
 
         // `SeasonEpisodeList` fetches independently of `item`, so without this
         // the deleted episode's row stays on screen.
@@ -808,6 +936,7 @@ final class AssetDetailViewModel {
         let succeeded = (try? await client.setWatched(newValue, itemID: itemID, userID: userID)) != nil
         if succeeded {
             applyOptimisticFavoriteWatched(itemID: itemID, watched: newValue)
+            applyWatchedWrite(itemID: itemID, watched: newValue)
             written?(newValue)
             #if os(tvOS)
             // Watched changes Continue Watching and Next Up (M6).
@@ -815,6 +944,9 @@ final class AssetDetailViewModel {
             #endif
         }
         await refetchFavoriteWatchedTarget(itemID: itemID, expectedWatched: newValue)
+        // The server's reading, once the poll above has given it time to
+        // commit; `watchedOverrides` speaks for the write until it agrees.
+        if succeeded { await loadWatchedEpisodes() }
     }
 
     /// Reflects a just-succeeded favorite or watched write on whichever property
@@ -1049,6 +1181,11 @@ final class AssetDetailViewModel {
                 playlistID: displayedItemID, userID: userID
             ))?.canEdit ?? false
         }
+
+        // Playback can mark an episode watched, and changes what's watched,
+        // so an unconfirmed write stops speaking for the server.
+        watchedOverrides.removeAll()
+        await loadWatchedEpisodes()
 
         // Bumped unconditionally rather than only when the poll detected a
         // change: `SeasonEpisodeList`'s fetch is single-shot with no

@@ -593,7 +593,7 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // `.noDeletePermission` fails nothing wholesale: the standard catalogue
         // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
         // which has the method.
-        case .standard, .emptyLibrary, .offline, .noDeletePermission, .folderlessSeasons, .multipleVersions, .noPlaylistEditPermission,
+        case .standard, .emptyLibrary, .offline, .noDeletePermission, .folderlessSeasons, .watchedEpisodes, .multipleVersions, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers,

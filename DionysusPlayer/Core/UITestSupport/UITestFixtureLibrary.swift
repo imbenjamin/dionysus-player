@@ -152,11 +152,13 @@ enum UITestFixtureLibrary {
             item.premiereDate = date(year: 2019 + seasonNumber, month: number, day: 5)
             // Part-watched, so Continue Watching and Next Up both have
             // something to show.
-            let isPartWatched = seasonNumber == 1 && number == 1
+            // `.watchedEpisodes` has all of Season 1 watched instead (#437).
+            let isWatched = seasonNumber == 1 && UITestConfiguration.scenario == .watchedEpisodes
+            let isPartWatched = seasonNumber == 1 && number == 1 && !isWatched
             item.userData = UserItemDataDto(
                 playbackPositionTicks: isPartWatched ? ticks(minutes: 12) : 0,
-                playedPercentage: isPartWatched ? 25 : 0,
-                played: false,
+                playedPercentage: isPartWatched ? 25 : (isWatched ? 100 : 0),
+                played: isWatched,
                 isFavorite: false
             )
             item.mediaSources = mediaSources(for: item, scenario: UITestConfiguration.scenario)

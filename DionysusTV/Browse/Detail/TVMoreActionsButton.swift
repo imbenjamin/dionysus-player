@@ -32,7 +32,7 @@ struct TVMoreActionsButton: View {
     @State private var cover: TVMoreActionsCover?
     /// Confirmed, and deleted once the question has gone, so a pop never
     /// lands while its cover is still dismissing.
-    @State private var confirmedDeletion: MediaItem?
+    @State private var confirmedDeletion: AssetDeleteRequest?
     @State private var errorMessage: String?
 
     private var isPending: Bool { !viewModel.deletingItemIDs.isEmpty }
@@ -40,7 +40,7 @@ struct TVMoreActionsButton: View {
     var body: some View {
         Menu {
             addContent
-            if !targets.deletable.isEmpty {
+            if !targets.deleteRequests.isEmpty {
                 // Destructive last and set apart, as on iOS.
                 Divider()
                 deleteContent
@@ -62,14 +62,14 @@ struct TVMoreActionsButton: View {
                         target: target, close: { self.cover = nil }
                     )
                 }
-            case .confirmDelete(let target):
+            case .confirmDelete(let request):
                 // Its own `dismiss()` closes the cover, onto More.
                 TVConfirmation(
-                    title: Text(verbatim: AssetActionTargets.deleteActionLabel(for: target)),
-                    message: Text(verbatim: AssetActionTargets.deleteConfirmationMessage(for: target)),
+                    title: Text(verbatim: request.actionLabel),
+                    message: Text(verbatim: request.confirmationMessage),
                     action: Text("Delete"),
                     actionIdentifier: A11yID.TV.Actions.deleteConfirm
-                ) { confirmedDeletion = target }
+                ) { confirmedDeletion = request }
             }
         }
         // Closed by code (an add, a create), tvOS gave focus to the rail and
@@ -113,12 +113,15 @@ struct TVMoreActionsButton: View {
 
     @ViewBuilder
     private var deleteContent: some View {
-        if targets.deletable.count == 1, let only = targets.deletable.first {
-            deleteRow(only, title: AssetActionTargets.deleteActionLabel(for: only))
+        if targets.deleteRequests.count == 1, let only = targets.deleteRequests.first {
+            deleteRow(only, title: only.actionLabel)
         } else {
             Menu {
-                ForEach(targets.deletable, id: \.id) { target in
-                    deleteRow(target, title: AssetActionTargets.rowLabel(for: target))
+                // All Watched (#437) comes last, below its own divider, as on
+                // iOS: a batch of episodes, apart from the single entities.
+                ForEach(targets.deleteRequests) { request in
+                    if case .watchedEpisodes = request { Divider() }
+                    deleteRow(request, title: request.rowLabel)
                 }
             } label: {
                 Label(String(localized: "Delete"), systemImage: "trash")
@@ -127,15 +130,15 @@ struct TVMoreActionsButton: View {
         }
     }
 
-    private func deleteRow(_ target: MediaItem, title: String) -> some View {
+    private func deleteRow(_ request: AssetDeleteRequest, title: String) -> some View {
         Button(role: .destructive) {
             // Ignored rather than disabled while a deletion runs.
             guard !isPending else { return }
-            cover = .confirmDelete(target)
+            cover = .confirmDelete(request)
         } label: {
             Label(title, systemImage: "trash")
         }
-        .accessibilityIdentifier(A11yID.TV.Actions.delete(target.id))
+        .accessibilityIdentifier(A11yID.TV.Actions.delete(request.id))
     }
 
     private func coverDismissed() {
@@ -156,10 +159,10 @@ struct TVMoreActionsButton: View {
     /// Runs once the question has closed. A bare `Task`, as on iOS
     /// (`AssetActionsButton.perform`): the deletion often ends by popping this
     /// page, which must not cancel the request causing it.
-    private func delete(_ target: MediaItem) {
+    private func delete(_ request: AssetDeleteRequest) {
         Task {
             do {
-                switch try await viewModel.delete(target) {
+                switch try await viewModel.delete(request) {
                 case .stayAndRefresh: break
                 case .popOneLevel: popPage()
                 case .popToRoot: popToRoot()
@@ -174,12 +177,12 @@ struct TVMoreActionsButton: View {
 /// What a choice in More Actions' menu opens.
 private enum TVMoreActionsCover: Identifiable {
     case playlist(MediaItem)
-    case confirmDelete(MediaItem)
+    case confirmDelete(AssetDeleteRequest)
 
     var id: String {
         switch self {
         case .playlist(let item): "playlist.\(item.id)"
-        case .confirmDelete(let item): "delete.\(item.id)"
+        case .confirmDelete(let request): "delete.\(request.id)"
         }
     }
 }
