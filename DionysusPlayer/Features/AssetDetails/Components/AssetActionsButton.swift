@@ -67,6 +67,9 @@ struct AssetActionsButton: View {
 
     @State private var pendingTarget: AssetDeleteRequest?
     @State private var errorMessage: String?
+    /// A deletion that stopped partway took this page's own subject with it
+    /// (#491): the page pops once its message has been read.
+    @State private var popsAfterError = false
     /// The entity whose "Add to Playlist" sheet is open, driving `.sheet(item:)`
     /// directly rather than pairing a `Bool` with a stored target — same reason
     /// as `confirmationBinding` below.
@@ -103,9 +106,10 @@ struct AssetActionsButton: View {
                 }
                 .alert(
                     "Couldn't delete",
-                    isPresented: .init(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+                    isPresented: .init(get: { errorMessage != nil }, set: { if !$0 { errorDismissed() } })
                 ) {
                     Button("OK", role: .cancel) {}
+                        .accessibilityIdentifier(A11yID.AssetDetail.deleteErrorOKButton)
                 } message: {
                     Text(errorMessage ?? "")
                 }
@@ -272,9 +276,26 @@ struct AssetActionsButton: View {
                     // a way to unwind (Downloads/Profile).
                     if let popToRoot { popToRoot() } else { dismiss() }
                 }
+            } catch let partial as AssetDetailViewModel.PartialDeletionError {
+                // Some episodes went before it stopped: their downloads go
+                // too, as asked, and the rest stay with what's still on the
+                // server (#491).
+                for itemID in downloadIDs where partial.removedIDs.contains(itemID) {
+                    downloadManager.delete(itemID: itemID)
+                }
+                popsAfterError = partial.outcome == .popOneLevel
+                errorMessage = partial.localizedDescription
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func errorDismissed() {
+        errorMessage = nil
+        if popsAfterError {
+            popsAfterError = false
+            dismiss()
         }
     }
 

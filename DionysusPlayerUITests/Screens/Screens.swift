@@ -655,6 +655,15 @@ struct AssetDetailScreen: Screen {
     /// `app.sheets` because a bare `app.buttons[...]` subscript matches
     /// labels as well as identifiers, so an unscoped lookup can collide with
     /// the control that raised the dialog.
+    /// The "Couldn't delete" alert's message, as one text.
+    func deleteErrorText(containing text: String) -> XCUIElement {
+        app.alerts.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    }
+
+    var deleteErrorOKButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.AssetDetail.deleteErrorOKButton).firstMatch
+    }
+
     var deleteConfirmButton: XCUIElement {
         app.sheets.buttons.matching(identifier: A11yID.AssetDetail.deleteConfirmButton).firstMatch
     }

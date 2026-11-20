@@ -439,6 +439,26 @@ final class MoreActionsJourneyTests: TVUITestCase {
         XCTAssertTrue(waitFocused(any(app, A11yID.TV.Detail.more), timeout: 10), "Focus back on More")
     }
 
+    /// #491: from an episode's own page (a link pushes it), All Watched is
+    /// stopped by the server after two of three. The alert says how far it
+    /// got, and since the page's episode went, closing it pops the page
+    /// rather than leaving the show's in its place.
+    func test_deleteAllWatched_stoppingPartway_saysSo_andPopsThePageItTook() {
+        let app = launchAtHome(scenario: "watchedEpisodesPartialFailure")
+        app.open(URL(string: "dionysus://item/\(UITestFixtureIdentity.episodeID(season: 1, episode: 1))")!)
+        XCTAssertTrue(app.buttons[A11yID.TV.Detail.play].waitForExistence(timeout: 10), "The episode's page")
+        openDeleteSubmenu(app)
+        confirmDelete(app, row: allWatchedRow(app))
+
+        let message = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Deleted 2 of 3 episodes")).firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 10), "The alert says how far it got")
+        XCTAssertTrue(any(app, A11yID.TV.Detail.more).exists, "The page waits for the alert")
+        press(.select)
+
+        XCTAssertTrue(poll(timeout: 10) { !self.any(app, A11yID.TV.Detail.more).exists }, "The episode's page pops")
+        XCTAssertTrue(app.buttons[A11yID.TV.Main.heroPlay].waitForExistence(timeout: 10), "Back on Home")
+    }
+
     /// A season with no folder (Benjamin's library): offered once its
     /// episodes are known to be deletable, and deleted episode by episode.
     func test_folderlessSeason_isOffered_andDeleted() {

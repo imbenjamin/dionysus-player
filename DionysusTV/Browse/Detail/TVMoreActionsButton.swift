@@ -34,6 +34,9 @@ struct TVMoreActionsButton: View {
     /// lands while its cover is still dismissing.
     @State private var confirmedDeletion: AssetDeleteRequest?
     @State private var errorMessage: String?
+    /// A deletion that stopped partway took this page's own subject with it
+    /// (#491): the page pops once its message has been read.
+    @State private var popsAfterError = false
 
     private var isPending: Bool { !viewModel.deletingItemIDs.isEmpty }
 
@@ -80,7 +83,7 @@ struct TVMoreActionsButton: View {
         }
         .alert(
             "Couldn't delete",
-            isPresented: .init(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+            isPresented: .init(get: { errorMessage != nil }, set: { if !$0 { errorDismissed() } })
         ) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -167,9 +170,20 @@ struct TVMoreActionsButton: View {
                 case .popOneLevel: popPage()
                 case .popToRoot: popToRoot()
                 }
+            } catch let partial as AssetDetailViewModel.PartialDeletionError {
+                popsAfterError = partial.outcome == .popOneLevel
+                errorMessage = partial.localizedDescription
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func errorDismissed() {
+        errorMessage = nil
+        if popsAfterError {
+            popsAfterError = false
+            popPage()
         }
     }
 }

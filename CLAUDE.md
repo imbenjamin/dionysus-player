@@ -526,6 +526,13 @@ episodes go **for all users** (Watched is per user, the file isn't), and
 exactly the episodes it counted are deleted, through the folderless season's
 one-at-a-time path. Seasons it empties leave the page, and emptying the show
 pops off it. Both menus work from `AssetActionTargets.deleteRequests`.
+**Either one-at-a-time deletion can stop partway** (#491):
+`PartialDeletionError` says "Deleted N of M", carries the ids that went (iOS
+removes just their downloads when asked to) and the page is settled as a
+full run would leave it, except that a page whose own subject went pops only
+once the alert is closed. With nothing left, the confirmation says "No
+episodes will remain", never that the show will be removed: missing episodes
+or a kept folder can leave it listed.
 
 ### Transient confirmations (`Shared/Components/Toast.swift`)
 

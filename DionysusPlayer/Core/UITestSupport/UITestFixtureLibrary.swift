@@ -153,7 +153,8 @@ enum UITestFixtureLibrary {
             // Part-watched, so Continue Watching and Next Up both have
             // something to show.
             // `.watchedEpisodes` has all of Season 1 watched instead (#437).
-            let isWatched = seasonNumber == 1 && UITestConfiguration.scenario == .watchedEpisodes
+            let isWatched = seasonNumber == 1
+                && [.watchedEpisodes, .watchedEpisodesPartialFailure].contains(UITestConfiguration.scenario)
             let isPartWatched = seasonNumber == 1 && number == 1 && !isWatched
             item.userData = UserItemDataDto(
                 playbackPositionTicks: isPartWatched ? ticks(minutes: 12) : 0,

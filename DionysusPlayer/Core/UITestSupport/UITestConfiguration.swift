@@ -49,6 +49,10 @@ enum UITestScenario: String {
     /// show's 6 episodes.
     case watchedEpisodes
 
+    /// `.watchedEpisodes`, with the deletion of Season 1's last episode
+    /// refused (500), so All Watched stops after two of three (#491).
+    case watchedEpisodesPartialFailure
+
     /// `.standard`'s catalogue with several versions of some titles, as a
     /// library holds when a title exists in more than one file: the first
     /// movie in 4K HDR10 and 1080p, the second as the original and a Director's

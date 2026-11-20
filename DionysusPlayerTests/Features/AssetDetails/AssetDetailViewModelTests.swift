@@ -2326,6 +2326,8 @@ final class AssetDetailViewModelTests: XCTestCase {
                 var series = BaseItemDto(id: "series-1", name: "Severance", type: .series)
                 series.recursiveItemCount = 5
                 return try MockURLProtocol.encodedJSONResponse(for: request, value: series)
+            case ("/Users/user-1/Items/ep-1", _):
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: seasonOne[0])
             case ("/Shows/series-1/Seasons", _):
                 return try MockURLProtocol.encodedJSONResponse(
                     for: request, value: BaseItemDtoQueryResult(items: seasons, totalRecordCount: seasons.count))
@@ -2339,9 +2341,11 @@ final class AssetDetailViewModelTests: XCTestCase {
         }
     }
 
-    private func loadedFolderlessShow(deletes: DeletedPathRecorder, failingEpisodeID: String? = nil) async -> AssetDetailViewModel {
+    private func loadedFolderlessShow(
+        deletes: DeletedPathRecorder, failingEpisodeID: String? = nil, itemID: String = "series-1"
+    ) async -> AssetDetailViewModel {
         stubFolderlessShow(deletes: deletes, failingEpisodeID: failingEpisodeID)
-        let viewModel = makeViewModel(itemID: "series-1")
+        let viewModel = makeViewModel(itemID: itemID)
         await viewModel.load()
         await viewModel.loadSeasonDeletability(seasonID: "season-1")
         return viewModel
@@ -2401,6 +2405,8 @@ final class AssetDetailViewModelTests: XCTestCase {
         } catch let error as AssetDetailViewModel.PartialDeletionError {
             XCTAssertEqual(error.deletedCount, 1)
             XCTAssertEqual(error.totalCount, 3)
+            XCTAssertEqual(error.removedIDs, ["ep-1"])
+            XCTAssertEqual(error.outcome, .stayAndRefresh)
         }
         XCTAssertEqual(deletes.paths, ["/Items/ep-1", "/Items/ep-2"], "nothing after the failure is attempted")
         XCTAssertEqual(viewModel.seasons.map(\.id), ["season-1", "season-2"])
@@ -2408,6 +2414,22 @@ final class AssetDetailViewModelTests: XCTestCase {
             viewModel.folderlessSeasonEpisodes["season-1"]?.map(\.id), ["ep-2", "ep-3"],
             "a retry must not ask for the deleted episode again"
         )
+    }
+
+    /// #491: a pushed episode page whose episode went before the failure
+    /// pops once the message is read, rather than turning into the show's.
+    func test_delete_folderlessSeason_partialFailure_fromAPushedEpisodeItTook_popsOneLevel() async throws {
+        let viewModel = await loadedFolderlessShow(
+            deletes: DeletedPathRecorder(), failingEpisodeID: "ep-2", itemID: "ep-1"
+        )
+        XCTAssertEqual(viewModel.item?.id, "ep-1", "precondition")
+        let season = try XCTUnwrap(viewModel.seasons.first { $0.id == "season-1" })
+        do {
+            try await viewModel.delete(season)
+            XCTFail("expected a partial failure")
+        } catch let error as AssetDetailViewModel.PartialDeletionError {
+            XCTAssertEqual(error.outcome, .popOneLevel)
+        }
     }
 
     // MARK: All Watched (#437)
@@ -2427,6 +2449,10 @@ final class AssetDetailViewModelTests: XCTestCase {
         /// The series lookup after a deletion answers 500 (a timeout or a
         /// server error), not 404.
         var seriesLookupFails = false
+        /// While set, episode lists are read as if only these had been
+        /// deleted: the answer to a request sent before a deletion, held
+        /// until after it (#491).
+        var deletedAsSent: [String]?
         let virtual: Set<String> = ["s2e3"]
         let all = ["s1e1", "s1e2", "s1e3", "s2e1", "s2e2", "s2e3"]
 
@@ -2463,7 +2489,10 @@ final class AssetDetailViewModelTests: XCTestCase {
                 locked { deleted.append(id) }
                 return MockURLProtocol.jsonResponse(for: request, status: 204, body: Data())
             }
-            let remaining = locked { all.filter { !deleted.contains($0) }.map(episode) }
+            let remaining = locked {
+                let gone = path.hasSuffix("/Episodes") ? deletedAsSent ?? deleted : deleted
+                return all.filter { !gone.contains($0) }.map(episode)
+            }
             switch (path, request.queryDictionary["seasonId"]) {
             case ("/Users/user-1/Items/series-1", _):
                 if locked({ seriesLookupFails && !deleted.isEmpty }) {
@@ -2597,9 +2626,69 @@ final class AssetDetailViewModelTests: XCTestCase {
         } catch let error as AssetDetailViewModel.PartialDeletionError {
             XCTAssertEqual(error.deletedCount, 1)
             XCTAssertEqual(error.totalCount, 3)
+            XCTAssertEqual(error.removedIDs, ["s1e1"], "what iOS removes downloads of")
+            XCTAssertEqual(error.outcome, .stayAndRefresh)
         }
         XCTAssertEqual(stub.locked { stub.deleted }, ["s1e1"], "nothing after the failure is attempted")
         XCTAssertEqual(viewModel.watchedEpisodes?.watched.map(\.id), ["s1e2", "s2e1"])
+    }
+
+    /// #491: a season emptied before the failure leaves the page, as after a
+    /// full run.
+    func test_deleteWatched_partialFailure_dropsAnEmptiedSeason() async throws {
+        let stub = WatchedShowStub()
+        stub.played.insert("s1e3")
+        stub.failing = "s2e1"
+        let viewModel = await loadedWatchedShow(stub)
+        do {
+            try await viewModel.delete(.watchedEpisodes(try XCTUnwrap(viewModel.watchedEpisodes)))
+            XCTFail("expected a partial failure")
+        } catch let error as AssetDetailViewModel.PartialDeletionError {
+            XCTAssertEqual(error.removedIDs, ["s1e1", "s1e2", "s1e3"])
+            XCTAssertEqual(error.outcome, .stayAndRefresh)
+        }
+        XCTAssertEqual(viewModel.seasons.map(\.id), ["season-2"])
+    }
+
+    /// #491: an episode's own page, its episode deleted before the failure.
+    func test_deleteWatched_partialFailure_fromAPushedEpisodeItTook_popsOneLevel() async throws {
+        let stub = WatchedShowStub()
+        stub.failing = "s2e1"
+        let viewModel = await loadedWatchedShow(stub, itemID: "s1e1")
+        XCTAssertEqual(viewModel.item?.id, "s1e1", "precondition")
+        do {
+            try await viewModel.delete(.watchedEpisodes(try XCTUnwrap(viewModel.watchedEpisodes)))
+            XCTFail("expected a partial failure")
+        } catch let error as AssetDetailViewModel.PartialDeletionError {
+            XCTAssertEqual(error.outcome, .popOneLevel)
+        }
+    }
+
+    /// #491: a read sent before a deletion and answered after the repair's
+    /// mustn't put the deleted episodes back in the menu.
+    func test_loadWatchedEpisodes_aStaleAnswerDoesNotOverwriteANewerOne() async throws {
+        let stub = WatchedShowStub()
+        let viewModel = await loadedWatchedShow(stub)
+        let deletion = try XCTUnwrap(viewModel.watchedEpisodes)
+
+        let held = expectation(description: "the early read is held")
+        nonisolated(unsafe) var holding = true
+        MockURLProtocol.holdsRequest = { request in
+            guard holding, request.url?.path == "/Shows/series-1/Episodes" else { return false }
+            holding = false
+            held.fulfill()
+            return true
+        }
+        let early = Task { await viewModel.loadWatchedEpisodes() }
+        await fulfillment(of: [held], timeout: 5)
+
+        try await viewModel.delete(.watchedEpisodes(deletion))
+        XCTAssertNil(viewModel.watchedEpisodes, "precondition: the repair's read found nothing watched")
+
+        stub.locked { stub.deletedAsSent = [] }
+        MockURLProtocol.releaseHeldRequests()
+        await early.value
+        XCTAssertNil(viewModel.watchedEpisodes, "the early read's answer is dropped")
     }
 
     /// Review Focus 2: every episode watched empties the show, which Jellyfin
