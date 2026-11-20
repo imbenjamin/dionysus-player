@@ -48,6 +48,12 @@ struct PlayerView: View {
     /// Non-nil plays this local copy instead of fetching `itemID` over the
     /// network. `itemID` should still be `downloadedItem.itemID`.
     var downloadedItem: DownloadedItem? = nil
+    /// A download's page chains episodes through this instead of
+    /// `onRequestNextItem` (#274): the next download's id, and whether the
+    /// viewer chose Delete & Play Next, so the page deletes the finished
+    /// download once this player has closed and saved its progress. The
+    /// countdown passes `false`: deleting is never automatic.
+    var onRequestNextDownload: ((_ itemID: String, _ deletesFinished: Bool) -> Void)? = nil
     /// A Playlist's ordered, audio-filtered members; empty for every ordinary
     /// presentation. `PlaylistDetailView` passes the same array to every
     /// presentation it makes, so playback advances by walking this one array
@@ -282,7 +288,10 @@ struct PlayerView: View {
                     secondsRemaining: viewModel.nextUpSecondsRemaining,
                     totalSeconds: viewModel.nextUpTotalCountdownSeconds,
                     onPlayNow: { Task { await advanceToNextItem() } },
-                    onCancel: { viewModel.dismissNextUp() }
+                    onCancel: { viewModel.dismissNextUp() },
+                    imageFileURL: viewModel.nextEpisodeImageFileURL,
+                    onDeleteAndPlayNext: viewModel.offersDeleteAndPlayNext
+                        ? { Task { await advanceToNextItem(deletingFinished: true) } } : nil
                 )
 
                 // The same bottom-trailing slot and always-mounted treatment as
@@ -684,10 +693,12 @@ struct PlayerView: View {
         await tearDown()
     }
 
-    /// `NextUpOverlay`'s Play Now button and the countdown reaching zero.
-    private func advanceToNextItem() async {
+    /// `NextUpOverlay`'s Play Now and Delete & Play Next buttons, and the
+    /// countdown reaching zero. Only Delete & Play Next passes
+    /// `deletingFinished` (#274).
+    private func advanceToNextItem(deletingFinished: Bool = false) async {
         guard let viewModel, let nextEpisode = viewModel.nextEpisode else { return }
-        await tearDown(nextItemID: nextEpisode.id)
+        await tearDown(nextItemID: nextEpisode.id, deletingFinished: deletingFinished)
     }
 
     /// Shared teardown behind `close()` and `advanceToNextItem()`: cancels the
@@ -702,7 +713,7 @@ struct PlayerView: View {
     /// end-of-stream. That stray tick could push `nextUpSecondsRemaining` to `0`
     /// mid-`close()`, firing the auto-advance `.onChange` and re-opening the next
     /// episode despite the user tapping close.
-    private func tearDown(nextItemID: String? = nil) async {
+    private func tearDown(nextItemID: String? = nil, deletingFinished: Bool = false) async {
         guard !isTearingDown else { return }
         isTearingDown = true
         autoHideTask?.cancel()
@@ -723,9 +734,17 @@ struct PlayerView: View {
             // has no other way to learn this outcome.
             RecentPlaybackBroadcaster.shared.record(outcome)
         }
+        // Delete & Play Next: the episode counts as watched, so the download
+        // it's about to delete doesn't sync as "in progress" (#274).
+        if deletingFinished { viewModel?.markFinishedByViewer() }
         await viewModel?.stop()
         if let nextItemID {
-            onRequestNextItem?(nextItemID, viewModel?.activeVersionLabel, viewModel?.nextItemVersionChoice)
+            if downloadedItem != nil {
+                // A download is one version; the page needs only the id.
+                onRequestNextDownload?(nextItemID, deletingFinished)
+            } else {
+                onRequestNextItem?(nextItemID, viewModel?.activeVersionLabel, viewModel?.nextItemVersionChoice)
+            }
         }
         dismiss()
     }

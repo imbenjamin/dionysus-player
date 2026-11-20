@@ -273,6 +273,131 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(store.item(itemID: "movie-v")).versionLabel)
     }
 
+    // MARK: enqueue(...) — the next episode, recorded for offline Up Next (#274)
+
+    /// A show of two seasons: S1 is E1–E3, S2 is E1–E2. Answers the two
+    /// listings `JellyfinAPIClient.nextEpisode` makes; `failEpisodes` makes the
+    /// episode listing answer 500.
+    private func showAnswer(failEpisodes: Bool = false) -> @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)? {
+        { request in
+            guard let url = request.url, url.path.hasPrefix("/Shows/series-1/") else { return nil }
+            if url.path.hasSuffix("/Seasons") {
+                let body = #"{"Items":[{"Id":"season-1","Name":"Season 1","Type":"Season","IndexNumber":1},{"Id":"season-2","Name":"Season 2","Type":"Season","IndexNumber":2}],"TotalRecordCount":2}"#
+                return MockURLProtocol.jsonResponse(for: request, body: Data(body.utf8))
+            }
+            if url.path.hasSuffix("/Episodes") {
+                if failEpisodes { return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data()) }
+                let seasonID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first { $0.name == "seasonId" }?.value
+                let count = seasonID == "season-2" ? 2 : 3
+                let season = seasonID == "season-2" ? 2 : 1
+                let items = (1...count).map {
+                    #"{"Id":"s\#(season)e\#($0)","Name":"Episode \#($0)","Type":"Episode","IndexNumber":\#($0),"ParentIndexNumber":\#(season)}"#
+                }
+                let body = #"{"Items":[\#(items.joined(separator: ","))],"TotalRecordCount":\#(count)}"#
+                return MockURLProtocol.jsonResponse(for: request, body: Data(body.utf8))
+            }
+            return nil
+        }
+    }
+
+    private func enqueueEpisode(
+        _ manager: DownloadManager, season: Int, episode: Int, episodeEnd: Int? = nil
+    ) async throws {
+        let item = MediaItem(
+            dto: BaseItemDto(
+                id: "s\(season)e\(episode)", name: "Episode \(episode)", type: .episode,
+                seriesId: "series-1", seriesName: "Show", seasonId: "season-\(season)",
+                indexNumber: episode, parentIndexNumber: season, indexNumberEnd: episodeEnd
+            ),
+            images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok")
+        )
+        try await manager.enqueue(
+            item: item, mediaSource: source("src-s\(season)e\(episode)", width: 1920),
+            audioTrack: nil, subtitleTracks: [], resolution: .hd1080p, preset: .normal, client: makeClient(), userID: "user-1"
+        )
+    }
+
+    func test_enqueue_episode_recordsTheServersNextEpisode() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = makeRunnableManager(store: store, answer: showAnswer())
+        defer { manager.delete(itemID: "s1e2") }
+
+        try await enqueueEpisode(manager, season: 1, episode: 2)
+
+        let row = try XCTUnwrap(store.item(itemID: "s1e2"))
+        XCTAssertEqual(row.hasNextEpisodeRecord, true)
+        XCTAssertEqual(row.nextEpisodeSeasonNumber, 1)
+        XCTAssertEqual(row.nextEpisodeNumber, 3)
+    }
+
+    func test_enqueue_seasonFinale_recordsNextSeasonsFirstEpisode() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = makeRunnableManager(store: store, answer: showAnswer())
+        defer { manager.delete(itemID: "s1e3") }
+
+        try await enqueueEpisode(manager, season: 1, episode: 3)
+
+        let row = try XCTUnwrap(store.item(itemID: "s1e3"))
+        XCTAssertEqual(row.hasNextEpisodeRecord, true)
+        XCTAssertEqual(row.nextEpisodeSeasonNumber, 2)
+        XCTAssertEqual(row.nextEpisodeNumber, 1)
+    }
+
+    func test_enqueue_seriesFinale_recordsNoNextEpisode() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = makeRunnableManager(store: store, answer: showAnswer())
+        defer { manager.delete(itemID: "s2e2") }
+
+        try await enqueueEpisode(manager, season: 2, episode: 2)
+
+        let row = try XCTUnwrap(store.item(itemID: "s2e2"))
+        XCTAssertEqual(row.hasNextEpisodeRecord, true, "The series ends here: a record of nothing next")
+        XCTAssertNil(row.nextEpisodeSeasonNumber)
+        XCTAssertNil(row.nextEpisodeNumber)
+    }
+
+    func test_enqueue_whenLookupFails_stillDownloads_withoutARecord() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = makeRunnableManager(store: store, answer: showAnswer(failEpisodes: true))
+        defer { manager.delete(itemID: "s1e2") }
+
+        try await enqueueEpisode(manager, season: 1, episode: 2)
+
+        let row = try XCTUnwrap(store.item(itemID: "s1e2"), "A failed lookup never fails the download")
+        XCTAssertNotEqual(row.hasNextEpisodeRecord, true)
+    }
+
+    func test_enqueue_doubleEpisode_storesItsLastNumber() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = makeRunnableManager(store: store, answer: showAnswer())
+        defer { manager.delete(itemID: "s1e1") }
+
+        try await enqueueEpisode(manager, season: 1, episode: 1, episodeEnd: 2)
+
+        XCTAssertEqual(try XCTUnwrap(store.item(itemID: "s1e1")).episodeNumberEnd, 2)
+    }
+
+    func test_enqueue_movie_makesNoLookup() async throws {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let manager = makeRunnableManager(store: store) { request in
+            XCTAssertFalse(request.url?.path.hasPrefix("/Shows/") ?? false, "A movie has no next episode to look up")
+            return nil
+        }
+        defer { manager.delete(itemID: "movie-n") }
+        let item = MediaItem(
+            dto: BaseItemDto(id: "movie-n", name: "Movie", type: .movie),
+            images: ImageURLBuilder(baseURL: baseURL, accessToken: "tok")
+        )
+
+        try await manager.enqueue(
+            item: item, mediaSource: source("src-m", width: 1920),
+            audioTrack: nil, subtitleTracks: [], resolution: .hd1080p, preset: .normal, client: makeClient(), userID: "user-1"
+        )
+
+        XCTAssertNotEqual(try XCTUnwrap(store.item(itemID: "movie-n")).hasNextEpisodeRecord, true)
+    }
+
     /// A retry redownloads the version the row was, and keeps saying which:
     /// `enqueue` replaces the row, so the label has to be carried across.
     func test_retry_keepsSourceAndLabel() async throws {

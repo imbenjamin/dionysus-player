@@ -346,6 +346,7 @@ final class PlayerJourneyTests: UITestCase {
         let player = openEpisodeOneInItsCredits()
         player.nextUpCard.awaitExistence("the Next Up card, in the credits")
         XCTAssertGreaterThan(position(player) ?? 0, 600, "Still on S1:E1, resumed at 12:00")
+        XCTAssertFalse(player.nextUpDeleteAndPlayNext.exists, "A streamed episode's card keeps Play Now (#274)")
         player.nextUpPlayNow.tap()
         XCTAssertTrue(
             poll(timeout: 15) { (self.position(player) ?? 999) < 20 && player.closeButton.exists },

@@ -436,9 +436,11 @@ final class DownloadManager: NSObject {
         // Already populated: `JellyfinAPIClient.detailFields` carries
         // `Chapters`, so this needs no extra fetch the way trickplay does.
         async let chaptersTask = downloadChapterImages(itemID: item.id, chapters: item.chapters, images: images)
+        async let nextEpisodeTask = nextEpisodeRecord(for: item, client: client, userID: userID)
 
-        let (posterPath, backdropPath, logoPath, thumbPath, segmentDTOs, trickplayInfo, chapters) = await (
-            posterPathTask, backdropPathTask, logoPathTask, thumbPathTask, segmentDTOsTask, trickplayInfoTask, chaptersTask
+        let (posterPath, backdropPath, logoPath, thumbPath, segmentDTOs, trickplayInfo, chapters, nextEpisode) = await (
+            posterPathTask, backdropPathTask, logoPathTask, thumbPathTask, segmentDTOsTask, trickplayInfoTask, chaptersTask,
+            nextEpisodeTask
         )
 
         downloaded.posterImagePath = posterPath
@@ -451,6 +453,12 @@ final class DownloadManager: NSObject {
         }
         downloaded.chapters = chapters
         downloaded.trickplayInfo = trickplayInfo
+        downloaded.episodeNumberEnd = item.dto.indexNumberEnd
+        if let nextEpisode {
+            downloaded.hasNextEpisodeRecord = true
+            downloaded.nextEpisodeSeasonNumber = nextEpisode.seasonNumber
+            downloaded.nextEpisodeNumber = nextEpisode.episodeNumber
+        }
         downloaded.subtitleFiles = await downloadSubtitles(
             itemID: item.id, mediaSourceID: mediaSourceID, tracks: subtitleTracks, client: client
         )
@@ -798,6 +806,24 @@ final class DownloadManager: NSObject {
     static func isHDR(_ videoStream: MediaStream?) -> Bool {
         guard let type = videoStream?.videoRangeType ?? videoStream?.videoRange else { return false }
         return type.hasPrefix("DOVI") || type == "HDR10" || type == "HDR10Plus" || type == "HLG"
+    }
+
+    /// Where the server's next episode is, for offline Up Next (#274): `nil`
+    /// when unknown (not an episode, or the lookup failed, which never fails the
+    /// download); both numbers `nil` when the series ends here. The same lookup
+    /// the live player makes, `JellyfinAPIClient.nextEpisode`.
+    private func nextEpisodeRecord(
+        for item: MediaItem, client: JellyfinAPIClient, userID: String
+    ) async -> (seasonNumber: Int?, episodeNumber: Int?)? {
+        guard item.kind == .episode, let seriesID = item.dto.seriesId, let seasonID = item.dto.seasonId else { return nil }
+        do {
+            let next = try await client.nextEpisode(
+                currentEpisodeID: item.id, seriesID: seriesID, seasonID: seasonID, userID: userID
+            )
+            return (next?.parentIndexNumber, next?.indexNumber)
+        } catch {
+            return nil
+        }
     }
 
     private static func downloadedSegmentKind(from type: MediaSegmentType) -> DownloadedSegment.Kind? {

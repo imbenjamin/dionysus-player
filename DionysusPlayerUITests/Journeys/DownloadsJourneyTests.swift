@@ -233,6 +233,113 @@ final class DownloadsJourneyTests: UITestCase {
         PlayerScreen(app: app).awaitControls()
     }
 
+    // MARK: - Up Next offline, Delete & Play Next (#274)
+
+    /// Downloads under `.earlyCredits` keep its credits at 0:05, so offline the
+    /// Up Next card shows about 5 s into S1:E1 and counts down 10 s. Opens
+    /// S1:E1's downloaded page from the show and plays it.
+    private func playDownloadedEpisodeOneOffline(
+        download: () -> Void, file: StaticString = #filePath, line: UInt = #line
+    ) -> (DownloadsScreen, PlayerScreen) {
+        launch(scenario: "earlyCredits")
+        download()
+        let downloads = relaunchOffline()
+        downloads.showRow(seriesID: UITestFixtureIdentity.seriesID)
+            .awaitExistence("the show's row, offline", file: file, line: line).tap()
+        downloads.episodeRow(itemID: UITestFixtureIdentity.episodeID(season: 1, episode: 1))
+            .awaitExistence("S1:E1 on the show's page", file: file, line: line).tap()
+        app.buttons[A11yID.Downloads.playButton].awaitExistence("S1:E1's Play", file: file, line: line).tap()
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        return (downloads, player)
+    }
+
+    private var episodeOne: String { UITestFixtureIdentity.episodeID(season: 1, episode: 1) }
+    private var episodeTwo: String { UITestFixtureIdentity.episodeID(season: 1, episode: 2) }
+
+    /// Closes the player, which has moved on to S1:E2, and checks the page
+    /// followed it there; then goes back to the show's page.
+    private func closeAndExpectEpisodeTwosPage(_ player: PlayerScreen) {
+        player.close()
+        player.closeButton.awaitDisappearance("the player")
+        app.descendants(matching: .any)[A11yID.Downloads.detailHero(episodeTwo)]
+            .awaitExistence("S1:E2's page: the page followed playback")
+        app.navigationBackButton.tap()
+    }
+
+    func test_offlineNextUp_deleteAndPlayNext_playsTheNext_landsOnIt_andDeletesTheFinished() {
+        let (downloads, player) = playDownloadedEpisodeOneOffline { downloadSeasons(["season-1"]) }
+        player.nextUpCard.awaitExistence("the Up Next card, in the credits", timeout: 30)
+        XCTAssertTrue(player.nextUpDeleteAndPlayNext.exists, "A download's card offers Delete & Play Next")
+        XCTAssertFalse(player.nextUpPlayNow.exists, "Delete & Play Next takes Play Now's place")
+        XCTAssertTrue(player.nextUpCancel.exists)
+
+        player.nextUpDeleteAndPlayNext.tap()
+        player.awaitControls()
+        closeAndExpectEpisodeTwosPage(player)
+
+        downloads.episodeRow(itemID: episodeTwo).awaitExistence("S1:E2 still downloaded")
+        downloads.episodeRow(itemID: UITestFixtureIdentity.episodeID(season: 1, episode: 3))
+            .awaitExistence("S1:E3 still downloaded")
+        XCTAssertFalse(downloads.episodeRow(itemID: episodeOne).exists, "S1:E1's download was deleted")
+    }
+
+    func test_offlineNextUp_countdown_playsTheNext_andDeletesNothing() {
+        let (downloads, player) = playDownloadedEpisodeOneOffline { downloadSeasons(["season-1"]) }
+        player.nextUpCard.awaitExistence("the Up Next card, in the credits", timeout: 30)
+        // The countdown runs out by itself: no tap.
+        player.nextUpCard.awaitDisappearance("the card, once the countdown advanced", timeout: 30)
+        player.awaitControls()
+        closeAndExpectEpisodeTwosPage(player)
+
+        downloads.episodeRow(itemID: episodeOne).awaitExistence("S1:E1 kept: the countdown never deletes")
+    }
+
+    func test_offlineNextUp_cancel_deletesNothing() {
+        let (downloads, player) = playDownloadedEpisodeOneOffline { downloadSeasons(["season-1"]) }
+        player.nextUpCard.awaitExistence("the Up Next card, in the credits", timeout: 30)
+        player.nextUpCancel.tap()
+        player.nextUpCard.awaitDisappearance("the card, cancelled")
+        player.close()
+        player.closeButton.awaitDisappearance("the player")
+        app.descendants(matching: .any)[A11yID.Downloads.detailHero(episodeOne)]
+            .awaitExistence("still S1:E1's page")
+        app.navigationBackButton.tap()
+
+        downloads.episodeRow(itemID: episodeOne).awaitExistence("S1:E1 kept")
+    }
+
+    /// S1:E2 isn't downloaded, so S1:E1 cues nothing: no skipping to S1:E3.
+    func test_offlineNextUp_gap_showsNoCard() {
+        let (_, player) = playDownloadedEpisodeOneOffline {
+            download(episodeOne)
+            // S1:E3 has no Home tile: download it from its row on the show's page.
+            app.navigationBackButton.tap()
+            let home = HomeScreen(app: app)
+            home.awaitLoaded()
+            home.openItem(UITestFixtureIdentity.showsLibraryID)
+            let collection = CollectionScreen(app: app)
+            collection.awaitLoaded(UITestFixtureIdentity.seriesID)
+            collection.card(UITestFixtureIdentity.seriesID).tap()
+            AssetDetailScreen(app: app).awaitLoaded()
+            let rowDownload = app.descendants(matching: .any)[
+                A11yID.AssetDetail.rowDownloadButton(UITestFixtureIdentity.episodeID(season: 1, episode: 3))
+            ]
+            // Below the fold, past the hero and the season's first rows.
+            for _ in 0..<4 where !rowDownload.isHittable { app.swipeUp() }
+            rowDownload.awaitExistence("S1:E3's row download button").tap()
+            let audioChoice = app.buttons["ENG EAC3"]
+            if audioChoice.waitForExistence(timeout: 3) { audioChoice.tap() }
+            let downloaded = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label CONTAINS[c] %@", "Downloaded"), object: rowDownload
+            )
+            XCTAssertEqual(XCTWaiter().wait(for: [downloaded], timeout: UITestCase.defaultTimeout), .completed, "S1:E3 downloaded")
+        }
+        // Past the credits' start and where the card would have shown.
+        RunLoop.current.run(until: Date().addingTimeInterval(12))
+        XCTAssertFalse(player.nextUpCard.exists, "A gap gets no Up Next")
+    }
+
     // MARK: - Advanced options (TQ-11)
 
     /// Holding Download opens the per-item options instead of downloading:

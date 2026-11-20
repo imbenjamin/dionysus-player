@@ -326,6 +326,25 @@ final class PlayerViewModelOfflineTests: XCTestCase {
         XCTAssertEqual(engine.stopCallCount, 1)
     }
 
+    /// Delete & Play Next (#274) from credits starting before 90%: the viewer
+    /// said they're done, and the download is about to go, so the episode is
+    /// watched, or it would sync "in progress" and sit in Continue Watching.
+    func test_stop_afterMarkFinishedByViewer_belowThreshold_marksPlayed() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let item = DownloadTestHelpers.makeItem(itemID: "item-1")
+        store.insert(item)
+        let (viewModel, engine) = makeOfflineViewModel(downloadedItem: item, store: store)
+        await viewModel.start()
+        engine.onTimeUpdate?(3060, 3600) // 85% through, in the credits
+
+        viewModel.markFinishedByViewer()
+        await viewModel.stop()
+
+        XCTAssertEqual(item.isPlayed, true)
+        XCTAssertEqual(item.resumePositionTicks, 0)
+        XCTAssertEqual(item.pendingSync, true)
+    }
+
     /// No server to defer the "mark as watched" judgement call to, unlike
     /// the live path — see `writeOfflineProgress`'s doc comment for the
     /// 90% client-side threshold this pins.
@@ -474,5 +493,72 @@ final class PlayerViewModelOfflineTests: XCTestCase {
     /// container simply had none, are the same `[]` — and neither is an error.
     func test_offlineFonts_emptyForADownloadWithNoStoredFonts() {
         XCTAssertTrue(PlayerViewModel.assFonts(fromDownloaded: []).isEmpty)
+    }
+
+    // MARK: Offline Up Next (#274)
+
+    private func downloadedEpisode(_ number: Int, thumbImagePath: String? = nil) -> DownloadedItem {
+        DownloadTestHelpers.makeItem(
+            itemID: "s1e\(number)", thumbImagePath: thumbImagePath, status: .completed,
+            kind: .episode, seriesID: "series-1", seasonID: "season-1", seasonNumber: 1, episodeNumber: number
+        )
+    }
+
+    func test_startOffline_withImmediateNextDownload_setsNextEpisode() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let current = downloadedEpisode(1)
+        store.insert(current)
+        store.insert(downloadedEpisode(2))
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: current, store: store)
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.nextEpisode?.id, "s1e2")
+        XCTAssertEqual(viewModel.nextEpisode?.dto.indexNumber, 2)
+        XCTAssertTrue(viewModel.offersDeleteAndPlayNext)
+        XCTAssertFalse(viewModel.closesWhenPlaybackEnds)
+    }
+
+    func test_startOffline_withGap_leavesNextEpisodeNil() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let current = downloadedEpisode(1)
+        store.insert(current)
+        store.insert(downloadedEpisode(3))
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: current, store: store)
+
+        await viewModel.start()
+
+        XCTAssertNil(viewModel.nextEpisode)
+        XCTAssertFalse(viewModel.offersDeleteAndPlayNext)
+        XCTAssertTrue(viewModel.closesWhenPlaybackEnds)
+    }
+
+    func test_startOffline_nextEpisodeImage_isTheNextDownloadsThumb() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let current = downloadedEpisode(1)
+        store.insert(current)
+        store.insert(downloadedEpisode(2, thumbImagePath: "images/thumb-2.jpg"))
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: current, store: store)
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.nextEpisodeImageFileURL, DownloadFileStore.url(forRelativePath: "images/thumb-2.jpg"))
+    }
+
+    /// Offline Up Next comes from the downloads: no request is made for it.
+    func test_startOffline_stillNeverHitsTheNetwork_withANextDownload() async {
+        let store = DownloadTestHelpers.makeInMemoryStore()
+        let current = downloadedEpisode(1)
+        store.insert(current)
+        store.insert(downloadedEpisode(2))
+        let (viewModel, _) = makeOfflineViewModel(downloadedItem: current, store: store)
+        MockURLProtocol.requestHandler = { request in
+            XCTFail("offline Up Next made a request to \(request.url?.path ?? "?")")
+            throw URLError(.badURL)
+        }
+
+        await viewModel.start()
+
+        XCTAssertEqual(viewModel.nextEpisode?.id, "s1e2")
     }
 }
