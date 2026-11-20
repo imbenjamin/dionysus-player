@@ -945,6 +945,7 @@ struct PlayerScreen: Screen {
     var nextUpCard: XCUIElement { app.descendants(matching: .any)[A11yID.Player.nextUpCard] }
     var nextUpPlayNow: XCUIElement { app.buttons[A11yID.Player.nextUpPlayNow] }
     var nextUpCancel: XCUIElement { app.buttons[A11yID.Player.nextUpCancel] }
+    var nextUpDeleteAndPlayNext: XCUIElement { app.buttons[A11yID.Player.nextUpDeleteAndPlayNext] }
     var scrubber: XCUIElement { app.descendants(matching: .any)[A11yID.Player.scrubber] }
     var elapsedLabel: XCUIElement { app.descendants(matching: .any)[A11yID.Player.elapsedLabel] }
     var tracksButton: XCUIElement { app.buttons[A11yID.Player.tracksButton] }

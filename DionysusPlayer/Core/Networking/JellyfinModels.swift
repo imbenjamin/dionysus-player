@@ -145,6 +145,9 @@ struct BaseItemDto: Codable, Identifiable, Equatable {
     var seasonName: String?
     var indexNumber: Int?
     var parentIndexNumber: Int?
+    /// The last episode number of a double episode (one file for E1–E2);
+    /// absent for a single episode.
+    var indexNumberEnd: Int?
     var childCount: Int?
     /// Total descendants of a folder-like item: every episode across every
     /// season for a Series, just its own for a Season. Needed separately

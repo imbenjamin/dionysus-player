@@ -75,6 +75,18 @@ screen and Control Center card confirmed on an iPhone 16 Pro, 2026-10-30). The e
 from `MPRemoteCommandCenter.shared()` itself, so the app registers nothing
 for it.
 
+## Up Next on a download
+
+Offline, `startOffline` resolves `nextEpisode` from the downloads
+(`DownloadedNextEpisode`: the immediate next episode only, no gaps skipped),
+and `NextUpOverlay` puts **Delete & Play Next** in Play Now's place
+(`offersDeleteAndPlayNext`). **The countdown never deletes**: deleting is
+destructive, so only the tap passes `deletingFinished` through
+`PlayerView.onRequestNextDownload`, and the page deletes after the player
+has closed and saved progress. The rule, what a download records for it and
+the page's side are in `DOWNLOADS.md`, "Up Next offline". The card's buttons
+stack at accessibility text sizes, where the thumbnail is also capped.
+
 ## Reporting a stop
 
 **A stop is reported only after a start** (`PlayerViewModel.stop()`).

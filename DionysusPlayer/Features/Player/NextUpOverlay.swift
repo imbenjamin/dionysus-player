@@ -33,6 +33,13 @@ struct NextUpOverlay: View {
     let totalSeconds: Int?
     let onPlayNow: () -> Void
     let onCancel: () -> Void
+    /// The next download's artwork as a local file (#274), drawn instead of
+    /// `nextEpisode`'s remote image, which a download's `MediaItem` has none of.
+    var imageFileURL: URL? = nil
+    /// Non-nil on a download's session (#274): Delete & Play Next takes Play
+    /// Now's place, so the card keeps two actions. To play on without
+    /// deleting, the viewer lets the countdown run (Benjamin, 2026-11-20).
+    var onDeleteAndPlayNext: (() -> Void)? = nil
 
     /// The thumbnail (and the countdown ring centered over it) is sized to
     /// match the episode-label/title text block next to it, rather than a
@@ -40,6 +47,17 @@ struct NextUpOverlay: View {
     /// two-line-title guess so the thumbnail isn't oddly tiny for the one
     /// frame before the real measurement lands.
     @State private var textBlockHeight: CGFloat = 52
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var stacksButtons: Bool { dynamicTypeSize.isAccessibilitySize }
+
+    /// One line beside the other button; full width, wrapping as it must,
+    /// when stacked.
+    private func buttonTitle(_ title: LocalizedStringKey, stacked: Bool) -> some View {
+        Text(title)
+            .lineLimit(stacked ? nil : 1)
+            .frame(maxWidth: stacked ? .infinity : nil)
+    }
 
     private var isVisible: Bool { nextEpisode != nil && secondsRemaining != nil }
 
@@ -86,26 +104,62 @@ struct NextUpOverlay: View {
                     textBlock(for: nextEpisode)
                 }
 
-                HStack(spacing: 8) {
-                    Button("Cancel", action: onCancel)
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier(A11yID.Player.nextUpCancel)
-                    // The ▶ matches the Apple TV's `TVNextUpCard`.
-                    Button(action: onPlayNow) {
-                        Label("Play Now", systemImage: "play.fill")
+                // Side by side, stacked full width at accessibility text sizes,
+                // where two buttons in a row wrapped letter by letter
+                // (Benjamin, 2026-11-20), and at any size where the row
+                // doesn't fit: a label is never cut short.
+                Group {
+                    if stacksButtons {
+                        buttonRow(stacked: true)
+                    } else {
+                        ViewThatFits(in: .horizontal) {
+                            buttonRow(stacked: false)
+                            buttonRow(stacked: true)
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier(A11yID.Player.nextUpPlayNow)
                 }
                 .controlSize(.small)
             }
             .padding(12)
-            .frame(width: 260)
+            // Wide enough for Cancel and Delete & Play Next on one line at the
+            // default text size (#274).
+            .frame(width: 290)
             .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
             .foregroundStyle(.white)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(A11yID.Player.nextUpCard)
             .transition(.opacity)
+        }
+    }
+
+    private func buttonRow(stacked: Bool) -> some View {
+        let layout = stacked ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
+            Button(action: onCancel) {
+                buttonTitle("Cancel", stacked: stacked)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier(A11yID.Player.nextUpCancel)
+            if let onDeleteAndPlayNext {
+                // Words only, no symbol, so it fits on one line beside Cancel
+                // at the default size; styled exactly as Play Now, which it
+                // replaces (Benjamin, 2026-11-20).
+                Button(action: onDeleteAndPlayNext) {
+                    buttonTitle("Delete & Play Next", stacked: stacked)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityHint(Text("Deletes this episode's download from this device."))
+                .accessibilityIdentifier(A11yID.Player.nextUpDeleteAndPlayNext)
+            } else {
+                // The ▶ matches the Apple TV's `TVNextUpCard`.
+                Button(action: onPlayNow) {
+                    Label("Play Now", systemImage: "play.fill")
+                        .lineLimit(stacked ? nil : 1)
+                        .frame(maxWidth: stacked ? .infinity : nil)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier(A11yID.Player.nextUpPlayNow)
+            }
         }
     }
 
@@ -132,10 +186,25 @@ struct NextUpOverlay: View {
     }
 
     private func thumbnail(for episode: MediaItem) -> some View {
-        AsyncRemoteImage(url: episode.thumbImageURL ?? episode.primaryImageURL, placeholderSystemImage: "play.tv")
-            .frame(width: textBlockHeight * 16 / 9, height: textBlockHeight)
+        // Capped at accessibility text sizes, where matching the text's
+        // height made it wider than the card and pushed the card off screen.
+        let height = stacksButtons ? min(textBlockHeight, 64) : textBlockHeight
+        return thumbnailImage(for: episode)
+            // Decorative: the text beside it names the episode. Hidden on the
+            // image alone, so the countdown ring over it still reads.
+            .accessibilityHidden(true)
+            .frame(width: height * 16 / 9, height: height)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay { countdownRing }
+    }
+
+    @ViewBuilder
+    private func thumbnailImage(for episode: MediaItem) -> some View {
+        if let imageFileURL {
+            LocalFileImage(url: imageFileURL, placeholderSystemImage: "play.tv")
+        } else {
+            AsyncRemoteImage(url: episode.thumbImageURL ?? episode.primaryImageURL, placeholderSystemImage: "play.tv")
+        }
     }
 
     /// The countdown, drawn as a shrinking ring over the thumbnail instead

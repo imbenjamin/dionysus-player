@@ -38,6 +38,15 @@ struct DownloadedAssetDetailView: View {
     /// cleared by every Play this page's own controls start.
     @State private var linkOverrides: PlaybackLinkOverrides?
     @State private var showDeleteConfirmation = false
+    /// The episode the page shows once playback has moved on to a later
+    /// download (#274), so closing the player lands on the episode last
+    /// watched (Benjamin, 2026-11-20). `nil` until then: the route's `itemID`.
+    @State private var followedItemID: String?
+    /// Staged by `PlayerView.onRequestNextDownload` and resolved from the
+    /// cover's `onDismiss`, once the player has closed and saved progress;
+    /// presenting the next player while the cover is still up doesn't
+    /// reliably work (`ShowDetailView.pendingNextEpisode`).
+    @State private var pendingAdvance: DownloadedEpisodeAdvance?
     /// Bumped from `fullScreenCover(onDismiss:)` to force `body` to re-run once
     /// the Player closes — the same fix as `MovieDetailView.refreshTrigger`. A
     /// view presenting a `.fullScreenCover` doesn't reliably re-run `body` because
@@ -53,8 +62,10 @@ struct DownloadedAssetDetailView: View {
     /// it this page wouldn't refresh after a retry re-queued its download.
     private var downloadedItem: DownloadedItem? {
         _ = downloadManager.store.changeCount
-        return downloadManager.store.item(itemID: itemID)
+        return downloadManager.store.item(itemID: shownItemID)
     }
+
+    private var shownItemID: String { followedItemID ?? itemID }
 
     var body: some View {
         Group {
@@ -73,6 +84,7 @@ struct DownloadedAssetDetailView: View {
                             episodeNumberAccessibilityText: item.kind == .episode ? item.episodeLabelAccessibilityText : nil,
                             kind: item.kind == .episode ? .episode : .movie
                         )
+                        .accessibilityIdentifier(A11yID.Downloads.detailHero(item.itemID))
 
                         VStack(alignment: .leading, spacing: 16) {
                             DownloadedInfoMetadataRow(item: item, fileSizeBytes: fileSizeBytes)
@@ -169,10 +181,19 @@ struct DownloadedAssetDetailView: View {
                     linkOverrides = cue.overrides.isEmpty ? nil : cue.overrides
                     isPlayerPresented = true
                 }
-                .fullScreenCover(isPresented: $isPlayerPresented, onDismiss: { refreshTrigger = UUID() }) {
+                .fullScreenCover(isPresented: $isPlayerPresented, onDismiss: {
+                    refreshTrigger = UUID()
+                    resolvePendingAdvance()
+                }) {
                     PlayerView(
                         itemID: item.itemID, startFromBeginning: startFromBeginning,
-                        startSeconds: startSeconds, downloadedItem: item, linkOverrides: linkOverrides
+                        startSeconds: startSeconds, downloadedItem: item,
+                        onRequestNextDownload: { nextItemID, deletesFinished in
+                            pendingAdvance = DownloadedEpisodeAdvance(
+                                finishedItemID: item.itemID, nextItemID: nextItemID, deletesFinished: deletesFinished
+                            )
+                        },
+                        linkOverrides: linkOverrides
                     )
                 }
             } else {
@@ -180,6 +201,26 @@ struct DownloadedAssetDetailView: View {
                     // Nothing to play: a link's cue goes with the download.
                     .onAppear { _ = DeepLinkPlaybackCue.shared.take(for: itemID, download: true) }
             }
+        }
+    }
+
+    /// Applies a staged advance (#274): deletes the finished download if the
+    /// viewer chose Delete & Play Next, then shows and plays the next one as
+    /// its own Play would, or settles on what is left.
+    private func resolvePendingAdvance() {
+        guard let advance = pendingAdvance else { return }
+        pendingAdvance = nil
+        switch advance.resolve(store: downloadManager.store, delete: downloadManager.delete(itemID:)) {
+        case .play(let nextItemID):
+            followedItemID = nextItemID
+            startFromBeginning = false
+            startSeconds = nil
+            linkOverrides = nil
+            isPlayerPresented = true
+        case .stay(let finishedItemID):
+            followedItemID = finishedItemID
+        case .leave:
+            dismiss()
         }
     }
 

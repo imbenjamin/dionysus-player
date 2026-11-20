@@ -1575,6 +1575,20 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.nextEpisode?.id, "ep-2")
     }
 
+    /// Delete & Play Next (#274) is for downloads only: a streamed session's
+    /// card keeps Play Now.
+    func test_onlineSession_neverOffersDeleteAndPlayNext() async {
+        let (viewModel, _) = makeViewModel(itemID: "ep-1")
+        stubStartWithNextEpisode()
+
+        await viewModel.start()
+        await waitUntilNextEpisodeResolved(viewModel)
+
+        XCTAssertNotNil(viewModel.nextEpisode)
+        XCTAssertFalse(viewModel.offersDeleteAndPlayNext)
+        XCTAssertNil(viewModel.nextEpisodeImageFileURL)
+    }
+
     /// `loadNextEpisode(for:images:)` guards on `kind == .episode` before
     /// firing anything — a Movie should never even attempt the lookup.
     /// `stubStart`'s `default: XCTFail` doubles as the assertion here: if

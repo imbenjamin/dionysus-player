@@ -1025,6 +1025,47 @@ change them together.
 
 ---
 
+## Up Next offline, and Delete & Play Next (#274)
+
+A downloaded episode cues the next one as streaming does, from the downloads
+alone (`DownloadedNextEpisode`, no network), and only the **immediate** next
+episode: with a gap (E2 not downloaded) E1 offers no Up Next rather than
+skipping to E3 (Benjamin, 2026-11-20). A double episode (one file for E1–E2,
+`IndexNumberEnd`) continues at E3. Specials and unnumbered episodes never cue.
+
+**A season break needs the server's answer, recorded at download time.**
+Nothing on the device says how many episodes a season has, so `enqueue` asks
+the server where the next episode is (`JellyfinAPIClient.nextEpisode`, as the
+live player does) and stores it: `hasNextEpisodeRecord`,
+`nextEpisodeSeasonNumber`, `nextEpisodeNumber` and `episodeNumberEnd` on
+`DownloadedItem`. A failed lookup never fails the download. A download made
+before this (or whose lookup failed) cues within its season only, until it is
+downloaded again. **The same-season next always wins over the record**, which
+is the server as it was on download day: on a show still airing, S1E3's
+record can say "the series ends here" before S1E4 aired, and must not hide
+S1E4 once that's downloaded. The record only decides when the season has no
+following episode downloaded, and not at all when a later one of the same
+season is (a gap). The flags are optional, not `Bool` defaulting to `false`:
+a failed migration of this shipped model would open an empty store and hide
+every download.
+
+**The card offers Cancel and Delete & Play Next**, which takes Play Now's
+place. It plays the next download and deletes **this device's** download of
+the episode just watched (`DownloadManager.delete(itemID:)`), never the
+server's file. The countdown running out plays on and deletes nothing:
+deleting needs the tap. The delete runs from the page's `onDismiss`
+(`DownloadedEpisodeAdvance`), after the player's `stop()` has written the
+watched and resume state, so an unsynced row survives as `markedForDeletion`
+until `DownloadSyncManager` pushes it. **Delete & Play Next counts the
+episode watched** (`PlayerViewModel.markFinishedByViewer()`) whatever the
+playhead: the card shows from the credits' start, which can come before the
+90% threshold, and a deleted episode synced as "in progress" would sit in
+Continue Watching everywhere. The countdown and Play Now keep the 90% rule.
+The page then follows playback, so closing the player lands on the episode
+last watched.
+
+---
+
 ## Changing the ladder
 
 If you need to move a number:

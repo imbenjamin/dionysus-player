@@ -897,6 +897,9 @@
     "Delete" : {
 
     },
+    "Delete & Play Next" : {
+
+    },
     "Delete %@ (%@)?" : {
       "localizations" : {
         "en" : {
@@ -952,6 +955,9 @@
           }
         }
       }
+    },
+    "Deletes this episode's download from this device." : {
+
     },
     "Deleting \"%@\" will remove it from the Jellyfin server. This cannot be undone." : {
 

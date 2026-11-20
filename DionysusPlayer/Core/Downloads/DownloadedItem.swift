@@ -229,6 +229,26 @@ final class DownloadedItem: Identifiable {
     /// their number from this info, as the live path does.
     var trickplayInfo: TrickplayInfo?
 
+    // Offline Up Next (#274). Nothing on the device says how many episodes or
+    // seasons a show has, so `DownloadManager.enqueue` records where the
+    // server's next episode is; `DownloadedNextEpisode` reads it. Defaulted
+    // or optional, so old rows migrate lightweightly and simply have no record.
+
+    /// The last number of a double episode (`IndexNumberEnd`: one file for
+    /// E1–E2); `nil` for a single episode.
+    var episodeNumberEnd: Int?
+    /// `true` once the next-episode lookup succeeded at enqueue. With both
+    /// numbers below `nil`, it means the series ends here; `nil` means unknown
+    /// (the lookup failed, or the row predates this). Optional, not a `Bool`
+    /// defaulting to `false`, like its neighbours: a non-optional scalar would
+    /// be the first added to this shipped model, and a failed migration opens
+    /// an empty in-memory store (`DownloadStore.makeDefault`), hiding every
+    /// download.
+    var hasNextEpisodeRecord: Bool?
+    /// The server's next episode, as season and episode number.
+    var nextEpisodeSeasonNumber: Int?
+    var nextEpisodeNumber: Int?
+
     var kind: DownloadedItemKind {
         get { DownloadedItemKind(rawValue: kindRaw) ?? .movie }
         set { kindRaw = newValue.rawValue }
@@ -412,7 +432,11 @@ final class DownloadedItem: Identifiable {
         thumbImagePath: String? = nil,
         segments: [DownloadedSegment] = [],
         chapters: [DownloadedChapter] = [],
-        trickplayInfo: TrickplayInfo? = nil
+        trickplayInfo: TrickplayInfo? = nil,
+        episodeNumberEnd: Int? = nil,
+        hasNextEpisodeRecord: Bool? = nil,
+        nextEpisodeSeasonNumber: Int? = nil,
+        nextEpisodeNumber: Int? = nil
     ) {
         self.itemID = itemID
         self.userID = userID
@@ -462,5 +486,9 @@ final class DownloadedItem: Identifiable {
         self.segments = segments
         self.chapters = chapters
         self.trickplayInfo = trickplayInfo
+        self.episodeNumberEnd = episodeNumberEnd
+        self.hasNextEpisodeRecord = hasNextEpisodeRecord
+        self.nextEpisodeSeasonNumber = nextEpisodeSeasonNumber
+        self.nextEpisodeNumber = nextEpisodeNumber
     }
 }

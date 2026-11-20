@@ -352,6 +352,23 @@ final class AccessibilityAuditTests: UITestCase {
         try auditCurrentScreen()
     }
 
+    /// A download's Up Next card (#274): Cancel and Delete & Play Next.
+    func testOfflineNextUpCardHasNoAccessibilityIssues() throws {
+        launch(scenario: "earlyCredits")
+        downloadSeasons(["season-1"])
+        let downloads = relaunchOffline()
+        downloads.showRow(seriesID: UITestFixtureIdentity.seriesID).awaitExistence("the show's row, offline").tap()
+        downloads.episodeRow(itemID: UITestFixtureIdentity.episodeID(season: 1, episode: 1))
+            .awaitExistence("S1:E1 on the show's page").tap()
+        app.buttons[A11yID.Downloads.playButton].awaitExistence("S1:E1's Play").tap()
+
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
+        player.nextUpCard.awaitExistence("the Up Next card, in the credits", timeout: 30)
+
+        try auditCurrentScreen()
+    }
+
     func testAudioOffsetPageHasNoAccessibilityIssues() throws {
         launch()
         let home = HomeScreen(app: app)

@@ -31,14 +31,28 @@ enum DownloadTestHelpers {
         status: DownloadStatus = .queued,
         pendingDownloadURLString: String? = nil,
         createdAt: Date = Date(),
-        trickplayInfo: TrickplayInfo? = nil
+        trickplayInfo: TrickplayInfo? = nil,
+        userID: String = "user-1",
+        kind: DownloadedItemKind = .movie,
+        seriesID: String? = nil,
+        seasonID: String? = nil,
+        seasonNumber: Int? = nil,
+        episodeNumber: Int? = nil,
+        episodeNumberEnd: Int? = nil,
+        hasNextEpisodeRecord: Bool = false,
+        nextEpisodeSeasonNumber: Int? = nil,
+        nextEpisodeNumber: Int? = nil
     ) -> DownloadedItem {
         DownloadedItem(
             itemID: itemID,
-            userID: "user-1",
+            userID: userID,
             mediaSourceID: "src-1",
-            kind: .movie,
+            kind: kind,
             title: "Test Movie \(itemID)",
+            seriesID: seriesID,
+            seasonID: seasonID,
+            seasonNumber: seasonNumber,
+            episodeNumber: episodeNumber,
             requestedResolution: .hd1080p,
             requestedPreset: .normal,
             videoFilePath: DownloadFileStore.videoRelativePath(itemID: itemID),
@@ -52,7 +66,11 @@ enum DownloadTestHelpers {
             backdropImagePath: backdropImagePath,
             logoImagePath: logoImagePath,
             thumbImagePath: thumbImagePath,
-            trickplayInfo: trickplayInfo
+            trickplayInfo: trickplayInfo,
+            episodeNumberEnd: episodeNumberEnd,
+            hasNextEpisodeRecord: hasNextEpisodeRecord,
+            nextEpisodeSeasonNumber: nextEpisodeSeasonNumber,
+            nextEpisodeNumber: nextEpisodeNumber
         )
     }
 }

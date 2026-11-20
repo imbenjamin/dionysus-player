@@ -371,6 +371,8 @@ enum A11yID {
         static let nextUpCard = "player.nextUp"
         static let nextUpPlayNow = "player.nextUp.playNow"
         static let nextUpCancel = "player.nextUp.cancel"
+        /// In Play Now's place on a download's card (#274).
+        static let nextUpDeleteAndPlayNext = "player.nextUp.deleteAndPlayNext"
         static let scrubber = "player.scrubber"
         static let elapsedLabel = "player.elapsedLabel"
         static let remainingLabel = "player.remainingLabel"
@@ -481,6 +483,9 @@ enum A11yID {
         static func row(_ rowID: String) -> String { "downloads.row.\(rowID)" }
         /// The downloaded item page's Play (or Resume) button.
         static let playButton = "downloads.detail.playButton"
+        /// The downloaded item page's hero, keyed by the item it shows: the
+        /// page follows playback onto the next episode (#274).
+        static func detailHero(_ itemID: String) -> String { "downloads.detail.hero.\(itemID)" }
         /// A season row on a downloaded show's page (`DownloadedShowView`,
         /// when more than one season is downloaded), keyed by the season id.
         static func seasonRow(_ seasonID: String) -> String { "downloads.seasonRow.\(seasonID)" }

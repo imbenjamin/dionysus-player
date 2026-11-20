@@ -304,6 +304,28 @@ final class PlayerViewModel {
     /// Always `false`: this platform has no downloads.
     var isOfflinePlayback: Bool { false }
     #endif
+    /// The next download's own artwork for `NextUpOverlay` (#274): its thumb,
+    /// else backdrop, else poster, as a local file. Set only by
+    /// `startOffline`; `nil` on the live path and on tvOS, whose card loads
+    /// `nextEpisode`'s remote image instead.
+    private(set) var nextEpisodeImageFileURL: URL?
+    /// Whether the Up Next card offers Delete & Play Next in Play Now's place
+    /// (#274): an offline session with a next download cued. Streamed sessions
+    /// never delete anything.
+    var offersDeleteAndPlayNext: Bool { isOfflinePlayback && nextEpisode != nil }
+    /// Set by `markFinishedByViewer()`: the offline progress write counts the
+    /// episode watched whatever the playhead says.
+    @ObservationIgnored private var isFinishedByViewer = false
+
+    /// Delete & Play Next (#274) says the viewer is done with this episode,
+    /// and its download is about to go. The card shows from the credits'
+    /// start, which can come before the 90% `offlineWatchedThreshold`, and
+    /// without this the deleted episode would sync "in progress" and sit in
+    /// Continue Watching on every device. Call before `stop()`; offline only,
+    /// since a streamed session's watched state is the server's call.
+    func markFinishedByViewer() {
+        isFinishedByViewer = true
+    }
     private var progressReportTask: Task<Void, Never>?
     /// Resolved in `start()`/`startOffline()` once `activeMediaSourceID` is known.
     /// Existential rather than concrete, since `startOffline()` installs
@@ -878,8 +900,9 @@ final class PlayerViewModel {
     /// `ExternalSubtitleSource`s from `DownloadFileStore`, and skips every
     /// network call `start()` makes — item fetch, `playbackInfo`,
     /// `reportPlaybackStart`, next-episode lookup — in favour of the download's
-    /// stored snapshot. `nextEpisode` simply stays `nil`. Progress and stop route
-    /// to `writeOfflineProgress(_:)`.
+    /// stored snapshot. `nextEpisode` comes from the downloads instead
+    /// (`DownloadedNextEpisode`, #274): the immediate next episode, only when
+    /// it's downloaded. Progress and stop route to `writeOfflineProgress(_:)`.
     ///
     /// `item` is still populated, with a synthetic `MediaItem` built from an
     /// otherwise-empty `BaseItemDto` carrying the stored title and episode info,
@@ -894,20 +917,14 @@ final class PlayerViewModel {
             linkNotices.append(PlaybackLinkOverrides.downloadIgnoresStreamingNotice)
         }
         #endif
-        let dto = BaseItemDto(
-            id: downloadedItem.itemID,
-            name: downloadedItem.title,
-            type: downloadedItem.kind == .episode ? .episode : .movie,
-            runTimeTicks: downloadedItem.runtimeTicks,
-            seriesId: downloadedItem.seriesID,
-            seriesName: downloadedItem.seriesTitle,
-            indexNumber: downloadedItem.episodeNumber,
-            parentIndexNumber: downloadedItem.seasonNumber
-        )
-        // Any placeholder base URL works: with no `imageTags` on `dto`, nothing
-        // this builder can build is ever requested.
-        let mediaItem = MediaItem(dto: dto, images: ImageURLBuilder(baseURL: URL(string: "https://offline.invalid")!))
+        let mediaItem = Self.offlineMediaItem(for: downloadedItem)
         item = mediaItem
+        if let downloadStore,
+           let next = DownloadedNextEpisode.find(after: downloadedItem, among: downloadStore.allItems()) {
+            nextEpisode = Self.offlineMediaItem(for: next)
+            nextEpisodeImageFileURL = (next.thumbImagePath ?? next.backdropImagePath ?? next.posterImagePath)
+                .map(DownloadFileStore.url(forRelativePath:))
+        }
         // The same `logoImagePath` to file-URL resolution
         // `DownloadedAssetDetailView` uses; `nil` when this download has no logo.
         offlineLogoURL = downloadedItem.logoImagePath.map(DownloadFileStore.url(forRelativePath:))
@@ -977,6 +994,24 @@ final class PlayerViewModel {
         }
     }
 
+    /// A download as a `MediaItem`, from an otherwise-empty `BaseItemDto`
+    /// carrying its stored title and episode info: for `item` and, offline,
+    /// `nextEpisode`. Any placeholder base URL works: with no `imageTags`,
+    /// nothing its builder can build is ever requested.
+    private static func offlineMediaItem(for downloadedItem: DownloadedItem) -> MediaItem {
+        let dto = BaseItemDto(
+            id: downloadedItem.itemID,
+            name: downloadedItem.title,
+            type: downloadedItem.kind == .episode ? .episode : .movie,
+            runTimeTicks: downloadedItem.runtimeTicks,
+            seriesId: downloadedItem.seriesID,
+            seriesName: downloadedItem.seriesTitle,
+            indexNumber: downloadedItem.episodeNumber,
+            parentIndexNumber: downloadedItem.seasonNumber
+        )
+        return MediaItem(dto: dto, images: ImageURLBuilder(baseURL: URL(string: "https://offline.invalid")!))
+    }
+
     /// Fraction played at which offline playback counts an item watched. There is
     /// no server to defer that judgement to, so this stands in at Jellyfin's own
     /// common default threshold.
@@ -1006,7 +1041,7 @@ final class PlayerViewModel {
         let duration = duration ?? self.duration
         guard duration > 0 else { return }
         let fraction = min(1, max(0, currentTime / duration))
-        if fraction >= Self.offlineWatchedThreshold {
+        if fraction >= Self.offlineWatchedThreshold || isFinishedByViewer {
             downloadedItem.isPlayed = true
             downloadedItem.resumePositionTicks = 0
             downloadedItem.playedPercentage = 100
