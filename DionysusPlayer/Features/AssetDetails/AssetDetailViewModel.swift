@@ -474,10 +474,21 @@ final class AssetDetailViewModel {
     /// that stopped partway: some episodes are gone from the server and the
     /// rest aren't, which the message says, since the plain error alone would
     /// read as nothing having happened.
+    ///
+    /// The page has been cleaned up as far as the deletion got (#491): it
+    /// drops seasons it emptied, and `outcome` says whether the page itself
+    /// went, to be acted on once the message has been read. `removedIDs` are
+    /// the episodes gone from the server, whose downloads iOS removes when
+    /// asked to.
     struct PartialDeletionError: LocalizedError {
         let deletedCount: Int
         let totalCount: Int
         let underlying: Error
+        let removedIDs: Set<String>
+        /// `.stayAndRefresh`, or `.popOneLevel` when the page's own subject
+        /// went. Never `.popToRoot`: what failed is still on the server, so
+        /// the show is too.
+        let outcome: DeletionOutcome
 
         var errorDescription: String? {
             String(localized: "Deleted \(deletedCount) of \(totalCount) episodes, then stopped: \(underlying.localizedDescription)")
@@ -501,16 +512,25 @@ final class AssetDetailViewModel {
     /// ends (playback changes what's watched).
     private var watchedOverrides: [String: Bool] = [:]
 
+    /// Bumped as each `loadWatchedEpisodes()` starts, so only the latest one
+    /// lands (#491). It runs from a load, a refresh, a watched toggle and a
+    /// repair, which can overlap, and a read sent before a deletion that
+    /// answered after the repair's put the deleted episodes back in the menu.
+    private var watchedEpisodesGeneration = 0
+
     /// Reads the show's episodes, every season at once, with `CanDelete` and
     /// the user's watched status, into `watchedEpisodes`. Run as a show's page
     /// loads and refreshes (after playback, a watched toggle, a deletion), so
     /// the menu's row and count are ready when it opens. A failed fetch keeps
     /// what was there.
     func loadWatchedEpisodes() async {
-        guard let seriesID, let show = seriesItem,
-              let result = try? await client.episodes(seriesID: seriesID, userID: userID, fields: "CanDelete")
+        guard let seriesID, let show = seriesItem else { return }
+        watchedEpisodesGeneration += 1
+        let generation = watchedEpisodesGeneration
+        guard let result = try? await client.episodes(seriesID: seriesID, userID: userID, fields: "CanDelete")
         else { return }
         let images = await client.makeImageURLBuilder()
+        guard generation == watchedEpisodesGeneration else { return }
         // A missing episode (listed from metadata) has nothing to delete, and
         // counts toward neither number.
         showEpisodes = result.items
@@ -723,8 +743,10 @@ final class AssetDetailViewModel {
     /// Deletes `episodes` one at a time, in order, stopping at the first
     /// failure, and returns their ids. Sequential so a refusal stops it with as
     /// little gone as possible, and so the count in the error is exact. A
-    /// failure after the first repairs the page and announces the last episode
-    /// that went; the caller announces a full run itself.
+    /// failure after the first announces the last episode that went, settles
+    /// the page for what did (`settlePage(removing:)`) and throws
+    /// `PartialDeletionError`; the caller announces and settles a full run
+    /// itself.
     private func deleteEpisodes(_ episodes: [MediaItem]) async throws -> Set<String> {
         var removedIDs: Set<String> = []
         for episode in episodes {
@@ -734,9 +756,9 @@ final class AssetDetailViewModel {
                 // Nothing gone yet: the plain error, as a single delete gives.
                 guard !removedIDs.isEmpty else { throw error }
                 DeletedItemBroadcaster.shared.record(itemID: episodes[removedIDs.count - 1].id)
-                await repairPage(removing: removedIDs)
                 throw PartialDeletionError(
-                    deletedCount: removedIDs.count, totalCount: episodes.count, underlying: error
+                    deletedCount: removedIDs.count, totalCount: episodes.count, underlying: error,
+                    removedIDs: removedIDs, outcome: await settlePage(removing: removedIDs)
                 )
             }
             removedIDs.insert(episode.id)
@@ -754,10 +776,6 @@ final class AssetDetailViewModel {
         defer { deletingItemIDs.remove(pendingID) }
 
         let removedIDs = try await deleteEpisodes(deletion.watched)
-        let emptied = Dictionary(grouping: showEpisodes) { $0.dto.seasonId ?? "" }
-            .filter { !$0.key.isEmpty && $0.value.allSatisfy { removedIDs.contains($0.id) } }
-            .map(\.key)
-        emptiedSeasonIDs.formUnion(emptied)
 
         // Jellyfin drops a show once its last episode goes: 404, or nothing
         // left. The show's own page pops onto what listed it; any page beneath
@@ -777,12 +795,30 @@ final class AssetDetailViewModel {
         }
         // Announced once, not per episode (see `deleteEpisodeByEpisode`).
         if let last = deletion.watched.last { DeletedItemBroadcaster.shared.record(itemID: last.id) }
+        return await settlePage(removing: removedIDs)
+    }
 
-        // The page's own subject went: an episode reached by its own push, or
-        // the season a Season load shows.
-        let removedAndEmptied = removedIDs.union(emptied)
-        if removedAndEmptied.contains(itemID) { return .popOneLevel }
-        await repairPage(removing: removedAndEmptied)
+    /// The seasons of the show that `removedIDs` took every episode with a
+    /// file from, as `loadWatchedEpisodes()` last read them.
+    private func seasonsEmptied(by removedIDs: Set<String>) -> Set<String> {
+        Set(
+            Dictionary(grouping: showEpisodes) { $0.dto.seasonId ?? "" }
+                .filter { !$0.key.isEmpty && $0.value.allSatisfy { removedIDs.contains($0.id) } }
+                .keys
+        )
+    }
+
+    /// The page after episodes went, all of All Watched's or as far as a
+    /// one-at-a-time deletion got before stopping (#491): seasons they
+    /// emptied leave the page, and a page whose own subject went (an episode
+    /// reached by its own push, the season a Season load shows) reports
+    /// `.popOneLevel` rather than turning into the show's page.
+    private func settlePage(removing removedIDs: Set<String>) async -> DeletionOutcome {
+        let emptied = seasonsEmptied(by: removedIDs)
+        emptiedSeasonIDs.formUnion(emptied)
+        let gone = removedIDs.union(emptied)
+        if gone.contains(itemID) { return .popOneLevel }
+        await repairPage(removing: gone)
         return .stayAndRefresh
     }
 

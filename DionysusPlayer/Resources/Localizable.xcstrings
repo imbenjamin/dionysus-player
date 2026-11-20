@@ -1431,7 +1431,7 @@
     "No episodes available." : {
 
     },
-    "No episodes will remain, and %@ will be removed." : {
+    "No episodes will remain for %@." : {
 
     },
     "No items match these filters." : {

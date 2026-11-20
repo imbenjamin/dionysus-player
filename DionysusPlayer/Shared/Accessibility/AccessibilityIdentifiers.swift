@@ -246,6 +246,10 @@ enum A11yID {
         /// only when a local download of the target actually exists.
         static let deleteWithDownloadButton = "assetDetail.deleteWithDownloadButton"
 
+        /// OK on the "Couldn't delete" alert, which pops the page when the
+        /// deletion took its own subject before it stopped (#491).
+        static let deleteErrorOKButton = "assetDetail.deleteErrorOKButton"
+
         /// `AssetActionsButton`'s overflow — always drawn, so the control never
         /// changes kind once the server's delete verdict arrives (see that
         /// type's "Which control gets drawn"). Holds Add to Playlist, and

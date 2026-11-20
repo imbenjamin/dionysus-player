@@ -243,6 +243,11 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
                 finish(.success((401, Data("{}".utf8), "application/json")))
                 return
             }
+            if scenario == .watchedEpisodesPartialFailure,
+               itemID == UITestFixtureIdentity.episodeID(season: 1, episode: 3) {
+                finish(.success((500, Data("{}".utf8), "application/json")))
+                return
+            }
             Self.recordDeletion(of: itemID)
             finish(.success((204, Data(), "application/json")))
             return
@@ -593,7 +598,8 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         // `.noDeletePermission` fails nothing wholesale: the standard catalogue
         // with `canDelete` cleared, and only `DELETE` refused in `startLoading`,
         // which has the method.
-        case .standard, .emptyLibrary, .offline, .noDeletePermission, .folderlessSeasons, .watchedEpisodes, .multipleVersions, .noPlaylistEditPermission,
+        case .standard, .emptyLibrary, .offline, .noDeletePermission, .folderlessSeasons, .watchedEpisodes,
+             .watchedEpisodesPartialFailure, .multipleVersions, .noPlaylistEditPermission,
              .slowLogoImage, .slowSubtitleFonts, .showWithoutEpisodes, .customHTTPPort,
              .quickConnectDisabled, .quickConnectExpiring, .quickConnectPending, .hiddenUsers, .slowScan,
              .slowVideoDownload, .slowPlaybackInfo, .slowBoxSet, .emptyBoxSet, .slowItems, .manyLibraries, .manyUsers,

@@ -137,6 +137,10 @@ struct AssetActionTargets: Equatable {
     /// they go for every user (Watched is this user's, the file everyone's),
     /// and how many stay. Three sentences, each counted one a plural in the
     /// String Catalog.
+    ///
+    /// With none left it doesn't promise the show goes (#491; Benjamin,
+    /// 2026-11-20): missing episodes, or a folder Jellyfin keeps, can leave it
+    /// listed. The page pops if it does go.
     static func deleteWatchedConfirmationMessage(for deletion: WatchedEpisodesDeletion) -> String {
         let count = deletion.watched.count
         let remaining = deletion.remainingCount
@@ -144,7 +148,7 @@ struct AssetActionTargets: Equatable {
         let deleted = String(localized: "\(count) episodes that are watched will be deleted for all users.")
         let remain = remaining > 0
             ? String(localized: "\(remaining) episodes will remain for \(show).")
-            : String(localized: "No episodes will remain, and \(show) will be removed.")
+            : String(localized: "No episodes will remain for \(show).")
         return [deleted, remain, String(localized: "This cannot be undone.")].joined(separator: " ")
     }
 }

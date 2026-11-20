@@ -176,7 +176,7 @@ final class AssetActionTargetsTests: XCTestCase {
     func test_watchedMessage_noneRemain() {
         XCTAssertEqual(
             AssetActionTargets.deleteWatchedConfirmationMessage(for: watched(3, of: 3)),
-            "3 episodes that are watched will be deleted for all users. No episodes will remain, and House of Games will be removed. This cannot be undone."
+            "3 episodes that are watched will be deleted for all users. No episodes will remain for House of Games. This cannot be undone."
         )
     }
 

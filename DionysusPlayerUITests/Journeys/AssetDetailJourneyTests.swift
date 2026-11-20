@@ -524,6 +524,61 @@ final class AssetDetailJourneyTests: UITestCase {
         XCTAssertFalse(detail.playButton.label.contains("S1:E"), "Play should leave Season 1. Was: \(detail.playButton.label)")
     }
 
+    /// #491: All Watched from an episode's own page (a link pushes it),
+    /// stopped by the server after two of three. The alert says how far it
+    /// got, and since the page's episode was among those gone, OK pops it
+    /// rather than leaving the show's page in its place.
+    func testAllWatchedStoppingPartway_saysSo_andPopsThePageItTook() {
+        launch(scenario: "watchedEpisodesPartialFailure")
+        HomeScreen(app: app).awaitLoaded()
+        let episodeID = UITestFixtureIdentity.episodeID(season: 1, episode: 1)
+        app.open(URL(string: "dionysus://item/\(episodeID)")!)
+
+        let detail = AssetDetailScreen(app: app)
+        detail.awaitLoaded()
+        detail.openDelete()
+        detail.deleteTarget(UITestFixtureIdentity.seriesName).awaitExistence("the show's row in the Delete submenu")
+        let allWatched = detail.lastDeleteRow
+        allWatched.awaitExistence("All Watched, the submenu's last row")
+        allWatched.tap()
+        detail.confirmDelete()
+
+        detail.deleteErrorText(containing: "Deleted 2 of 3 episodes").awaitExistence("the partial failure's message")
+        detail.deleteErrorOKButton.tap()
+
+        let popped = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: detail.playButton)
+        wait(for: [popped], timeout: UITestCase.defaultTimeout)
+        HomeScreen(app: app).awaitLoaded()
+    }
+
+    /// "Server and Device" on an All Watched that stops partway removes the
+    /// downloads of the episodes that went, and keeps the one still on the
+    /// server, which may be the only copy the user has left (#491).
+    func testAllWatchedStoppingPartway_keepsTheDownloadOfWhatStayed() {
+        launch(scenario: "watchedEpisodesPartialFailure")
+        downloadSeasons(["season-1"])
+
+        let detail = AssetDetailScreen(app: app)
+        detail.openDelete()
+        let allWatched = detail.lastDeleteRow
+        allWatched.awaitExistence("All Watched, the submenu's last row")
+        allWatched.tap()
+        detail.deleteWithDownloadButton.awaitExistence("Delete from Server and Device").tap()
+
+        detail.deleteErrorText(containing: "Deleted 2 of 3 episodes").awaitExistence("the partial failure's message")
+        detail.deleteErrorOKButton.tap()
+
+        TabBar(app: app).downloads.tap()
+        let downloads = DownloadsScreen(app: app)
+        // One download left is listed on its own, not under its show.
+        downloads.standaloneRow(itemID: UITestFixtureIdentity.episodeID(season: 1, episode: 3))
+            .awaitExistence("the download of the episode the server kept")
+        XCTAssertFalse(
+            downloads.showRow(seriesID: UITestFixtureIdentity.seriesID).exists,
+            "The deleted episodes' downloads are still listed under the show."
+        )
+    }
+
     // MARK: - Playlist item removal
 
     /// The only removal path this feature has: long-press a row, tap
