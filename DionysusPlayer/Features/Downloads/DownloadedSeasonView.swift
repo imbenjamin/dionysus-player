@@ -14,7 +14,13 @@ struct DownloadedSeasonView: View {
     let downloadManager: DownloadManager
 
     @Environment(\.dismiss) private var dismiss
-    @State private var episodes: [DownloadedItem] = []
+    @State private var storedEpisodes: [DownloadedItem] = []
+    /// `storedEpisodes` less any row SwiftData has since deleted (its
+    /// `modelContext` is `nil` then): reading a deleted model's properties
+    /// traps. The episode page's own Delete Download removes a row this page
+    /// still holds, and this page's body re-renders on the way back before
+    /// `onAppear`'s `refresh()` can drop it, which crashed the app.
+    private var episodes: [DownloadedItem] { storedEpisodes.filter { $0.modelContext != nil } }
     @State private var isSelecting = false
     @State private var selectedEpisodeIDs: Set<String> = []
     @State private var showDeleteConfirmation = false
@@ -134,7 +140,7 @@ struct DownloadedSeasonView: View {
     }
 
     private func refresh() {
-        episodes = downloadManager.store.visibleItems().filter { $0.seriesID == seriesID && $0.seasonID == seasonID }
+        storedEpisodes = downloadManager.store.visibleItems().filter { $0.seriesID == seriesID && $0.seasonID == seasonID }
         if episodes.isEmpty { dismiss() }
     }
 
@@ -150,7 +156,7 @@ struct DownloadedSeasonView: View {
     /// (otherwise `DownloadedShowView`'s own `refresh()`, triggered by the
     /// pop, can race ahead of the real deletion and show a stale row).
     private func delete(itemID: String) {
-        episodes.removeAll { $0.itemID == itemID }
+        storedEpisodes.removeAll { $0.modelContext == nil || $0.itemID == itemID }
         let shouldDismiss = episodes.isEmpty
         DispatchQueue.main.async {
             downloadManager.delete(itemID: itemID)
@@ -198,7 +204,7 @@ struct DownloadedSeasonView: View {
     /// `dismiss()` can't fire after only some of them have actually run.
     private func deleteSelected() {
         let itemIDs = Array(selectedEpisodeIDs)
-        episodes.removeAll { selectedEpisodeIDs.contains($0.itemID) }
+        storedEpisodes.removeAll { $0.modelContext == nil || selectedEpisodeIDs.contains($0.itemID) }
         let shouldDismiss = episodes.isEmpty
         selectedEpisodeIDs = []
         isSelecting = false

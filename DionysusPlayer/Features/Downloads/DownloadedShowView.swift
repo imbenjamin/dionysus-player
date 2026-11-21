@@ -17,7 +17,13 @@ struct DownloadedShowView: View {
     let downloadManager: DownloadManager
 
     @Environment(\.dismiss) private var dismiss
-    @State private var episodes: [DownloadedItem] = []
+    @State private var storedEpisodes: [DownloadedItem] = []
+    /// `storedEpisodes` less any row SwiftData has since deleted (its
+    /// `modelContext` is `nil` then): reading a deleted model's properties
+    /// traps. The episode page's own Delete Download removes a row this page
+    /// still holds, and this page's body re-renders on the way back before
+    /// `onAppear`'s `refresh()` can drop it, which crashed the app.
+    private var episodes: [DownloadedItem] { storedEpisodes.filter { $0.modelContext != nil } }
     @State private var isSelecting = false
     @State private var selectedRowIDs: Set<String> = []
     @State private var showDeleteConfirmation = false
@@ -198,7 +204,7 @@ struct DownloadedShowView: View {
     }
 
     private func refresh() {
-        episodes = downloadManager.store.visibleItems().filter { $0.seriesID == seriesID }
+        storedEpisodes = downloadManager.store.visibleItems().filter { $0.seriesID == seriesID }
         if episodes.isEmpty { dismiss() }
     }
 
@@ -221,7 +227,7 @@ struct DownloadedShowView: View {
     /// this episode and leaving a stale "Preparing download…" row until some
     /// unrelated navigation triggered another `refresh()`.
     private func delete(itemID: String) {
-        episodes.removeAll { $0.itemID == itemID }
+        storedEpisodes.removeAll { $0.modelContext == nil || $0.itemID == itemID }
         let shouldDismiss = episodes.isEmpty
         DispatchQueue.main.async {
             downloadManager.delete(itemID: itemID)
@@ -235,7 +241,7 @@ struct DownloadedShowView: View {
     /// some have run.
     private func deleteSeason(_ row: SeasonRow) {
         let itemIDs = episodes.filter { $0.seasonID == row.seasonID }.map(\.itemID)
-        episodes.removeAll { $0.seasonID == row.seasonID }
+        storedEpisodes.removeAll { $0.modelContext == nil || $0.seasonID == row.seasonID }
         let shouldDismiss = episodes.isEmpty
         DispatchQueue.main.async {
             for itemID in itemIDs { downloadManager.delete(itemID: itemID) }
@@ -307,7 +313,7 @@ struct DownloadedShowView: View {
             itemIDs = Array(selectedRowIDs)
         }
         let idSet = Set(itemIDs)
-        episodes.removeAll { idSet.contains($0.itemID) }
+        storedEpisodes.removeAll { $0.modelContext == nil || idSet.contains($0.itemID) }
         let shouldDismiss = episodes.isEmpty
         selectedRowIDs = []
         isSelecting = false
