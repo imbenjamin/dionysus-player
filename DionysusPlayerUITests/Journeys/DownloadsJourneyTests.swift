@@ -262,7 +262,7 @@ final class DownloadsJourneyTests: UITestCase {
     private func closeAndExpectEpisodeTwosPage(_ player: PlayerScreen) {
         player.close()
         player.closeButton.awaitDisappearance("the player")
-        app.descendants(matching: .any)[A11yID.Downloads.detailHero(episodeTwo)]
+        app.buttons[A11yID.Downloads.detailDeleteButton(episodeTwo)]
             .awaitExistence("S1:E2's page: the page followed playback")
         app.navigationBackButton.tap()
     }
@@ -302,7 +302,7 @@ final class DownloadsJourneyTests: UITestCase {
         player.nextUpCard.awaitDisappearance("the card, cancelled")
         player.close()
         player.closeButton.awaitDisappearance("the player")
-        app.descendants(matching: .any)[A11yID.Downloads.detailHero(episodeOne)]
+        app.buttons[A11yID.Downloads.detailDeleteButton(episodeOne)]
             .awaitExistence("still S1:E1's page")
         app.navigationBackButton.tap()
 
@@ -310,31 +310,24 @@ final class DownloadsJourneyTests: UITestCase {
     }
 
     /// S1:E2 isn't downloaded, so S1:E1 cues nothing: no skipping to S1:E3.
+    /// The gap is made as a viewer would: the season downloaded, then S1:E2's
+    /// download deleted from its page (a row's download button sat out of
+    /// reach on a tabletop Duo).
     func test_offlineNextUp_gap_showsNoCard() {
-        let (_, player) = playDownloadedEpisodeOneOffline {
-            download(episodeOne)
-            // S1:E3 has no Home tile: download it from its row on the show's page.
-            app.navigationBackButton.tap()
-            let home = HomeScreen(app: app)
-            home.awaitLoaded()
-            home.openItem(UITestFixtureIdentity.showsLibraryID)
-            let collection = CollectionScreen(app: app)
-            collection.awaitLoaded(UITestFixtureIdentity.seriesID)
-            collection.card(UITestFixtureIdentity.seriesID).tap()
-            AssetDetailScreen(app: app).awaitLoaded()
-            let rowDownload = app.descendants(matching: .any)[
-                A11yID.AssetDetail.rowDownloadButton(UITestFixtureIdentity.episodeID(season: 1, episode: 3))
-            ]
-            // Below the fold, past the hero and the season's first rows.
-            for _ in 0..<4 where !rowDownload.isHittable { app.swipeUp() }
-            rowDownload.awaitExistence("S1:E3's row download button").tap()
-            let audioChoice = app.buttons["ENG EAC3"]
-            if audioChoice.waitForExistence(timeout: 3) { audioChoice.tap() }
-            let downloaded = XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "label CONTAINS[c] %@", "Downloaded"), object: rowDownload
-            )
-            XCTAssertEqual(XCTWaiter().wait(for: [downloaded], timeout: UITestCase.defaultTimeout), .completed, "S1:E3 downloaded")
-        }
+        launch(scenario: "earlyCredits")
+        downloadSeasons(["season-1"])
+        let downloads = relaunchOffline()
+        downloads.showRow(seriesID: UITestFixtureIdentity.seriesID).awaitExistence("the show's row, offline").tap()
+        downloads.episodeRow(itemID: episodeTwo).awaitExistence("S1:E2 on the show's page").tap()
+        app.buttons[A11yID.Downloads.detailDeleteButton(episodeTwo)].awaitExistence("S1:E2's Delete Download").tap()
+        let confirm = app.buttons.matching(identifier: A11yID.Downloads.detailDeleteConfirmButton).firstMatch
+        confirm.awaitExistence("the delete confirmation").tap()
+        downloads.episodeRow(itemID: episodeTwo).awaitDisappearance("S1:E2's row, deleted")
+
+        downloads.episodeRow(itemID: episodeOne).awaitExistence("S1:E1 on the show's page").tap()
+        app.buttons[A11yID.Downloads.playButton].awaitExistence("S1:E1's Play").tap()
+        let player = PlayerScreen(app: app)
+        player.awaitControls()
         // Past the credits' start and where the card would have shown.
         RunLoop.current.run(until: Date().addingTimeInterval(12))
         XCTAssertFalse(player.nextUpCard.exists, "A gap gets no Up Next")

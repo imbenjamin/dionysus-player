@@ -84,7 +84,6 @@ struct DownloadedAssetDetailView: View {
                             episodeNumberAccessibilityText: item.kind == .episode ? item.episodeLabelAccessibilityText : nil,
                             kind: item.kind == .episode ? .episode : .movie
                         )
-                        .accessibilityIdentifier(A11yID.Downloads.detailHero(item.itemID))
 
                         VStack(alignment: .leading, spacing: 16) {
                             DownloadedInfoMetadataRow(item: item, fileSizeBytes: fileSizeBytes)
@@ -161,6 +160,7 @@ struct DownloadedAssetDetailView: View {
                         // Without this, VoiceOver reads the SF Symbol's name
                         // ("bin"), as in `PlayResumeButtonRow`'s Restart button.
                         .accessibilityLabel(String(localized: "Delete Download"))
+                        .accessibilityIdentifier(A11yID.Downloads.detailDeleteButton(item.itemID))
                     }
                 }
                 .confirmationDialog(
@@ -170,6 +170,7 @@ struct DownloadedAssetDetailView: View {
                         downloadManager.delete(itemID: item.itemID)
                         dismiss()
                     }
+                    .accessibilityIdentifier(A11yID.Downloads.detailDeleteConfirmButton)
                     Button("Cancel", role: .cancel) {}
                 }
                 // A `dionysus://play` link (#406) for a downloaded title,

@@ -483,9 +483,14 @@ enum A11yID {
         static func row(_ rowID: String) -> String { "downloads.row.\(rowID)" }
         /// The downloaded item page's Play (or Resume) button.
         static let playButton = "downloads.detail.playButton"
-        /// The downloaded item page's hero, keyed by the item it shows: the
-        /// page follows playback onto the next episode (#274).
-        static func detailHero(_ itemID: String) -> String { "downloads.detail.hero.\(itemID)" }
+        /// The downloaded item page's Delete Download toolbar button, keyed by
+        /// the item the page shows, which tells journeys which one that is: the
+        /// page follows playback onto the next episode (#274). On a real control
+        /// in every pose, unlike the hero, which a book-pose Duo draws as an
+        /// empty spacer the audit flags once it carries an identifier.
+        static func detailDeleteButton(_ itemID: String) -> String { "downloads.detail.deleteButton.\(itemID)" }
+        /// That button's confirmation's Delete.
+        static let detailDeleteConfirmButton = "downloads.detail.deleteConfirmButton"
         /// A season row on a downloaded show's page (`DownloadedShowView`,
         /// when more than one season is downloaded), keyed by the season id.
         static func seasonRow(_ seasonID: String) -> String { "downloads.seasonRow.\(seasonID)" }
