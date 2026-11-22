@@ -121,16 +121,20 @@ final class NightModeJourneyTests: UITestCase {
     /// and the switch applies (read from Playback Stats; the fade and the
     /// ramp are unit-tested). The harness stands in for the boundary
     /// (`-UITestNightModeScheduledSwitchAfter`), since a journey can't wait
-    /// for a time of day.
+    /// for a time of day. Its clock starts as the player opens, while
+    /// `openLink` still waits out its 2s for a prompt, so the "nothing yet"
+    /// check comes first and the switch comes 10s in: at 4s the Duo's
+    /// runner reached the check ~5.3s after the player opened, and failed
+    /// every attempt (nightlies of 2026-11-20 to 11-22).
     func test_scheduledSwitch_saysSo_andApplies() {
         let player = openPlayerWithStats(extraArguments: [
             "-nightMode.volumePercent", "60",
             "-nightMode.brightnessPercent", "40",
-            "-UITestNightModeScheduledSwitchAfter", "4"
+            "-UITestNightModeScheduledSwitchAfter", "10"
         ])
+        XCTAssertFalse(player.nightModeNotice.exists, "Nothing to say before the switch")
         let statsRow = player.statsValue("Night Mode")
         player.statsPageIndicator.awaitExistence("Playback Stats, opened by the link")
-        XCTAssertFalse(player.nightModeNotice.exists, "Nothing to say before the switch")
 
         player.nightModeNotice.awaitExistence("the scheduled switch's notice", timeout: 15)
         XCTAssertEqual(player.nightModeNotice.label, "Night Mode starting as scheduled")
