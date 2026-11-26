@@ -266,7 +266,7 @@ final class OnboardingJourneyTests: TVUITestCase {
     /// still listed.
     func test_unverifiableHTTPSServer_cancellingTheHTTPFallback_staysOnFindYourServer() {
         let app = launch()
-        selectUnverifiableHTTPSServer(app)
+        chooseUnencryptedHTTP(app)
         XCTAssertTrue(app.buttons[A11yID.TV.Onboarding.insecureFallbackConfirm].waitForExistence(timeout: 10), "The question")
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.confirmationCancel]), "It opens on Cancel")
         press(.select)
@@ -278,7 +278,7 @@ final class OnboardingJourneyTests: TVUITestCase {
     /// Accepting the same question connects over HTTP.
     func test_unverifiableHTTPSServer_connectingOverHTTP_reachesWhosWatching() {
         let app = launch()
-        selectUnverifiableHTTPSServer(app)
+        chooseUnencryptedHTTP(app)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.confirmationCancel], timeout: 10))
         let connect = app.buttons[A11yID.TV.Onboarding.insecureFallbackConfirm]
         press(.up)
@@ -291,7 +291,7 @@ final class OnboardingJourneyTests: TVUITestCase {
     /// again, saying so; one that answers leads to the same question.
     func test_httpFallback_asksForThePort_whenTheDefaultIsSilent() {
         let app = launch(scenario: "customHTTPPort")
-        selectUnverifiableHTTPSServer(app)
+        chooseUnencryptedHTTP(app)
         let field = app.textFields[A11yID.TV.Onboarding.httpPortField]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "The port page")
         XCTAssertTrue(waitForFocus(field), "It opens on the field")
@@ -311,13 +311,86 @@ final class OnboardingJourneyTests: TVUITestCase {
         XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
     }
 
+    // MARK: - Certificate trust (#466)
+
+    /// A discovered server's self-signed certificate is offered on a page
+    /// that opens on Cancel, with the certificate's details as a focusable
+    /// section; Trust connects over HTTPS.
+    func test_selfSignedCertificate_trusting_reachesWhosWatching() {
+        let app = launch(scenario: "selfSignedCertificate")
+        openCertificateTrustOffer(app)
+        let details = app.descendants(matching: .any)[A11yID.TV.Onboarding.certificateTrustDetails]
+        XCTAssertTrue(details.exists, "The certificate's details")
+        XCTAssertTrue((details.value as? String)?.contains("SHA-256") == true, "With its fingerprint")
+        XCTAssertTrue(app.buttons[A11yID.TV.Onboarding.certificateTrustHTTP].exists, "HTTP is still offered")
+        // The details take focus, since focus is how VoiceOver reaches them.
+        press(.left)
+        XCTAssertTrue(waitForFocus(details), "Left from Cancel reaches the details")
+        press(.right)
+        let buttons = [
+            A11yID.TV.Onboarding.certificateTrustTrust,
+            A11yID.TV.Onboarding.certificateTrustHTTP,
+            A11yID.TV.Onboarding.certificateTrustCancel
+        ].map { app.buttons[$0] }
+        XCTAssertTrue(poll(timeout: 5) { buttons.contains { $0.hasFocus } }, "Right returns to the buttons")
+        let trust = app.buttons[A11yID.TV.Onboarding.certificateTrustTrust]
+        for _ in 0..<3 where !trust.hasFocus { press(.up) }
+        XCTAssertTrue(waitForFocus(trust))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
+    }
+
+    /// A certificate valid for another name says which.
+    func test_nameMismatchCertificate_namesTheDomain() {
+        let app = launch(scenario: "nameMismatchCertificate")
+        openCertificateTrustOffer(app)
+        let reason = app.descendants(matching: .any)[A11yID.TV.Onboarding.certificateTrustReason]
+        XCTAssertTrue(reason.waitForExistence(timeout: 5))
+        // The name is the certificate's, not localized copy.
+        XCTAssertTrue(
+            reason.label.contains(UITestFixtureIdentity.nameMismatchCertificateName),
+            "The reason names the certificate's domain, got \(reason.label)"
+        )
+    }
+
+    /// Use Unencrypted HTTP leads into today's fallback unchanged.
+    func test_trustOffer_useUnencryptedHTTP_reachesWhosWatching() {
+        let app = launch(scenario: "selfSignedCertificate")
+        chooseUnencryptedHTTP(app)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.confirmationCancel], timeout: 10), "The HTTP question, on Cancel")
+        press(.up)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.Onboarding.insecureFallbackConfirm]))
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].waitForExistence(timeout: 10))
+    }
+
+    /// Cancel stays on Find Your Server, explained, with the servers listed.
+    func test_trustOffer_cancelling_staysOnFindYourServer() {
+        let app = launch(scenario: "selfSignedCertificate")
+        openCertificateTrustOffer(app)
+        press(.select)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Onboarding.serverSetupError].waitForExistence(timeout: 10), "The certificate is explained")
+        XCTAssertTrue(app.buttons[A11yID.TV.Onboarding.certificateTrustTrust].waitForNonExistence(timeout: 10), "The offer is gone")
+        XCTAssertTrue(app.buttons[A11yID.TV.Onboarding.serverRow(UITestFixtureIdentity.discoveredServerID)].exists)
+        XCTAssertFalse(app.staticTexts[A11yID.TV.Onboarding.whosWatchingTitle].exists, "Not connected")
+    }
+
     /// Types `port` with the system keyboard, then presses Try Port.
     private func enterPort(_ port: String, into field: XCUIElement) {
         press(.select)
         field.typeText(port)
         press(.menu)
+        // Down presses made while the keyboard is still closing go nowhere,
+        // so wait for it to go and for focus to come back to the field.
+        _ = XCUIApplication().keyboards.firstMatch.waitForNonExistence(timeout: 5)
+        _ = waitForFocus(field, timeout: 3)
         let tryPort = XCUIApplication().buttons[A11yID.TV.Onboarding.httpPortTry]
-        for _ in 0..<3 where !tryPort.hasFocus { press(.down) }
+        // One press at a time, each given time to land: pressed back to
+        // back, they raced the page's focus after the keyboard closed.
+        for _ in 0..<3 {
+            if poll(timeout: 1.5, { tryPort.hasFocus }) { break }
+            press(.down)
+        }
         XCTAssertTrue(waitForFocus(tryPort))
         press(.select)
     }

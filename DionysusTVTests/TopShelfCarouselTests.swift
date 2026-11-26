@@ -115,6 +115,26 @@ final class TopShelfCarouselTests: XCTestCase {
         XCTAssertEqual(imageRequests, 0)
     }
 
+    // MARK: A server the system can't verify (#466)
+
+    /// tvOS fetches the plain backdrop itself and would refuse the server's
+    /// certificate, so a trusted server gets no image rather than a dead URL.
+    func test_aTrustedServerGetsNoServerImageURLWhenArtIsMissing() async throws {
+        serveOneResumedMovie { MockURLProtocol.jsonResponse(for: $0, status: 404, body: Data()) }
+        var trusted = session
+        trusted.certificateTrust = .certificate(Data([1, 2, 3]))
+        let content = await TopShelfCarousel.content(session: trusted, urlSession: MockURLProtocol.makeSession(), store: store)
+        let carousel = try XCTUnwrap(content as? TVTopShelfCarouselContent)
+        let item = try XCTUnwrap(carousel.items.first)
+        XCTAssertNil(item.imageURL(for: .screenScale2x))
+    }
+
+    func test_anUntrustedServerKeepsTheBackdropFallback() async throws {
+        serveOneResumedMovie { MockURLProtocol.jsonResponse(for: $0, status: 404, body: Data()) }
+        let items = try await carousel(store: store).items
+        XCTAssertNotNil(try XCTUnwrap(items.first).imageURL(for: .screenScale2x))
+    }
+
     // MARK: One item
 
     private func entry(cast: [String] = ["Amy Adams", "Jeremy Renner"], options: Set<TopShelfEntry.MediaOption> = []) -> TopShelfEntry {

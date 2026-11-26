@@ -280,6 +280,51 @@ enum UITestScenario: String {
     /// DVB or DVD plane: the overlay must place cues against the displayed
     /// picture, not the coded one.
     case anamorphicVideo
+
+    /// `.standard`'s `https://` behaviour, named for the journeys about it
+    /// (#466): every `https://` request the stub has no trust for fails as
+    /// a self-signed certificate does, carrying `selfSignedA` as the peer
+    /// trust, so server setup offers to trust it (or, for a discovered
+    /// server, to fall back to HTTP). Every scenario but
+    /// `.nameMismatchCertificate` behaves this way.
+    case selfSignedCertificate
+
+    /// As `.selfSignedCertificate`, but the certificate presented is
+    /// `nameLeaf`, issued by `testCA` (anchored) for `media.dionysus.test`
+    /// and `*.wild.dionysus.test`: the name case, valid except for the host.
+    case nameMismatchCertificate
+
+    /// The changed-certificate warning (#466): a seeded session's server is
+    /// `https://` with `selfSignedA` trusted, and the stub presents
+    /// `selfSignedB`, so the launch's sign-in is refused and the warning
+    /// shows `changed`, both fingerprints. Once B is trusted the stub serves
+    /// as usual.
+    case changedCertificate
+
+    /// The warning's `untrusted` kind: a seeded session's server is
+    /// `https://` with no trust stored, and the stub presents `selfSignedA`,
+    /// as a lapsed renewal or a removed CA profile would.
+    case untrustedCertificate
+
+    /// As `.changedCertificate`, but the stub presents `selfSignedA` until
+    /// the first request whose path ends in
+    /// `UITestConfiguration.certificateSwitchPath`, and `selfSignedB` from
+    /// that request on: the warning raised mid-session, over whatever is on
+    /// screen then.
+    case certificateChangesMidSession
+
+    /// The warning for a trust kept by name that lapsed: a seeded session's
+    /// server is `https://`, trusting `media.dionysus.test` and
+    /// `*.wild.dionysus.test` by name, and the stub presents `nameLeaf` (for
+    /// those names) with no anchor, so its chain no longer verifies, as when
+    /// it expires or its CA is removed.
+    case lapsedNameCertificate
+
+    /// Whether a seeded session's server is `https://`.
+    var seededServerIsHTTPS: Bool {
+        self == .changedCertificate || self == .untrustedCertificate || self == .certificateChangesMidSession
+            || self == .lapsedNameCertificate
+    }
 }
 
 /// Launch-argument switches the UI test runner uses to put the app into a
@@ -364,6 +409,13 @@ enum UITestConfiguration {
         return UserDefaults.standard.double(forKey: "UITestNightModeScheduledSwitchAfter")
     }
 
+    /// `.certificateChangesMidSession`'s trigger: the path suffix of the
+    /// request from which the stub presents `selfSignedB`
+    /// (`/QuickConnect/Authorize`, `/Sessions/Playing`). Nil unless given.
+    static var certificateSwitchPath: String? {
+        isActive ? UserDefaults.standard.string(forKey: "UITestCertificateSwitchPath") : nil
+    }
+
     /// The tvOS player's accessible transport, which otherwise needs
     /// VoiceOver or Switch Control running; XCUITest can run neither.
     static var forcesAccessibleTransport: Bool { flag("UITestAccessibleTransport") }
@@ -376,6 +428,10 @@ enum UITestConfiguration {
     /// request is intercepted, but it must be a real URL and must match what
     /// `UITestStubURLProtocol.respond` claims to have responded from.
     static let stubServerURL = URL(string: UITestFixtureIdentity.serverAddress)!
+
+    /// The seeded server's address under `.changedCertificate` and
+    /// `.untrustedCertificate`: the same stub host over HTTPS.
+    static let stubHTTPSServerURL = URL(string: UITestFixtureIdentity.httpsServerAddress)!
 
     static let stubUserID = UITestFixtureIdentity.userID
     static let stubUsername = UITestFixtureIdentity.username

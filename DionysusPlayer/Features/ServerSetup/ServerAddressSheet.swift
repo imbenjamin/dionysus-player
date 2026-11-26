@@ -89,6 +89,10 @@ struct ServerAddressSheet: View {
         // A sheet doesn't inherit `OnboardingFlowView`'s scoped appearance.
         .preferredColorScheme(.dark)
         .onAppear { isAddressFocused = true }
+        // A typed `https://` address whose certificate fails (#466).
+        .certificateTrustOffer(from: viewModel) { configuration in
+            onConnected(configuration)
+        }
     }
 
     private func connect() async {

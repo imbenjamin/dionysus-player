@@ -166,11 +166,23 @@ enum UITestHarness {
     /// Both `accessToken` and `userID` are populated: `AppState.start()` needs
     /// both to resume a cached session offline, so seeding only the username
     /// would drop the `.offline` scenario to the login screen.
+    ///
+    /// Under `.changedCertificate`, `.untrustedCertificate` and
+    /// `.certificateChangesMidSession` the server is `https://`, trusting
+    /// `selfSignedA` (nothing for `.untrustedCertificate`; for
+    /// `.lapsedNameCertificate`, `nameLeaf`'s two names) (#466).
     private static func seedSession() {
         let store = ServerSessionStore()
+        let scenario = UITestConfiguration.scenario
+        let serverURL = scenario.seededServerIsHTTPS ? UITestConfiguration.stubHTTPSServerURL : UITestConfiguration.stubServerURL
         store.saveServer(ServerConfiguration(
             name: UITestConfiguration.stubServerName,
-            baseURL: UITestConfiguration.stubServerURL
+            baseURL: serverURL,
+            certificateTrust: scenario == .lapsedNameCertificate
+                ? .names(["media.dionysus.test", "*.wild.dionysus.test"])
+                : scenario == .changedCertificate || scenario == .certificateChangesMidSession
+                ? UITestStubURLProtocol.fixtureCertificateDER("selfSignedA").map(ServerCertificateTrust.certificate)
+                : nil
         ))
         store.saveCredentials(StoredCredentials(
             username: UITestConfiguration.stubUsername,
@@ -179,7 +191,7 @@ enum UITestHarness {
             userID: UITestConfiguration.stubUserID,
             // Bound to the seeded server, as a real sign-in is: tvOS only
             // remembers an account it can place.
-            serverID: UITestConfiguration.stubServerURL.absoluteString
+            serverID: serverURL.absoluteString
         ))
     }
 

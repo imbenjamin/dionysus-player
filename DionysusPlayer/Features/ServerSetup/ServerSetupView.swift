@@ -42,6 +42,11 @@ struct ServerSetupView: View {
                 appState.completeServerSetup(configuration)
             }
         }
+        // A discovered server's trust offer (#466); a typed address's is
+        // presented over the address sheet, by the sheet.
+        .certificateTrustOffer(from: viewModel, isEnabled: !isShowingAddressSheet) { configuration in
+            appState.completeServerSetup(configuration)
+        }
         .task { viewModel.startScanOnArrival() }
         .onChange(of: linkedAddress, initial: true) { _, linked in
             guard let linked else { return }

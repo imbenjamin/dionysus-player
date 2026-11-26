@@ -50,6 +50,14 @@ final class MockURLProtocol: URLProtocol {
     private static let heldLock = NSLock()
     nonisolated(unsafe) private static var held: [(MockURLProtocol, Thread)] = []
 
+    /// How many requests are held now, for a test that must wait until one
+    /// is on its way before sending the next.
+    static var heldCount: Int {
+        heldLock.lock()
+        defer { heldLock.unlock() }
+        return held.count
+    }
+
     /// Answers every held request through `requestHandler`, each on the thread
     /// that started loading it, as `URLProtocol` requires. Safe to call from
     /// inside `requestHandler`: the answers run after it returns.

@@ -441,7 +441,7 @@ final class AccessibilityAuditTests: TVUITestCase {
     /// The HTTP fallback's port page (#429), with 8096 silent.
     func test_findYourServer_httpPort() throws {
         let app = launch(scenario: "customHTTPPort")
-        selectUnverifiableHTTPSServer(app)
+        chooseUnencryptedHTTP(app)
         XCTAssertTrue(waitForFocus(app.textFields[A11yID.TV.Onboarding.httpPortField], timeout: 10))
         try audit(app)
     }
@@ -449,7 +449,39 @@ final class AccessibilityAuditTests: TVUITestCase {
     /// The HTTP fallback's question (#429), Cancel focused.
     func test_findYourServer_insecureFallbackConfirmation() throws {
         let app = launch()
-        selectUnverifiableHTTPSServer(app)
+        chooseUnencryptedHTTP(app)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.confirmationCancel], timeout: 10))
+        try audit(app)
+    }
+
+    /// The certificate trust offer's page (#466), Cancel focused.
+    func test_findYourServer_certificateTrust() throws {
+        let app = launch(scenario: "selfSignedCertificate")
+        openCertificateTrustOffer(app)
+        try audit(app)
+    }
+
+    /// The changed-certificate warning (#466), both certificates, on Not Now.
+    func test_certificateWarning_changed() throws {
+        let app = launch(scenario: "changedCertificate", seedSession: true)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.CertificateWarning.notNow], timeout: 10))
+        try audit(app)
+    }
+
+    /// The warning's `untrusted` kind: the setup offer's details.
+    func test_certificateWarning_untrusted() throws {
+        let app = launch(scenario: "untrustedCertificate", seedSession: true)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.CertificateWarning.notNow], timeout: 10))
+        try audit(app)
+    }
+
+    /// The question "Trust New Certificate" asks, Cancel focused.
+    func test_certificateWarning_trustConfirmation() throws {
+        let app = launch(scenario: "changedCertificate", seedSession: true)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.CertificateWarning.notNow], timeout: 10))
+        press(.up, times: 2)
+        XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.CertificateWarning.trust]))
+        press(.select)
         XCTAssertTrue(waitForFocus(app.buttons[A11yID.TV.confirmationCancel], timeout: 10))
         try audit(app)
     }

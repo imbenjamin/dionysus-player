@@ -30,7 +30,8 @@ final class LoginViewModelTests: XCTestCase {
     private func makeSignedOutAppState() -> AppState {
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
-        let appState = AppState(sessionStore: ServerSessionStore(defaults: defaults))
+        // Its own registry: `.shared` is the test host app's (#466).
+        let appState = AppState(sessionStore: ServerSessionStore(defaults: defaults), trustRegistry: ServerTrustRegistry())
         appState.completeServerSetup(ServerConfiguration(name: "Home", baseURL: URL(string: "https://jellyfin.example.com")!))
         return appState
     }

@@ -125,6 +125,28 @@ struct ServerSetupScreen: Screen {
         app.alerts.buttons.matching(identifier: A11yID.ServerSetup.httpPortConfirmButton).firstMatch
     }
 
+    // The certificate trust offer (#466), a sheet.
+    var certificateTrustSheet: XCUIElement { app.descendants(matching: .any)[A11yID.ServerSetup.certificateTrustSheet] }
+    var certificateTrustButton: XCUIElement { app.buttons[A11yID.ServerSetup.certificateTrustTrustButton] }
+    var certificateTrustHTTPButton: XCUIElement { app.buttons[A11yID.ServerSetup.certificateTrustHTTPButton] }
+    var certificateTrustCancelButton: XCUIElement { app.buttons[A11yID.ServerSetup.certificateTrustCancelButton] }
+    var certificateTrustReason: XCUIElement { app.descendants(matching: .any)[A11yID.ServerSetup.certificateTrustReason] }
+    var certificateTrustFingerprint: XCUIElement { app.descendants(matching: .any)[A11yID.ServerSetup.certificateTrustFingerprint] }
+
+    /// Taps the stub's HTTPS server and waits for its trust offer.
+    func openCertificateTrustOffer(file: StaticString = #filePath, line: UInt = #line) {
+        scanForStubServer(file: file, line: line)
+        discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
+        certificateTrustSheet.awaitExistence("the trust offer", file: file, line: line)
+        certificateTrustButton.awaitExistence("the trust offer's Trust button", file: file, line: line)
+    }
+
+    /// Through the trust offer to today's HTTP fallback (#429).
+    func chooseUnencryptedHTTP(file: StaticString = #filePath, line: UInt = #line) {
+        openCertificateTrustOffer(file: file, line: line)
+        certificateTrustHTTPButton.tap()
+    }
+
     func awaitLoaded(file: StaticString = #filePath, line: UInt = #line) {
         manualEntryButton.awaitExistence("the Enter Address Manually button", file: file, line: line)
     }
@@ -156,6 +178,41 @@ struct ServerSetupScreen: Screen {
 }
 
 // MARK: - Login
+
+// MARK: - Certificate warning (#466)
+
+/// The changed-certificate warning, full screen over the app.
+struct CertificateWarningScreen: Screen {
+    let app: XCUIApplication
+
+    var page: XCUIElement { app.descendants(matching: .any)[A11yID.CertificateWarning.page] }
+    var message: XCUIElement { app.descendants(matching: .any)[A11yID.CertificateWarning.message] }
+    var trustButton: XCUIElement { app.buttons[A11yID.CertificateWarning.trustButton] }
+    var changeServerButton: XCUIElement { app.buttons[A11yID.CertificateWarning.changeServerButton] }
+    var notNowButton: XCUIElement { app.buttons[A11yID.CertificateWarning.notNowButton] }
+    var previousFingerprint: XCUIElement { app.descendants(matching: .any)[A11yID.CertificateWarning.previousFingerprint] }
+    var newFingerprint: XCUIElement { app.descendants(matching: .any)[A11yID.CertificateWarning.newFingerprint] }
+    /// The alert "Trust New Certificate" asks first with.
+    var trustConfirmButton: XCUIElement {
+        app.alerts.buttons.matching(identifier: A11yID.CertificateWarning.trustConfirmButton).firstMatch
+    }
+    /// The confirmation dialog Change Server asks first with: an action sheet
+    /// on iPhone, a popover on iPad, so not scoped to `.sheets`.
+    var changeServerConfirmButton: XCUIElement {
+        app.buttons.matching(identifier: A11yID.CertificateWarning.changeServerConfirmButton).firstMatch
+    }
+
+    func awaitShown(file: StaticString = #filePath, line: UInt = #line) {
+        notNowButton.awaitExistence("the certificate warning's Not Now button", file: file, line: line)
+    }
+
+    func awaitGone(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(
+            notNowButton.waitForNonExistence(timeout: UITestCase.defaultTimeout),
+            "The certificate warning should close.", file: file, line: line
+        )
+    }
+}
 
 struct LoginScreen: Screen {
     let app: XCUIApplication
@@ -1349,6 +1406,9 @@ struct ProfileScreen: Screen {
     }
 
     var quickConnectRow: XCUIElement { app.buttons[A11yID.Profile.quickConnectRow] }
+
+    /// The account details' Certificate row, present only with a stored trust.
+    var certificateRow: XCUIElement { app.descendants(matching: .any)[A11yID.Profile.certificateRow] }
 
     /// Opens the account details and pushes Quick Connect from them.
     @discardableResult

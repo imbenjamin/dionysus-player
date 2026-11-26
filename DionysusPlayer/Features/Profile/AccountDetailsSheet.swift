@@ -104,6 +104,10 @@ struct AccountDetailsContent: View {
                 LabeledContent("Username", value: appState.currentUser?.name ?? appState.sessionStore.credentials?.username ?? "\u{2014}")
                 LabeledContent("Server", value: appState.sessionStore.serverConfiguration?.name ?? "\u{2014}")
                 LabeledContent("Address", value: appState.sessionStore.serverConfiguration?.baseURL.absoluteString ?? "\u{2014}")
+                if let trust = appState.sessionStore.serverConfiguration?.certificateTrust {
+                    LabeledContent("Certificate", value: trust.profileSummary)
+                        .accessibilityIdentifier(A11yID.Profile.certificateRow)
+                }
             }
 
             if isQuickConnectAvailable {

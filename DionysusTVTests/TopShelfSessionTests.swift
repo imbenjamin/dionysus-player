@@ -53,4 +53,16 @@ final class TopShelfSessionTests: XCTestCase {
         XCTAssertTrue(header.contains("DeviceId=\"app-device\""))
         XCTAssertTrue(header.contains("Device=\"Bedroom\""))
     }
+
+    func testMakeCopiesTheServersCertificateTrust() throws {
+        var trusted = server
+        trusted.certificateTrust = .certificate(Data([9, 9]))
+        let session = try XCTUnwrap(TopShelfSession.make(server: trusted, credentials: credentials(), deviceID: "d", deviceName: "n"))
+        XCTAssertEqual(session.certificateTrust, .certificate(Data([9, 9])))
+    }
+
+    func testDecodesAMirrorSavedBeforeCertificateTrust() throws {
+        let json = Data(#"{"serverURL":"http://jf.local","serverID":"s","userID":"u","accessToken":"t","deviceID":"d","deviceName":"n"}"#.utf8)
+        XCTAssertNil(try JSONDecoder().decode(TopShelfSession.self, from: json).certificateTrust)
+    }
 }

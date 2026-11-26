@@ -14,6 +14,9 @@ struct TopShelfSession: Codable, Equatable {
     var accessToken: String
     var deviceID: String
     var deviceName: String
+    /// The server's trusted certificate, so the extension can reach a server
+    /// the system can't verify (#466). Absent in mirrors saved before it.
+    var certificateTrust: ServerCertificateTrust?
 
     static let keychainKey = "topshelf.session"
 
@@ -27,7 +30,8 @@ struct TopShelfSession: Codable, Equatable {
         else { return nil }
         return TopShelfSession(
             serverURL: server.baseURL, serverID: server.id, userID: userID,
-            accessToken: token, deviceID: deviceID, deviceName: deviceName
+            accessToken: token, deviceID: deviceID, deviceName: deviceName,
+            certificateTrust: server.certificateTrust
         )
     }
 }

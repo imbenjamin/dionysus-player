@@ -38,6 +38,24 @@ final class DownloadTaskRouter: NSObject, URLSessionDownloadDelegate, @unchecked
     var onCompletion: (@MainActor (String, Result<Void, Error>) -> Void)?
     var onFinishedEvents: (@MainActor () -> Void)?
 
+    /// Answers the session-level server-trust challenge (#466): a background
+    /// session has no per-task delegate to ask.
+    private let registry: ServerTrustRegistry
+
+    init(registry: ServerTrustRegistry = .shared) {
+        self.registry = registry
+        super.init()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        let (disposition, credential) = ServerTrustDelegate.handle(challenge, registry: registry)
+        completionHandler(disposition, credential)
+    }
+
     private let lock = NSLock()
     /// Task identifiers already reported through `onCompletion`.
     private var reportedTaskIdentifiers: Set<Int> = []

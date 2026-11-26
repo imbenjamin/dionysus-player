@@ -33,9 +33,17 @@ storage, and is never sent anywhere except where noted:
   Every Relaunch** are stored on the Apple TV as on/off values and nothing
   else.
 - **Server address** — the URL of the Jellyfin server you configured.
+- **A trusted server certificate** — if you choose to trust a server whose
+  security certificate your device can't verify, the app keeps that
+  certificate (or, for a certificate that is only valid for a different
+  address, the names it carries) with the server address, so it can tell
+  that server from an impostor later. It is public information, not a
+  secret, and it is used only to decide whether to accept your server's
+  connection. It never leaves your device.
 - **A copy of your session for the Top Shelf (Apple TV)** — your server
   address, user ID, access token and device identifier, kept in the Apple
-  TV's Keychain where every user of that Apple TV can reach it, so the Top
+  TV's Keychain where every user of that Apple TV can reach it (with the
+  trusted certificate above, if any), so the Top
   Shelf can show your Continue Watching, Next Up and recently added titles,
   fetched from your own server. The Top Shelf shows whoever used Dionysus
   last; signing out deletes the copy.
@@ -115,8 +123,12 @@ styled subtitles on-device using libass. These render subtitle text the app
 has already fetched from your server; they make no network connections and
 read no data beyond the subtitle track and the fonts that go with it —
 whether those are embedded in the file being played or fetched from your
-server alongside it. See the in-app **License** screen (Profile → License)
-for the full set of licenses involved.
+server alongside it. Apple's
+[swift-asn1](https://github.com/apple/swift-asn1) reads the names in the
+security certificate your server presents, on-device, so the app can show
+who it was issued to before you choose to trust it; it makes no network
+connections and collects nothing. See the in-app **License** screen
+(Profile → License) for the full set of licenses involved.
 
 ## Data Retention & Deletion
 
@@ -130,7 +142,7 @@ Within the app:
   keeps the account there; hold Select on it and choose **Forget This
   Account** to remove its stored credentials.
 - **Change Server** does that and also forgets the configured server
-  address. On Apple TV it removes the accounts remembered for the current
+  address and any certificate you trusted for it. On Apple TV it removes the accounts remembered for the current
   Apple TV user (or the shared ones, with Follow Apple TV Users off);
   accounts remembered for other Apple TV users stay in their keychains,
   unused, since they belong to the old server.

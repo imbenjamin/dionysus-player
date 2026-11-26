@@ -312,10 +312,7 @@ final class AetherPlaybackEngine: PlaybackEngine {
                         self.suppressNextErrorPhase = false
                         return
                     }
-                    bridged = .failed(PlaybackFailure(
-                        message: message,
-                        category: self.engine.errorInfo.map { Self.category(for: $0.kind) } ?? .transient
-                    ))
+                    bridged = .failed(Self.failure(kind: self.engine.errorInfo?.kind, engineMessage: message))
                 }
                 MainActor.assumeIsolated {
                     self.onStateChange?(bridged)
@@ -699,9 +696,9 @@ final class AetherPlaybackEngine: PlaybackEngine {
             // `$playbackPhase`; `suppressNextErrorPhase` skips that duplicate.
             suppressNextErrorPhase = true
             let fallbackMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            throw PlaybackLoadFailure(failure: PlaybackFailure(
-                message: engine.errorInfo?.message ?? fallbackMessage,
-                category: engine.errorInfo.map { Self.category(for: $0.kind) } ?? .transient
+            throw PlaybackLoadFailure(failure: Self.failure(
+                kind: engine.errorInfo?.kind,
+                engineMessage: engine.errorInfo?.message ?? fallbackMessage
             ))
         }
         applyForcedSubtitleSelection()
@@ -721,9 +718,25 @@ final class AetherPlaybackEngine: PlaybackEngine {
         case .sourceRefused, .dolbyVisionRequiresHardware, .hlsPlaylistOnRawLivePath, .demuxedAudioLiveUnsupported:
             // An access refusal, or content this device can never play.
             return .refused
+        case .sourceCertificateRejected:
+            // The app refused the server's certificate (#466): retrying meets
+            // the same certificate. `AppState` raises the warning, shown once
+            // the player closes.
+            return .refused
         default:
             return .transient
         }
+    }
+
+    /// The failure `PlayerViewModel` shows for an engine error of `kind` (`nil`
+    /// when the engine published none): the engine's message, except where the
+    /// app words it itself.
+    static func failure(kind: PlaybackErrorKind?, engineMessage: String) -> PlaybackFailure {
+        guard let kind else { return PlaybackFailure(message: engineMessage, category: .transient) }
+        let message = kind == .sourceCertificateRejected
+            ? String(localized: "This server's security certificate isn't trusted.")
+            : engineMessage
+        return PlaybackFailure(message: message, category: category(for: kind))
     }
 
     /// A forced subtitle track captions content the audio doesn't carry in the

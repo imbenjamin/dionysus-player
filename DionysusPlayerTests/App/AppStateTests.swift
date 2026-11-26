@@ -1,3 +1,5 @@
+import AetherEngine
+import Security
 import XCTest
 @testable import Dionysus
 
@@ -17,11 +19,18 @@ final class AppStateTests: XCTestCase {
     private let credentialsKey = "server.credentials" // matches ServerSessionStore.Keys.credentials
     private let serverKey = "server.configuration" // matches ServerSessionStore.Keys.serverConfiguration
     private let exampleServer = ServerConfiguration(name: "Home", baseURL: URL(string: "https://jellyfin.example.com")!)
+    /// Each test's own, so nothing reaches the app host's `.shared` (#466).
+    private var trustRegistry: ServerTrustRegistry!
+    private var savedDidChange: (@Sendable (ServerTrustRegistry) -> Void)?
+    private var savedEvaluator: (@Sendable (URLProtectionSpace) -> Bool)?
 
     override func setUp() async throws {
         try await super.setUp()
         defaults = UserDefaults(suiteName: suiteName)
         defaults.removePersistentDomain(forName: suiteName)
+        trustRegistry = ServerTrustRegistry()
+        savedDidChange = ServerTrustRegistry.didChange
+        savedEvaluator = EngineTLS.serverTrustEvaluator
         URLProtocol.registerClass(MockURLProtocol.self)
         // Requests on `URLSession.shared` can't be stamped with a generation.
         MockURLProtocol.acceptsUnmarkedRequests = true
@@ -31,6 +40,9 @@ final class AppStateTests: XCTestCase {
         URLProtocol.unregisterClass(MockURLProtocol.self)
         MockURLProtocol.reset()
         ConnectivityMonitor.shared.reset()
+        ServerTrustRegistry.didChange = savedDidChange
+        EngineTLS.serverTrustEvaluator = savedEvaluator
+        trustRegistry = nil
         defaults.removePersistentDomain(forName: suiteName)
         KeychainStore.delete(forKey: credentialsKey)
         KeychainStore.delete(forKey: serverKey, scope: .allUsers)
@@ -44,7 +56,7 @@ final class AppStateTests: XCTestCase {
     }
 
     private func makeAppState() -> AppState {
-        AppState(sessionStore: ServerSessionStore(defaults: defaults))
+        AppState(sessionStore: ServerSessionStore(defaults: defaults), trustRegistry: trustRegistry)
     }
 
     // MARK: start()
@@ -59,7 +71,7 @@ final class AppStateTests: XCTestCase {
     func test_start_serverConfiguredButNoCredentials_goesToLogin() async {
         let store = ServerSessionStore(defaults: defaults)
         store.saveServer(exampleServer)
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
 
         await appState.start()
 
@@ -77,7 +89,7 @@ final class AppStateTests: XCTestCase {
                 value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "new-token", serverId: "s1")
             )
         }
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
 
         await appState.start()
 
@@ -90,7 +102,7 @@ final class AppStateTests: XCTestCase {
         store.saveServer(exampleServer)
         store.saveCredentials(StoredCredentials(username: "ben", password: "stale", accessToken: nil, userID: nil))
         MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 401, body: Data()) }
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
 
         await appState.start()
 
@@ -111,7 +123,7 @@ final class AppStateTests: XCTestCase {
         store.saveServer(exampleServer)
         store.saveCredentials(StoredCredentials(username: "ben", password: "hunter2", accessToken: "cached-token", userID: "user-1"))
         MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
 
         await appState.start()
 
@@ -129,7 +141,7 @@ final class AppStateTests: XCTestCase {
         store.saveServer(exampleServer)
         store.saveCredentials(StoredCredentials(username: "ben", password: "hunter2", accessToken: "cached-token", userID: "user-1"))
         MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
 
         await appState.start()
 
@@ -148,7 +160,7 @@ final class AppStateTests: XCTestCase {
         store.saveServer(exampleServer)
         store.saveCredentials(StoredCredentials(username: "ben", password: "hunter2", accessToken: nil, userID: nil))
         MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
 
         await appState.start()
 
@@ -170,7 +182,7 @@ final class AppStateTests: XCTestCase {
             paths.append(request.url?.path ?? "")
             return try MockURLProtocol.encodedJSONResponse(for: request, value: UserDto(id: "user-1", name: "ben"))
         }
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
 
         await appState.start()
 
@@ -188,7 +200,7 @@ final class AppStateTests: XCTestCase {
             username: "ben", password: nil, accessToken: "revoked", userID: "user-1", authMethod: .quickConnect
         ))
         MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 401, body: Data()) }
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
 
         await appState.start()
 
@@ -202,7 +214,7 @@ final class AppStateTests: XCTestCase {
             username: "ben", password: nil, accessToken: "qc-token", userID: "user-1", authMethod: .quickConnect
         ))
         MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
 
         await appState.start()
 
@@ -386,7 +398,7 @@ final class AppStateTests: XCTestCase {
             XCTFail("No request may be sent with credentials from another server")
             throw URLError(.badServerResponse)
         }
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
 
         await appState.start()
 
@@ -396,7 +408,7 @@ final class AppStateTests: XCTestCase {
 
     func test_signIn_bindsCredentialsToTheConfiguredServer() async throws {
         let store = ServerSessionStore(defaults: defaults)
-        let appState = AppState(sessionStore: store)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
         appState.completeServerSetup(exampleServer)
         MockURLProtocol.requestHandler = Self.authenticateByNameHandler
 
@@ -408,7 +420,7 @@ final class AppStateTests: XCTestCase {
     // MARK: Remembered accounts (tvOS)
 
     private func makeRememberingAppState() -> AppState {
-        AppState(sessionStore: ServerSessionStore(defaults: defaults, remembersAccounts: true))
+        AppState(sessionStore: ServerSessionStore(defaults: defaults, remembersAccounts: true), trustRegistry: trustRegistry)
     }
 
     func test_signInRememberedPasswordAccount_signsInWithItsStoredPassword() async throws {
@@ -504,7 +516,7 @@ final class AppStateTests: XCTestCase {
         for id in accounts {
             store.saveCredentials(StoredCredentials(username: id, password: "pw", accessToken: "tok", userID: id, serverID: exampleServer.id))
         }
-        return AppState(sessionStore: store)
+        return AppState(sessionStore: store, trustRegistry: trustRegistry)
     }
 
     func test_start_sharedSessionWithSeveralAccounts_asksWhoIsWatching_withoutSigningIn() async {
@@ -575,4 +587,603 @@ final class AppStateTests: XCTestCase {
         XCTAssertFalse(appState.asksWhoIsWatching(returningAt: left.addingTimeInterval(60 * 60)))
     }
     #endif
+
+    // MARK: Certificate warning (#466)
+
+    private var exampleOrigin: ServerOrigin { exampleServer.origin }
+    /// An address setup tried that isn't the configured server's.
+    private let candidateOrigin = ServerOrigin(host: "192.168.1.20", port: 8920)
+
+    private func trustedServer(_ trust: ServerCertificateTrust?) -> ServerConfiguration {
+        var server = exampleServer
+        server.certificateTrust = trust
+        return server
+    }
+
+    /// A store holding `server` and a signed-in session, with `trustRegistry`
+    /// configured for it as launch does.
+    private func signedInStore(server: ServerConfiguration) -> ServerSessionStore {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(server)
+        store.saveCredentials(StoredCredentials(username: "ben", password: "test-password", accessToken: "cached-token", userID: "user-1"))
+        trustRegistry.configure(server: server)
+        return store
+    }
+
+    private func answerSignInSuccessfully() {
+        MockURLProtocol.requestHandler = { request in
+            try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "new-token", serverId: "s1")
+            )
+        }
+    }
+
+    /// Presents the fixture `leaf` to `registry` at `origin`, as a challenge.
+    nonisolated private static func present(
+        _ leaf: String,
+        to registry: ServerTrustRegistry,
+        at origin: ServerOrigin
+    ) -> ServerTrustDecision {
+        registry.decide(TLSFixtures.trust(leaf: leaf, anchors: [], host: nil), host: origin.host, port: origin.port)
+    }
+
+    /// Off the main actor, as a URLSession delegate queue would.
+    @discardableResult
+    private func present(_ leaf: String, at origin: ServerOrigin? = nil) async -> ServerTrustDecision {
+        let registry = trustRegistry!
+        let origin = origin ?? exampleOrigin
+        return await Task.detached { Self.present(leaf, to: registry, at: origin) }.value
+    }
+
+    /// The refusal reaches `AppState` through a hop to the main actor.
+    private func waitForWarning(_ appState: AppState, file: StaticString = #filePath, line: UInt = #line) async throws -> CertificateWarning {
+        for _ in 0..<200 {
+            if let warning = appState.certificateWarning { return warning }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        return try XCTUnwrap(appState.certificateWarning, "No certificate warning was raised", file: file, line: line)
+    }
+
+    /// Long enough for a hop to the main actor that would raise one.
+    private func settle() async throws {
+        try await Task.sleep(for: .milliseconds(300))
+    }
+
+    func testRefusalOfATrustedServerRaisesTheChangedWarning() async throws {
+        let pinned = ServerCertificateTrust.certificate(TLSFixtures.der("selfSignedA"))
+        let appState = AppState(sessionStore: signedInStore(server: trustedServer(pinned)), trustRegistry: trustRegistry)
+
+        await present("selfSignedB")
+
+        let warning = try await waitForWarning(appState)
+        XCTAssertEqual(warning.kind, .changed(previous: pinned))
+        XCTAssertEqual(warning.details.leaf, TLSFixtures.der("selfSignedB"))
+        XCTAssertEqual(warning.details.trust, .certificate(TLSFixtures.der("selfSignedB")))
+        XCTAssertEqual(warning.id, warning.details.fingerprint)
+    }
+
+    func testRefusalOfAServerWithNoTrustRaisesTheUntrustedWarning() async throws {
+        let appState = AppState(sessionStore: signedInStore(server: trustedServer(nil)), trustRegistry: trustRegistry)
+
+        await present("selfSignedB")
+
+        let warning = try await waitForWarning(appState)
+        XCTAssertEqual(warning.kind, .untrusted)
+        XCTAssertEqual(warning.details.kind, .selfSigned)
+    }
+
+    /// Setup's candidate refused at an address other than the configured
+    /// server's (setup re-probing): the setup offer's business, never the
+    /// warning's.
+    func testARefusalForAnotherOriginRaisesNothing() async throws {
+        let appState = AppState(sessionStore: signedInStore(server: trustedServer(nil)), trustRegistry: trustRegistry)
+        trustRegistry.setCandidate(.certificate(TLSFixtures.der("selfSignedA")), for: candidateOrigin)
+
+        let decision = await present("selfSignedB", at: candidateOrigin)
+        XCTAssertEqual(decision, .refuse(presentedLeaf: TLSFixtures.der("selfSignedB")))
+        try await settle()
+
+        XCTAssertNil(appState.certificateWarning)
+    }
+
+    /// The same during first-run setup, before any server is saved.
+    func testARefusalWithNoServerConfiguredRaisesNothing() async throws {
+        let appState = makeAppState()
+        trustRegistry.setCandidate(.certificate(TLSFixtures.der("selfSignedA")), for: candidateOrigin)
+
+        let decision = await present("selfSignedB", at: candidateOrigin)
+        XCTAssertEqual(decision, .refuse(presentedLeaf: TLSFixtures.der("selfSignedB")))
+        try await settle()
+
+        XCTAssertNil(appState.certificateWarning)
+    }
+
+    func testARefusalAtLaunchShowsTheWarningInsteadOfLogin() async throws {
+        let pinned = ServerCertificateTrust.certificate(TLSFixtures.der("selfSignedA"))
+        let store = signedInStore(server: trustedServer(pinned))
+        let registry = trustRegistry!
+        let origin = exampleOrigin
+        MockURLProtocol.requestHandler = { _ in
+            _ = Self.present("selfSignedB", to: registry, at: origin)
+            throw URLError(.serverCertificateUntrusted)
+        }
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+
+        await appState.start()
+
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertTrue(ConnectivityMonitor.shared.isOffline)
+        let warning = try await waitForWarning(appState)
+        XCTAssertEqual(warning.kind, .changed(previous: pinned))
+        let restoredToken = await appState.apiClient?.accessToken
+        XCTAssertEqual(restoredToken, "cached-token")
+    }
+
+    func testTrustingThePresentedCertificateSavesItAndRestarts() async throws {
+        let store = signedInStore(server: trustedServer(.certificate(TLSFixtures.der("selfSignedA"))))
+        answerSignInSuccessfully()
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        await appState.start()
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        await appState.trustPresentedCertificate()
+
+        let trusted = ServerCertificateTrust.certificate(TLSFixtures.der("selfSignedB"))
+        XCTAssertEqual(ServerSessionStore(defaults: defaults).serverConfiguration?.certificateTrust, trusted)
+        XCTAssertEqual(trustRegistry.trust(for: exampleOrigin), trusted)
+        XCTAssertNil(appState.certificateWarning)
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertEqual(appState.currentUser?.id, "user-1")
+        XCTAssertFalse(ConnectivityMonitor.shared.isOffline, "The restart's first answer marks it online again")
+    }
+
+    /// The restart signs in again on the client the app already has. The
+    /// signed-in views keep the client they were built with, so a new one
+    /// left them on a token the sign-in revokes (one per device id), and
+    /// their re-authentication then revoked the token just saved, which the
+    /// Top Shelf presents (seen on the Apple TV Simulator, 2026-11-25).
+    func testTrustingKeepsTheSameClientAndItsNewToken() async throws {
+        let store = signedInStore(server: trustedServer(.certificate(TLSFixtures.der("selfSignedA"))))
+        answerSignInSuccessfully()
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        await appState.start()
+        let client = try XCTUnwrap(appState.apiClient)
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        await appState.trustPresentedCertificate()
+
+        XCTAssertTrue(appState.apiClient === client, "The views' client is the one signed in again")
+        let token = await client.accessToken
+        XCTAssertNotNil(token)
+        XCTAssertEqual(token, store.credentials?.accessToken, "The client holds the token that was saved and mirrored")
+    }
+
+    /// A refusal decided under a trust since replaced (its details are read
+    /// off the main actor, so it can land after Trust) raises nothing and is
+    /// handed back: the same leaf refused under the trust now held raises the
+    /// warning against that trust.
+    func testARefusalDecidedUnderAReplacedTrustIsDroppedAndHandedBack() async throws {
+        let trustA = ServerCertificateTrust.certificate(TLSFixtures.der("selfSignedA"))
+        let trustB = ServerCertificateTrust.certificate(TLSFixtures.der("selfSignedB"))
+        let store = signedInStore(server: trustedServer(trustA))
+        answerSignInSuccessfully()
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        await appState.start()
+
+        // nameLeaf refused under A, held back from AppState as a slow hop would be.
+        let hook = trustRegistry.onRefusal
+        let captured = StaleRefusalBox()
+        trustRegistry.onRefusal = { captured.refusal = $0 }
+        await present("nameLeaf")
+        trustRegistry.onRefusal = hook
+        let stale = try XCTUnwrap(captured.refusal)
+        XCTAssertEqual(stale.previous, trustA)
+
+        // B is trusted meanwhile.
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+        await appState.trustPresentedCertificate()
+        XCTAssertEqual(store.serverConfiguration?.certificateTrust, trustB)
+
+        // The stale refusal lands now: nothing is raised.
+        trustRegistry.onRefusal?(stale)
+        try await settle()
+        XCTAssertNil(appState.certificateWarning, "a refusal decided under A says nothing once B is trusted")
+
+        // Handed back: the same leaf, refused under B, is reported and raised.
+        await present("nameLeaf")
+        let warning = try await waitForWarning(appState)
+        XCTAssertEqual(warning.details.leaf, TLSFixtures.der("nameLeaf"))
+        XCTAssertEqual(warning.kind, .changed(previous: trustB))
+    }
+
+    /// Trust's restart reuses the client. When its sign-in is refused (a
+    /// password changed on the server), the app lands on the login screen
+    /// and the client must not keep the old credentials to sign back in
+    /// with, as after `signOut()`.
+    func testATrustRestartThatLandsOnLoginForgetsTheReauthCredentials() async throws {
+        let store = signedInStore(server: trustedServer(.certificate(TLSFixtures.der("selfSignedA"))))
+        answerSignInSuccessfully()
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        await appState.start()
+        let client = try XCTUnwrap(appState.apiClient)
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        let signIns = TrustRestartSignIns()
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path.hasSuffix("/Users/AuthenticateByName") == true { signIns.increment() }
+            return MockURLProtocol.jsonResponse(for: request, status: 401, body: Data())
+        }
+        await appState.trustPresentedCertificate()
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertEqual(signIns.value, 1, "the restart's sign-in, refused")
+
+        // A straggler from the torn-down views, carrying the old token.
+        do {
+            _ = try await client.userViews(userID: "user-1")
+            XCTFail("the old session's request should fail")
+        } catch {}
+        XCTAssertEqual(signIns.value, 1, "no re-authentication as the previous user on the login screen")
+    }
+
+    /// Trust marks the app offline before restarting, so whatever failed under
+    /// the refusal reloads when the restart's answer marks it online.
+    func testTrustingMarksOfflineUntilTheRestartIsAnswered() async throws {
+        let store = signedInStore(server: trustedServer(nil))
+        answerSignInSuccessfully()
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        await appState.start()
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+        let answered = DispatchSemaphore(value: 0)
+        MockURLProtocol.requestHandler = { request in
+            _ = answered.wait(timeout: .now() + 5)
+            return try MockURLProtocol.encodedJSONResponse(
+                for: request,
+                value: AuthenticationResult(user: UserDto(id: "user-1", name: "ben"), accessToken: "new-token", serverId: "s1")
+            )
+        }
+
+        let trusting = Task { await appState.trustPresentedCertificate() }
+        for _ in 0..<200 where !ConnectivityMonitor.shared.isOffline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(ConnectivityMonitor.shared.isOffline, "Offline while the restart waits for its answer")
+        answered.signal()
+        await trusting.value
+
+        XCTAssertFalse(ConnectivityMonitor.shared.isOffline)
+        XCTAssertEqual(appState.phase, .main)
+    }
+
+    #if os(tvOS)
+    /// Trust restarts the session in place: never Who's Watching?, which only
+    /// a launch asks.
+    func testTrustingOnTheAppleTVDoesNotAskWhoIsWatching() async throws {
+        SessionScopeSetting.set(false)
+        SessionScopeSetting.setSelectsUserEveryRelaunch(true)
+        let appState = makeSharedAppState(accounts: ["ben", "tara"])
+        appState.completeServerSetup(exampleServer)
+        answerSignInSuccessfully()
+        try await appState.signIn(username: "ben", password: "pw")
+        XCTAssertEqual(appState.phase, .main)
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        await appState.trustPresentedCertificate()
+
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertNotNil(appState.sessionStore.credentials)
+    }
+    #endif
+
+    func testStayOfflineForNowResumesOfflineWithDownloads() async throws {
+        let pinned = ServerCertificateTrust.certificate(TLSFixtures.der("selfSignedA"))
+        let store = signedInStore(server: trustedServer(pinned))
+        answerSignInSuccessfully()
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        await appState.start()
+        XCTAssertFalse(ConnectivityMonitor.shared.isOffline)
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        appState.stayOfflineForNow()
+
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertTrue(ConnectivityMonitor.shared.isOffline)
+        XCTAssertNil(appState.certificateWarning)
+        XCTAssertEqual(store.serverConfiguration?.certificateTrust, pinned, "Not Now trusts nothing")
+    }
+
+    func testStayOfflineForNowWithoutASessionStaysOnLogin() async throws {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(trustedServer(nil))
+        trustRegistry.configure(server: store.serverConfiguration)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        await appState.start()
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        appState.stayOfflineForNow()
+
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertNil(appState.certificateWarning)
+    }
+
+    /// Not Now while the launch is still signing in: the cached session
+    /// resumes at once, offline.
+    func testNotNowDuringTheLaunchResumesTheCachedSession() async throws {
+        let store = signedInStore(server: trustedServer(nil))
+        let registry = trustRegistry!
+        let origin = exampleOrigin
+        let answered = DispatchSemaphore(value: 0)
+        MockURLProtocol.requestHandler = { _ in
+            _ = Self.present("selfSignedB", to: registry, at: origin)
+            _ = answered.wait(timeout: .now() + 5)
+            throw URLError(.serverCertificateUntrusted)
+        }
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        let launch = Task { await appState.start() }
+        _ = try await waitForWarning(appState)
+        XCTAssertTrue(appState.isRestoringSession)
+
+        appState.stayOfflineForNow()
+
+        XCTAssertEqual(appState.phase, .main)
+        XCTAssertTrue(ConnectivityMonitor.shared.isOffline)
+        XCTAssertNil(appState.certificateWarning)
+        answered.signal()
+        await launch.value
+        XCTAssertEqual(appState.phase, .main)
+    }
+
+    /// On the login screen, whose stored session the server refused (a 401),
+    /// Not Now never resumes it.
+    func testNotNowOnTheLoginScreenStaysThere() async throws {
+        let store = signedInStore(server: trustedServer(nil))
+        MockURLProtocol.requestHandler = { request in MockURLProtocol.jsonResponse(for: request, status: 401, body: Data()) }
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        await appState.start()
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertNotNil(store.credentials?.accessToken)
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        appState.stayOfflineForNow()
+
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertFalse(ConnectivityMonitor.shared.isOffline)
+        XCTAssertNil(appState.certificateWarning)
+    }
+
+    /// A certificate refused while another warning is up raises nothing then,
+    /// but isn't silenced for the launch: its next refusal, once that warning
+    /// is answered, raises it.
+    func testACertificateRefusedWhileAWarningIsUpIsRaisedLater() async throws {
+        let store = signedInStore(server: trustedServer(nil))
+        answerSignInSuccessfully()
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        await appState.start()
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        await present("selfSignedA")
+        try await settle()
+        XCTAssertEqual(appState.certificateWarning?.details.leaf, TLSFixtures.der("selfSignedB"))
+
+        await appState.trustPresentedCertificate()
+        XCTAssertNil(appState.certificateWarning)
+        await present("selfSignedA")
+
+        let warning = try await waitForWarning(appState)
+        XCTAssertEqual(warning.details.leaf, TLSFixtures.der("selfSignedA"))
+        XCTAssertEqual(warning.kind, .changed(previous: .certificate(TLSFixtures.der("selfSignedB"))))
+    }
+
+    /// With no session for the restart to sign in, nothing would mark the app
+    /// online again, so Trust doesn't mark it offline.
+    func testTrustingWithoutASessionLeavesTheAppOnline() async throws {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(trustedServer(nil))
+        trustRegistry.configure(server: store.serverConfiguration)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        await appState.start()
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        await appState.trustPresentedCertificate()
+
+        XCTAssertEqual(appState.phase, .login)
+        XCTAssertFalse(ConnectivityMonitor.shared.isOffline)
+        XCTAssertEqual(store.serverConfiguration?.certificateTrust, .certificate(TLSFixtures.der("selfSignedB")))
+    }
+
+    func testTheSameCertificateDoesNotRaiseTheWarningAgainAfterNotNow() async throws {
+        let appState = AppState(sessionStore: signedInStore(server: trustedServer(nil)), trustRegistry: trustRegistry)
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+        appState.stayOfflineForNow()
+
+        await present("selfSignedB")
+        try await settle()
+
+        XCTAssertNil(appState.certificateWarning)
+    }
+
+    /// The presenter gave up showing it: offline as after Not Now, but the
+    /// same certificate's next refusal raises the warning again.
+    func testWithdrawingAnUnshownWarningGoesOfflineAndAsksAgain() async throws {
+        let pinned = ServerCertificateTrust.certificate(TLSFixtures.der("selfSignedA"))
+        answerSignInSuccessfully()
+        let appState = AppState(sessionStore: signedInStore(server: trustedServer(pinned)), trustRegistry: trustRegistry)
+        await appState.start()
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        appState.withdrawUnshownCertificateWarning()
+
+        XCTAssertNil(appState.certificateWarning)
+        XCTAssertTrue(ConnectivityMonitor.shared.isOffline, "Carries on offline, as Not Now does")
+
+        await present("selfSignedB")
+        let warning = try await waitForWarning(appState)
+        XCTAssertEqual(warning.details.leaf, TLSFixtures.der("selfSignedB"), "Asked again: nothing was answered")
+    }
+
+    func testADifferentCertificateRaisesItAgain() async throws {
+        let appState = AppState(sessionStore: signedInStore(server: trustedServer(nil)), trustRegistry: trustRegistry)
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+        appState.stayOfflineForNow()
+
+        await present("selfSignedA")
+
+        let warning = try await waitForWarning(appState)
+        XCTAssertEqual(warning.details.leaf, TLSFixtures.der("selfSignedA"))
+    }
+
+    func testChangeServerClearsTheWarningAndTheRegistry() async throws {
+        let pinned = ServerCertificateTrust.certificate(TLSFixtures.der("selfSignedA"))
+        let appState = AppState(sessionStore: signedInStore(server: trustedServer(pinned)), trustRegistry: trustRegistry)
+        trustRegistry.setCandidate(pinned, for: candidateOrigin)
+        await present("selfSignedB")
+        _ = try await waitForWarning(appState)
+
+        appState.changeServer()
+
+        XCTAssertNil(appState.certificateWarning)
+        XCTAssertEqual(appState.phase, .serverSetup)
+        XCTAssertNil(trustRegistry.trust(for: exampleOrigin))
+        XCTAssertNil(trustRegistry.trust(for: candidateOrigin))
+        XCTAssertFalse(trustRegistry.hasStoredTrust)
+    }
+
+    // MARK: Classifying from the presented chain
+
+    /// The headline #466 case: a CA-issued certificate for a domain name,
+    /// served at a LAN address, with its issuer in the chain the server sent.
+    private let lanServer = ServerConfiguration(name: "Media", baseURL: URL(string: "https://192.168.1.50")!)
+
+    /// `nameLeaf` and `testCA` as the server sends them, with `testCA`
+    /// anchored and the verify date pinned inside the leaf's window
+    /// (`ServerTrustPolicyTests.nameLeafVerifyDate`).
+    nonisolated private static func presentNameChain(to registry: ServerTrustRegistry, at origin: ServerOrigin) -> ServerTrustDecision {
+        var trust: SecTrust?
+        let certificates = [TLSFixtures.certificate("nameLeaf"), TLSFixtures.certificate("testCA")]
+        SecTrustCreateWithCertificates(certificates as CFArray, SecPolicyCreateSSL(true, nil), &trust)
+        let presented = trust!
+        anchorTestCA(presented)
+        return registry.decide(presented, host: origin.host, port: origin.port)
+    }
+
+    nonisolated private static func anchorTestCA(_ trust: SecTrust) {
+        SecTrustSetAnchorCertificates(trust, [TLSFixtures.certificate("testCA")] as CFArray)
+        SecTrustSetAnchorCertificatesOnly(trust, true)
+        SecTrustSetVerifyDate(trust, ServerTrustPolicyTests.nameLeafVerifyDate as CFDate)
+    }
+
+    private final class RefusalBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: ServerTrustRefusal?
+        var refusal: ServerTrustRefusal? { lock.withLock { stored } }
+        func record(_ refusal: ServerTrustRefusal) { lock.withLock { stored = refusal } }
+    }
+
+    func testARefusalCarriesThePresentedChain() async throws {
+        let registry = ServerTrustRegistry()
+        registry.configure(server: lanServer)
+        let box = RefusalBox()
+        registry.onRefusal = { box.record($0) }
+        let origin = lanServer.origin
+
+        let decision = await Task.detached { Self.presentNameChain(to: registry, at: origin) }.value
+
+        XCTAssertEqual(decision, .refuse(presentedLeaf: TLSFixtures.der("nameLeaf")))
+        let refusal = try XCTUnwrap(box.refusal)
+        XCTAssertEqual(refusal.presentedLeaf, TLSFixtures.der("nameLeaf"))
+        XCTAssertEqual(Array(refusal.presentedChain.prefix(2)), [TLSFixtures.der("nameLeaf"), TLSFixtures.der("testCA")])
+    }
+
+    /// Classified from the refusal's chain, with `testCA` anchored through
+    /// `adjustingTrust` (a public CA needs no anchoring in the app): trusted
+    /// by name, with the issuer shown. From the leaf alone it was pinned.
+    func testTheChainClassifiesACAIssuedCertificateByName() async throws {
+        let registry = ServerTrustRegistry()
+        registry.configure(server: lanServer)
+        let box = RefusalBox()
+        registry.onRefusal = { box.record($0) }
+        let origin = lanServer.origin
+        _ = await Task.detached { Self.presentNameChain(to: registry, at: origin) }.value
+        let chain = try XCTUnwrap(box.refusal).presentedChain
+
+        let classified = await Task.detached {
+            ServerCertificateDetails(chain: chain, adjustingTrust: Self.anchorTestCA)
+        }.value
+        let details = try XCTUnwrap(classified)
+
+        XCTAssertEqual(details.kind, .nameMismatch(validFor: ["media.dionysus.test", "*.wild.dionysus.test"]))
+        XCTAssertEqual(details.trust, .names(["media.dionysus.test", "*.wild.dionysus.test"]))
+        XCTAssertEqual(details.issuer, "Dionysus Test CA")
+    }
+
+    /// The app's own path, end to end: the warning's details come from the
+    /// chain, so the issuer the server sent is shown. Under the system's
+    /// anchors a private CA is still an untrusted issuer, as it should be.
+    func testTheWarningIsClassifiedFromThePresentedChain() async throws {
+        let store = ServerSessionStore(defaults: defaults)
+        store.saveServer(lanServer)
+        trustRegistry.configure(server: lanServer)
+        let appState = AppState(sessionStore: store, trustRegistry: trustRegistry)
+        let registry = trustRegistry!
+        let origin = lanServer.origin
+
+        _ = await Task.detached { Self.presentNameChain(to: registry, at: origin) }.value
+
+        let warning = try await waitForWarning(appState)
+        XCTAssertEqual(warning.kind, .untrusted)
+        XCTAssertEqual(warning.details.leaf, TLSFixtures.der("nameLeaf"))
+        XCTAssertEqual(warning.details.issuer, "Dionysus Test CA")
+        XCTAssertEqual(warning.details.kind, .untrustedIssuer)
+    }
+
+    func testCompletingSetupConfiguresTheRegistryAndEngineBridge() {
+        ServerTrustRegistry.didChange = { ServerTrustEngineBridge.apply(registry: $0) }
+        EngineTLS.serverTrustEvaluator = nil
+        let appState = makeAppState()
+        let pinned = ServerCertificateTrust.certificate(TLSFixtures.der("selfSignedA"))
+        // Setup's candidate for the server being saved, and one left from
+        // another address it tried.
+        trustRegistry.setCandidate(pinned, for: exampleOrigin)
+        trustRegistry.setCandidate(pinned, for: candidateOrigin)
+        EngineTLS.serverTrustEvaluator = nil
+
+        appState.completeServerSetup(trustedServer(pinned))
+
+        XCTAssertEqual(trustRegistry.trust(for: exampleOrigin), pinned)
+        XCTAssertNil(trustRegistry.trust(for: candidateOrigin), "setup's candidates are cleared once the server is saved")
+        XCTAssertNotNil(EngineTLS.serverTrustEvaluator)
+        XCTAssertEqual(appState.phase, .login)
+    }
+}
+
+/// A refusal kept back from `AppState`, as a slow main-actor hop would.
+private final class StaleRefusalBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: ServerTrustRefusal?
+    var refusal: ServerTrustRefusal? {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
+    }
+}
+
+/// Sign-in requests the mock saw, from any thread.
+private final class TrustRestartSignIns: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
 }

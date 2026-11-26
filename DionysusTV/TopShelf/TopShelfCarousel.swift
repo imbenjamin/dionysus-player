@@ -10,17 +10,20 @@ enum TopShelfCarousel {
     static func content(session: TopShelfSession?, urlSession: URLSession, store: TopShelfArtworkStore?) async -> (any TVTopShelfContent)? {
         let entries = await TopShelfLoader.load(session: session, urlSession: urlSession)
         let art = await TopShelfArtworkComposer.artwork(for: entries, store: store, session: urlSession)
-        return content(entries, art: art)
+        // tvOS fetches a plain backdrop itself, with the system's trust: a
+        // server it can't verify would only get a dead URL (#466).
+        return content(entries, art: art, serverImageFallback: session?.certificateTrust == nil)
     }
 
     /// `.actions`: tvOS 27 draws no text over either style, so the title is
     /// in the art, and Play and More Info are our two links.
-    static func content(_ entries: [TopShelfEntry], art: [String: URL]) -> TVTopShelfCarouselContent? {
+    static func content(_ entries: [TopShelfEntry], art: [String: URL], serverImageFallback: Bool = true) -> TVTopShelfCarouselContent? {
         guard !entries.isEmpty else { return nil }
-        return TVTopShelfCarouselContent(style: .actions, items: entries.map { item($0, art: art[$0.id]) })
+        return TVTopShelfCarouselContent(
+            style: .actions, items: entries.map { item($0, art: art[$0.id], serverImageFallback: serverImageFallback) })
     }
 
-    static func item(_ entry: TopShelfEntry, art: URL?) -> TVTopShelfCarouselItem {
+    static func item(_ entry: TopShelfEntry, art: URL?, serverImageFallback: Bool = true) -> TVTopShelfCarouselItem {
         let item = TVTopShelfCarouselItem(identifier: entry.id)
         item.title = entry.title
         item.contextTitle = entry.contextTitle
@@ -37,7 +40,9 @@ enum TopShelfCarousel {
         // 2x only: the scale Apple TV renders (Sodalite: setting both doubles
         // the system's fetches). Art not drawn (no App Group, a backdrop that
         // failed, out of time) leaves the plain backdrop.
-        item.setImageURL(art ?? entry.image2x, for: .screenScale2x)
+        if let image = art ?? (serverImageFallback ? entry.image2x : nil) {
+            item.setImageURL(image, for: .screenScale2x)
+        }
         item.displayAction = TVTopShelfAction(url: entry.displayURL)
         item.playAction = TVTopShelfAction(url: entry.playURL)
         return item

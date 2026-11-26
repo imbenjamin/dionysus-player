@@ -23,7 +23,8 @@ final class LicenseDocumentTests: XCTestCase {
             "AetherEngine", "FFmpeg", "dav1d", "zimg", "libzvbi", "libdovi", "LibTrueHD",
             "Anime4K", "libass", "fontconfig", "FreeType", "HarfBuzz", "FriBidi", "libpng",
             "swift-ass-renderer", "swift-libass", "SwiftUI-Shimmer",
-            "swift-issue-reporting", "combine-schedulers", "swift-concurrency-extras"
+            "swift-issue-reporting", "combine-schedulers", "swift-concurrency-extras",
+            "swift-asn1"
         ])
         XCTAssertTrue(LicenseDocument.components().allSatisfy { !$0.text.isEmpty })
     }

@@ -69,6 +69,40 @@ enum A11yID {
         static let insecureFallbackCancelButton = "serverSetup.insecureFallback.cancel"
         static let httpPortConfirmButton = "serverSetup.httpPort.confirm"
         static let httpPortCancelButton = "serverSetup.httpPort.cancel"
+        /// The trust offer for an `https://` server whose certificate fails
+        /// (#466). The sheet's identifier is on its content, not the sheet.
+        static let certificateTrustSheet = "serverSetup.certificateTrust.sheet"
+        static let certificateTrustTrustButton = "serverSetup.certificateTrust.trust"
+        static let certificateTrustHTTPButton = "serverSetup.certificateTrust.http"
+        static let certificateTrustCancelButton = "serverSetup.certificateTrust.cancel"
+        /// Why it fails: the reason line, naming what a name-case
+        /// certificate is valid for.
+        static let certificateTrustReason = "serverSetup.certificateTrust.reason"
+        /// The SHA-256 row; its value is the full fingerprint.
+        static let certificateTrustFingerprint = "serverSetup.certificateTrust.fingerprint"
+    }
+
+    /// The changed-certificate warning (#466), over the whole app: the
+    /// configured server's certificate is refused, `changed` (a trust is
+    /// stored and this one doesn't meet it) or `untrusted` (none is).
+    enum CertificateWarning {
+        /// On the page's content, not the cover's root (A11yID's rule).
+        static let page = "certificateWarning.page"
+        /// What changed (`changed`), or why it fails (`untrusted`).
+        static let message = "certificateWarning.message"
+        static let trustButton = "certificateWarning.trust"
+        static let changeServerButton = "certificateWarning.changeServer"
+        static let notNowButton = "certificateWarning.notNow"
+        /// The trusted certificate's SHA-256 row (`changed` only); for a
+        /// trust kept by name, the names. Its value is the full reading.
+        static let previousFingerprint = "certificateWarning.previousFingerprint"
+        /// The presented certificate's SHA-256 row; its value the fingerprint.
+        static let newFingerprint = "certificateWarning.newFingerprint"
+        /// "Trust New Certificate"'s confirmation alert: its Trust button.
+        static let trustConfirmButton = "certificateWarning.trust.confirm"
+        /// Change Server's confirmation dialog (Profile's question): its
+        /// Change Server button.
+        static let changeServerConfirmButton = "certificateWarning.changeServer.confirm"
     }
 
     enum Login {
@@ -534,6 +568,8 @@ enum A11yID {
         static let spatialAudioHelp = "profile.spatialAudio.help"
         static let spatialAudioHelpDone = "profile.spatialAudio.help.done"
         static let accountSheet = "profile.accountSheet"
+        /// The account details' Certificate row, present only with a stored trust (#466).
+        static let certificateRow = "profile.certificateRow"
         static let signOutButton = "profile.signOutButton"
         static let changeServerButton = "profile.changeServerButton"
         /// Present only when the server reports Quick Connect enabled.
@@ -702,6 +738,14 @@ enum A11yID {
             static let httpPortTry = "tv.onboarding.httpPort.try"
             static let httpPortCancel = "tv.onboarding.httpPort.cancel"
             static let insecureFallbackConfirm = "tv.onboarding.insecureFallback.confirm"
+            /// The trust offer's page (#466): its reason, the certificate's
+            /// details as one focusable section (value: every row,
+            /// fingerprint in full, then the pin note), and its buttons.
+            static let certificateTrustReason = "tv.onboarding.certificateTrust.reason"
+            static let certificateTrustDetails = "tv.onboarding.certificateTrust.details"
+            static let certificateTrustTrust = "tv.onboarding.certificateTrust.trust"
+            static let certificateTrustHTTP = "tv.onboarding.certificateTrust.http"
+            static let certificateTrustCancel = "tv.onboarding.certificateTrust.cancel"
             /// Other's username field, with Quick Connect off.
             static let manualUsername = "tv.onboarding.manual.username"
             static let getNewCode = "tv.onboarding.quickConnect.getNewCode"
@@ -818,6 +862,22 @@ enum A11yID {
             static let create = "tv.actions.newPlaylist.create"
             static let createConfirm = "tv.actions.newPlaylist.create.confirm"
         }
+        /// The changed-certificate warning's page (#466). Each certificate
+        /// is one focusable section: its heading as label, every row as value.
+        enum CertificateWarning {
+            static let message = "tv.certificateWarning.message"
+            /// The trusted certificate (`changed` only).
+            static let previousFingerprint = "tv.certificateWarning.previousFingerprint"
+            /// The presented certificate's details, fingerprint in full.
+            static let newFingerprint = "tv.certificateWarning.newFingerprint"
+            static let trust = "tv.certificateWarning.trust"
+            static let changeServer = "tv.certificateWarning.changeServer"
+            static let notNow = "tv.certificateWarning.notNow"
+            /// The `TVConfirmation`'s Trust (its Cancel is `confirmationCancel`).
+            static let trustConfirm = "tv.certificateWarning.trust.confirm"
+            /// Change Server's `TVConfirmation` (Profile's question).
+            static let changeServerConfirm = "tv.certificateWarning.changeServer.confirm"
+        }
         /// `TVConfirmation`'s Cancel, wherever it asks.
         static let confirmationCancel = "tv.confirmation.cancel"
         /// `TVVersionPickerPage`'s heading, "Choose a Version" (#289).
@@ -828,6 +888,8 @@ enum A11yID {
         enum Profile {
             static let name = "tv.profile.name"
             static let server = "tv.profile.server"
+            /// The trusted certificate's line under the address (#466).
+            static let certificate = "tv.profile.certificate"
             static let switchUser = "tv.profile.switchUser"
             static let changeServer = "tv.profile.changeServer"
             static let changeServerConfirm = "tv.profile.changeServer.confirm"

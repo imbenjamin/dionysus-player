@@ -17,6 +17,11 @@ struct DionysusTVApp: App {
         #if DEBUG
         UITestHarness.installIfNeeded()
         #endif
+        // Before anything can raise a TLS challenge (#466), and after the
+        // harness, so it reads the store a test reset or seeded. The same
+        // store `AppState` makes.
+        ServerTrustEngineBridge.install()
+        ServerTrustRegistry.shared.loadFromStore(ServerSessionStore())
         _appState = State(initialValue: AppState())
     }
 
@@ -74,6 +79,21 @@ struct TVRootView: View {
         // The splash crossfades into what follows it, as on iOS (`RootView`).
         .animation(.default, value: appState.isRestoringSession)
         .buttonStyle(TVOpaqueAtRestButtonStyle())
+        // A refused certificate for the configured server (#466), over
+        // everything, but never over a player: playback fails with a
+        // message of its own and the page shows once the player has gone.
+        .certificateWarning(
+            isPlayerUp: { TVPlayerActivity.shared.isPlayerUp },
+            // The player's host, and whatever is over it, is never dismissed.
+            protects: { $0 is TVPlayerPresentation }
+        ) { warning, answer in
+            TVCertificateWarningPage(
+                warning: warning,
+                serverName: appState.sessionStore.serverConfiguration?.name ?? "",
+                host: appState.sessionStore.serverConfiguration?.baseURL.host,
+                onAnswer: answer
+            )
+        }
         .onOpenURL(perform: receive)
         .onChange(of: appState.isRestoringSession) { _, isRestoring in
             guard !isRestoring, refusesUnreadableLinkAfterRestore else { return }
@@ -94,6 +114,13 @@ struct TVRootView: View {
         // The Top Shelf follows whoever last used Dionysus (M6).
         .onChange(of: appState.phase, initial: true) { mirrorSessionForTopShelf() }
         .onChange(of: appState.isRestoringSession) { mirrorSessionForTopShelf() }
+        // Trusting a new certificate from `.main` changes neither of those,
+        // and the extension decides against the mirrored trust (#466). The
+        // trust is saved before the restart signs in again, so the token the
+        // sign-in saves after it is mirrored too: the old one may be revoked.
+        // (`TopShelfRefresh` writes nothing while a launch restores.)
+        .onChange(of: appState.sessionStore.serverConfiguration?.certificateTrust) { mirrorSessionForTopShelf() }
+        .onChange(of: appState.sessionStore.credentials?.accessToken) { mirrorSessionForTopShelf() }
         // tvOS suspends the app through sleep, so a long time away counts as
         // a relaunch: back to Who's Watching? when the settings ask
         // (`WhoIsWatchingPolicy`), closing the player first.

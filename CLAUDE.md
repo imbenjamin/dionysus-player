@@ -356,8 +356,88 @@ raises the prompt and fails behind it; `probeAcrossLocalNetworkPrompt` waits
 for the answer and retries once. The device's own address stays in the
 sweep, which lets the Simulator find a server on its own Mac.
 
-**A discovered `https://` server whose certificate fails gets an opt-in HTTP
-fallback** (`ServerSetupViewModel.connect(to:)`). A server with HTTPS on and
+**A server whose HTTPS certificate fails can be trusted, from setup on
+(#466).** The user vouches for the certificate after seeing it; nothing is
+ever switched off. What is stored with the server (`ServerConfiguration.
+certificateTrust`, mirrored into `TopShelfSession`) is one of two kinds, chosen
+when the offer is made (`ServerCertificateDetails`): **`.names`** when the
+chain is fine except the hostname (a Let's Encrypt certificate reached by IP;
+it renews with a new key every few months, so it is bound to the certificate's
+DNS names, never to its bytes), else **`.certificate`**, the exact leaf's DER
+(self-signed, unknown CA, expired). `ServerTrustPolicy.decide` answers every
+challenge, in order: another origin than the configured server's, or a chain
+the system already accepts, is the system's; `.names` accepts a chain the
+system finds valid for one of the names (so a public certificate for some
+*other* domain is refused); `.certificate` accepts an equal leaf, dates
+ignored; anything else is **refused as `.performDefaultHandling`, never
+`.cancel`**, so it still surfaces as the usual certificate `URLError` and every
+error path keeps working, and is reported.
+
+- **`ServerTrustRegistry`** holds the trust (and setup's *candidate*, used
+  while it re-probes before anything is saved). It loads from
+  `ServerSessionStore` at launch, since a background download relaunch can
+  raise a challenge before `AppState.start()`. A refusal is reported **once
+  per presented leaf per launch**, never per failed request; a leaf counts as
+  reported only once a hook was told, so one refused before the hook was set
+  is reported later.
+- **A new `URLSession` takes `ServerTrustDelegate`**, as the session delegate
+  on a session the app owns (`RemoteImageLoader`, downloads, the Top Shelf's,
+  bound to a registry of its own; `DownloadTaskRouter` for the background
+  ones). **A task passes `ServerTrustDelegate.forTasks(on: session)`, never
+  `.shared`**: a per-task delegate replaces the session's for challenges, so
+  passing `.shared` on the Top Shelf's session asked the extension's
+  unconfigured registry and the shelf never loaded from a trusted server. On
+  `URLSession.shared` (`data(for:delegate:)`, which delivers the challenge, as
+  spiked) it gives `.shared`. A session without the delegate fails against a
+  trusted server while sign-in works, the failure mode to look for.
+  `ServerTrustSessionCoverageTests` drives the API client (on a session with
+  a private registry) and the player's fetch against a real in-process TLS
+  listener; the image loader and ad-hoc download session are type checks, the
+  router a synthetic challenge. `TopShelfLoaderTests` drives the API client on
+  the Top Shelf's own session.
+- **AetherEngine is reached through `EngineTLS.serverTrustEvaluator`**, set by
+  `ServerTrustEngineBridge` (in `Core/Playback/`, so `Core/Networking` and the
+  Top Shelf's slice never import the engine) **only while a trust is stored**:
+  with any evaluator set the engine adds a system-trust handshake to every
+  `https` transcode load, a cost a server with no trust shouldn't pay. Direct
+  play and the transcode's AVPlayer bypass both go through it (the engine
+  mounts its `HLSOriginRelay` for an origin the system refuses).
+- **Setup** (`ServerSetupViewModel`, typed or discovered) publishes a
+  `CertificateTrustOffer` on a certificate failure carrying a peer trust:
+  Trust This Certificate re-probes and signs in under the candidate before
+  saving. For a discovered server, Use Unencrypted HTTP is the second answer
+  and enters the opt-in HTTP fallback below, unchanged. A server saved before
+  this change whose certificate starts failing gets the same offer instead of
+  the login screen.
+- **The warning** (`AppState.certificateWarning`, shown by
+  `CertificateWarningPresentation` from `RootView`/`TVRootView`) is raised by
+  the registry when a stored trust no longer covers the certificate (*changed*:
+  both fingerprints) or none was stored (*untrusted*). A trust by name whose
+  certificate still carries a trusted name but no longer verifies (expired, its
+  CA removed) is *changed* too, but reads "…’s Certificate Is No Longer Valid"
+  naming them, not "Has a New Certificate" (`CertificateWarning.lapsedNames`,
+  matched by `ServerTrustPolicy.dnsName(_:covers:)`). Three answers: Trust
+  New Certificate (confirmed; re-classified, saved, session restarted), Change
+  Server (confirmed with Profile's own question), and **Not Now (Stay Offline)**, which resumes into the offline state
+  with Downloads working, since a captive portal raises this in ordinary use.
+  It **closes any other sheet or cover first**, but **never dismisses a
+  player**: playback fails with `.sourceCertificateRejected` (its own message)
+  and the warning shows once the player has gone. **Trust's restart signs in
+  again on the same `JellyfinAPIClient`** (`start(isRelaunch: false)`): the
+  signed-in views keep the client they were built with, and a new one left
+  them on a revoked token whose re-authentication revoked the token just
+  saved, so the Top Shelf's mirror 401'd. A refusal decided under a trust
+  since replaced is dropped and handed back (`raiseCertificateWarning`).
+- **Dependencies**: names are read with Apple's `swift-asn1` only. iOS and tvOS
+  have no API for a certificate's subject alternative names, and
+  `swift-certificates` would pull in swift-crypto's `_CryptoExtras`, which links
+  BoringSSL into the app. It is linked to the two apps, never the Top Shelf.
+- A private CA that renews leaves daily isn't covered (#499): install its root
+  as a configuration profile.
+
+**A discovered `https://` server whose certificate fails also gets an opt-in
+HTTP fallback** (`ServerSetupViewModel.connect(to:)`), the second answer
+after the trust offer. A server with HTTPS on and
 no published URL advertises `https://<LAN IP>:<port>`, which a certificate
 for a domain name (or a self-signed one) never validates. Nothing a
 signed-out client can read reveals the HTTP port, so 8096 is tried first and
