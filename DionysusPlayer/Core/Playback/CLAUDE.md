@@ -129,7 +129,7 @@ frame is in sync; a live change calls `setAudioDelay`.
   (about 0.3 s of held picture), a seek on `.software`. It saves at once, and
   closing the panel applies what's waiting (`flush()`).
 - **On iOS it's a page of its own under Audio** when the title has a choice of
-  tracks (Benjamin, 2026-10-18), reached from an "Audio Offset" row below
+  tracks, reached from an "Audio Offset" row below
   them; with one track it sits on the Audio page itself. `+`/`−` repeat
   while held (`.buttonRepeatBehavior`).
 - **The software route runs slightly offset on an eARC chain** (Living Room,
@@ -151,7 +151,7 @@ AirPlay as stereo. It needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
 (`Packages/AetherEngineWithObjectAudio`, root `CLAUDE.md`). Design:
 `docs/superpowers/specs/2026-10-19-spatial-audio-resume-season-tiles-design.md`.
 
-- **Replaced APAC rather than joining it** (Benjamin, 2026-10-30): APAC or
+- **Replaced APAC rather than joining it**: APAC or
   PCM is how the bed travels, not something a viewer can choose well, and
   `.render` makes the one call that matters (AirPlay). PCM also drops the
   APAC encode, about a core, which on the A15 Apple TV was the half of the
@@ -166,7 +166,7 @@ AirPlay as stereo. It needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   playing or paused as it was (`spatialBedNeedsRebuild`). Not across an
   external-playback edge (the video AirPlayed to a TV): AetherEngine reloads
   the session itself there, which re-chooses the bed. Shipped untested on
-  hardware (no AirPlay device to hand; Benjamin, 2026-10-30).
+  hardware (no AirPlay device to hand).
 - **One rendering per session, for both formats.** `objectAudioRendering` is
   `.off` or `.render(layout)` and applies to TrueHD Atmos and DTS:X alike, so
   two toggles with their own layouts need the format known before load.
@@ -203,38 +203,26 @@ AirPlay as stereo. It needs the `TrueHDObjectAudio`/`DTSXObjectAudio` traits
   `LiveTelemetry.objectAudio` ("7.1.4 · 13 objects, 4 overhead"; DTS:X shows
   its height channels): the one in-app sign the route was taken. tvOS's
   engine loops a silent Atmos stream so soundbars light their indicator
-  (`AtmosOutputActivator`), only while every output is HDMI since 7.45.0
-  (AE#834: over AirPlay to a HomePod pair it silenced the programme after a
-  pause); nothing to do in the app.
-- **What a receiver shows** (the help page lists all three; Benjamin,
-  2026-10-30): Dolby Atmos, Multichannel PCM or LPCM, never DTS:X. tvOS
+  (`AtmosOutputActivator`), only while every output is HDMI; nothing to do in the app.
+- **What a receiver shows** (the help page lists all three): Dolby Atmos, Multichannel PCM or LPCM, never DTS:X. tvOS
   sends the bed as Dolby MAT, which some sinks show as Atmos on their own;
   AetherEngine's silent Atmos stream (above) lights the rest for TrueHD
   Atmos, and never runs for DTS:X, so a DTS:X film may show as multichannel
-  PCM. Measured on the Living Room AVR (2026-10-30, PCM bed): Gravity
-  (TrueHD Atmos) shows Dolby Atmos, Apollo 13 (DTS:X) shows "Multi In"
-  (multichannel PCM). Under APAC both showed Atmos (2026-10-20).
+  PCM (measured: Gravity shows Atmos, Apollo 13 "Multi In").
 - **The section's footer is one sentence, and the rest is a page of its
-  own** (`SpatialAudioHelp`, Benjamin, 2026-10-23): iOS's footer ends in
+  own** (`SpatialAudioHelp`): iOS's footer ends in
   Learn More…, which opens a sheet; the Apple TV's section ends in an About
   Spatial Audio row, since focus never reaches a footer there. Nothing on it
-  may call the feature beta: the section was headed "Spatial Audio (beta)"
-  for a day, and App Review rejects a store build with a feature labelled
-  beta (guideline 2.2; `SpatialAudioHelpTests` keeps it out).
-- **Stalls on the A15 Apple TV were AetherEngine #850, fixed in 7.48.0.**
-  The TrueHD decode and APAC encode ran the engine's segment producer at
-  only ~1.2x real time, and its QoS retune dropped it to `.utility` at 16 s
-  of lead, where it ran below real time, so a 4K remux stalled every few
-  minutes. The pump now stays on `.userInitiated` once it measures below
-  real time there (28 min of a 4K Atmos remux, no stalls, Living Room,
-  2026-10-25), and the help page's "may pause to buffer" paragraph is gone.
-  If stalls come back, the Read-Ahead Buffer can't help: the producer is the
-  limit, not the network.
+  may call the feature beta: App Review rejects a store build with a feature
+  labelled beta (guideline 2.2; `SpatialAudioHelpTests` keeps it out).
+- **Stalls on the A15 Apple TV were AetherEngine #850, fixed in 7.48.0.** If
+  they come back, the Read-Ahead Buffer can't help: the segment producer is
+  the limit, not the network. Check a Release build first: a Debug build's
+  unoptimised engine runs the Atmos render at ~0.2x real time.
 
 ## Night Mode
 
-One switch over three saved levels, like Night Shift (Benjamin, 2026-11-16,
-#363; design in `docs/superpowers/specs/2026-11-16-night-mode-design.md`):
+One switch over three saved levels, like Night Shift (#363; design in `docs/superpowers/specs/2026-11-16-night-mode-design.md`):
 Night Audio, Volume Limit and Brightness, stored per device
 (`NightModeStore`: `UserDefaults` on iOS, the shared keychain on tvOS) and
 shown in the player (a moon button on iOS, the Night tab on the Apple TV) and
@@ -267,9 +255,9 @@ and on `significantTimeChangeNotification`.
   available when transcoding". The next stream that can, gets it.
 - **Toggling it holds the picture** while the engine rebuilds at the
   playhead: AetherEngine quotes 0.3 s, **1 to 2 s measured on the Living Room
-  Apple TV** (accepted, Benjamin, 2026-11-16). Repeated calls fold.
+  Apple TV** (accepted). Repeated calls fold.
 - **A switch the schedule makes mid-play eases in and says so**
-  (Benjamin, 2026-11-17): the dimming fades and the volume ramps over 2 s
+ : the dimming fades and the volume ramps over 2 s
   (`nightModeTransitionDuration`; the views animate to
   `videoDimFadeSeconds`, and `rampVolume` steps `engine.volume` 20 times a
   second), and a capsule in the toast's style says "Night Mode starting as
@@ -302,8 +290,7 @@ and on `significantTimeChangeNotification`.
   Release CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development"
   PROVISIONING_PROFILE_SPECIFIER="" DEVELOPMENT_TEAM=<team>`.
 - **Both levels are one row on both apps**, `[0%] [−] value [+] [100%]`
-  (`NightModeLevelRow`; Benjamin, 2026-11-16, option A of four after a
-  mockup): −/+ step 5% and repeat while held, a button that would do nothing
+  (`NightModeLevelRow`): −/+ step 5% and repeat while held, a button that would do nothing
   is dimmed. Under VoiceOver (`@VoiceOverEnabled`) a row is **one adjustable
   element** (5% a swipe) with "Set to 0%" and "Set to 100%" as actions. The
   levels can be set while Night Mode is off and show greyed.
@@ -324,7 +311,7 @@ Playback → Advanced, both apps; `ReadAheadBufferStore`): 30 s to 10 min in
 30 s steps, 5 min by default, read at each load and passed as
 `LoadOptions.forwardBufferSegments` (the engine's segments are ~4 s, so 5 min
 is 75). AetherEngine's own default, about 40 s, ran dry on a 4K remux over
-powerline and Wi-Fi (Benjamin, 2026-10-21): a direct-play remux has one fixed
+powerline and Wi-Fi: a direct-play remux has one fixed
 bitrate, so the buffer is its only cushion, where a streaming service drops
 quality instead. Players for local libraries buffer in minutes (Infuse,
 Kodi's raised caches); ExoPlayer's 50 s and AVPlayer's own are tuned for
@@ -340,8 +327,7 @@ figure is AVPlayer's own, only a few segments. **On the software route**
 Simulator) the seconds are the engine's packet cache ahead of the playhead
 (`bufferedPosition − currentTime`), which fills to the Read-Ahead Buffer, and
 there is no KB: the engine publishes only that cache's resident size, played
-packets included. Until 2026-10-23 the row read N/A there, since
-`bufferedPosition` once tracked the playhead on that route.
+packets included.
 
 ## After the app comes back from the background
 
@@ -464,16 +450,13 @@ in coded pixels, goes onto the coded frame width-aligned and centred (a
 cropped-video rip's canvas is taller than its video), then that rect scales
 onto the picture per axis. Since AetherEngine 7.56.0 (DVB) and 7.59.0 (DVD)
 those planes report the coded frame as their canvas, which then covers the
-picture exactly. Until 2026-11-13 the rect came from the coded size alone and
-the canvas went width-aligned onto it, so on anamorphic video every cue sat
-against a picture that was too tall. Square pixels, nearly everything, are
+picture exactly, anamorphic video included. Square pixels, nearly everything, are
 unchanged; `SubtitlePictureGeometryTests` and `PlacedSubtitleJourneyTests`'
 `anamorphicVideo` journey pin both.
 
 ### ASS/SSA Subtitles
 
-Profile → Playback → Advanced → ASS/SSA Subtitles (named "Subtitle Styling"
-until 2026-10-30, renamed to stay clear of Subtitle Style), on by default
+Profile → Playback → Advanced → ASS/SSA Subtitles, on by default
 (`styledASSSubtitlesEnabledDefault`), is an escape hatch for a script whose
 typesetting fights the phone. The one gate is
 `PlayerViewModel.handleSubtitleTrackChange`'s `isStyledASSEnabled()`; off, an
@@ -484,8 +467,8 @@ everyone who never opened Settings.
 
 ### Subtitle Style
 
-Profile → Playback → Subtitle Style (both platforms; Benjamin,
-2026-10-30) picks how `SubtitleOverlayView` draws a **text** cue: **Match
+Profile → Playback → Subtitle Style (both platforms) picks how
+`SubtitleOverlayView` draws a **text** cue: **Match
 System**, the default, or **Dionysus**, the app's own look
 (`SubtitleTextStyle.dionysus`). System reads Settings › Accessibility ›
 Subtitles & Captioning through AetherEngine's `SubtitleCaptionStyle` (7.48.0)

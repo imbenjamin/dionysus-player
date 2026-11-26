@@ -3,7 +3,7 @@
 How this repo is tested: the suites and where they run, how to run them, the
 UI-test harness, the rules that keep the journeys reliable, and what is still
 checked by hand. What each test pins is in the test itself (its name and doc
-comment); the index at the end says where to look.
+comment); "Where each thing is tested" at the end says where to look.
 
 ## The suites
 
@@ -47,14 +47,13 @@ python3 -m unittest discover -s Scripts/ci -v
 
 Use whatever `xcrun simctl list devices available` shows. Check Apple TV
 changes on a tvOS 26 Simulator as well as 27: 26.0 is the floor and focus
-behaves differently there. Since 2026-11-18 that check is by hand (idb, or
-the remote), not by journey: on the Mac, too, XCUITest now reads a stale tree
-on tvOS 26.5 every time ("Not tvOS 26.5", below; #488).
+behaves differently there. That check is by hand (idb, or the remote), not
+by journey: XCUITest reads a stale tree on tvOS 26.5 ("Not tvOS 26.5",
+below).
 
 The Apple TV commands name the 4th generation, on tvOS 27.2: Xcode 27.2 on the
-Mac won't resolve `name=Apple TV 4K (3rd generation)`, whose Simulator is on
-tvOS 27.0 (2026-11-03). CI keeps the 3rd generation on tvOS 27.0 with Xcode
-27.1. Both have the same 1920×1080pt screen.
+Mac won't resolve the 3rd generation. CI keeps the 3rd generation on tvOS
+27.0 with Xcode 27.1. Both have the same 1920×1080pt screen.
 
 **Before a full Apple TV UI run, run one journey on its own as a warm-up**,
 as CI does ("The first test's warm-up", below), and ignore how it ends:
@@ -65,13 +64,9 @@ xcodebuild test -project DionysusPlayer.xcodeproj -scheme DionysusTV \
   -only-testing:DionysusTVUITests/CollectionGridJourneyTests/test_tile_opensItsDetailPage_andMenuReturnsToIt
 ```
 
-Without it the plan's first test, `AccessibilityAuditTests.test_boxSet`, can
-fail at `TVShellJourney.pressDown` on a tvOS 26.5 Simulator with nothing wrong
-(2026-10-13). The recording shows Collections focused, but XCUITest's tree
-keeps the collapsed sidebar's attributes (every row Disabled, none focused),
-so the loop presses on to Playlists. Whichever test runs first takes it:
-`test_playlist` failed the same way when run first, and `test_boxSet` passed
-after it.
+Without it the plan's first test can fail with nothing wrong: XCUITest's
+tree lags the app (every sidebar row Disabled, none focused), and whichever
+test runs first takes it.
 
 **Likewise before `UITests-Full` on a Simulator you've just booted** (#431):
 
@@ -237,6 +232,9 @@ from a Release binary (`nm -a` on a Release build finds none).
 `AppState` exists, since `ServerSessionStore` reads `UserDefaults` and the
 Keychain as it's made.
 
+- **`-UITestMode YES` is the master switch**: every other `-UITest…` argument
+  is ignored without it. Each flag needs an explicit `YES`/`NO` (a bare
+  `-Flag` reads as unset).
 - `-UITestResetState` clears both, the shared tvOS keychain and the tvOS
   session settings included. The Keychain outlives the app's container, so
   without it one test's sign-in seeds the next test's "first launch".
@@ -387,6 +385,8 @@ JSON, so a DTO change is a compile error rather than silent rot.
 | `failingDetail` / `failingHome` / `failingLibrary` | `movie-03`'s item, Home's hero query, or the Movies listing answers 500 |
 | `slowBoxSet` / `emptyBoxSet` | The box set held, or empty |
 | `slowItems` | Every list of items held (Home and a library loading on Apple TV) |
+| `slowPublicUsers` | `/Users/Public` held, so Change Server can be checked while Who's Watching? loads (Apple TV) |
+| `slowSignIn` | Signing in held, so a seeded session's launch stays on the Apple TV splash past its spinner's delay |
 | `largeCast` | Ten people on a movie, so Cast & Crew runs far past the action row |
 | `noBackdrop` | Items fetched on their own have no backdrop |
 | `missingTileArtwork` | The part-watched movie's artwork 404s |
@@ -477,7 +477,7 @@ read the real tree; every rule below came from doing that.
   buttons keep theirs); select the alert's only text field. On tvOS a
   `.confirmationDialog`'s buttons lose theirs too, so the app's questions are
   covers of its own.
-- **iOS 18 differs from 26** (#259): the back button has no `BackButton`
+- **iOS 18 differs from 26 and later** (#259): the back button has no `BackButton`
   identifier (use `app.navigationBackButton`); XCUITest won't scroll a
   horizontal row to an off-screen control and `isHittable` throws for one
   (judge by frame, as `CollectionScreen.openFilter` does); iPad split views
@@ -643,7 +643,7 @@ so a debugging session or a journey can go straight to the screen it's
 about instead of tapping its way there. They exist for this: nothing in the
 app makes, copies or shares one, and they navigate and play, never change
 data (no sign-in, sign-out, delete, watched or favourite). How each app
-applies them is in `CLAUDE.md`, "Deep links".
+applies them is in `DionysusPlayer/Core/DeepLinks/CLAUDE.md`.
 
 **Opening one by hand**, on a Simulator only:
 
@@ -836,50 +836,23 @@ together**: `Scripts/ci/test_random_plans.py`, in the PR's "CI scripts" job,
 fails when a pair differs in anything but the order and the configuration's id
 (TQ-26).
 
-- **Not tvOS 26.5, and not `macos-26`** (#319): on tvOS 26.x in CI the
-  accessibility tree never shows a page the shell opens after launch. The
-  recording shows the page, but every tree XCUITest reads still lists Home, so
-  four of the seven smoke journeys fail. Not SwiftUI animation, remote query
-  evaluation, the runner's simulator, the host (`macos-26` and `xcode-27`),
-  Xcode (26.6 and 27.1) or a missing screen-changed notification; each was
-  tried. tvOS 27.0 passes on the same runner. So 26.5
-  runs nightly only, as `tvOS floor smoke tests` with `allow-failure`
-  (downloading its runtime, about five minutes). When it passes, make it a PR
-  check.
-
-  **Settled as a limitation of CI's machines, not chased further** (TQ-04,
-  2026-11-07). A probe of a Home tile's detail page and a sidebar move, 64
-  cases a run, read a stale tree in 69–81% of cases in CI on every setup
-  tried: Xcode 27.1 and 27.2 (27B52), with and without a result bundle, tvOS
-  26.5 (23L470) and 26.0 (23J352); switching on the Simulator's
-  `ApplicationAccessibilityEnabled`/`AutomationEnabled` made it 100%. A Mac
-  with the same Xcode, runtime build and device model saw it once in 109
-  cases. In a stale tree frames stay live (the sidebar has its open width)
-  while structure and enabled state freeze near launch: every sidebar row
-  Disabled (`railHeld`), the detail page absent. Nothing in the same launch
-  brings it back (waiting 15 s, a full snapshot, `activate()`, remote
-  presses), and a relaunch only sometimes does, so journeys can't wait it
-  out. VoiceOver isn't affected: on the 26.5 Simulator it read Resume, Search
-  and Movies right every time, by ear and in 15 scripted trials.
-
-  **Since 2026-11-18 the Mac sees it every time too** (#488): on the tvOS
-  26.5 Simulator, every journey that moves within the sidebar or opens a
-  page fails (the smoke plan's detail, player and grid journeys), on a
-  freshly erased device as well, and at the 2026-11-07 commit, so neither
-  the app nor the device's state brought it; nothing was installed on the
-  Mac in between. idb, reading the app's own accessibility, shows it right
-  (focus moves Home → Search → Movies, every row enabled), as does the screen.
-  So floor checks are by hand: the remote through idb (`idb ui key --udid
-  <udid> <code>`: up 82, down 81, left 80, right 79, Select 40, Menu 41),
-  `idb ui describe-point` on the focused item, and `xcrun simctl io <udid>
-  screenshot`. A journey's own launch arguments (`launch` in
-  `TVUITestCase`) put the app on the stub through `xcrun simctl launch`.
+- **Not tvOS 26.5, and not `macos-26`** (#319): on tvOS 26.x XCUITest reads
+  a stale accessibility tree (frames live, but every sidebar row Disabled and
+  a page the shell opened absent), in CI most of the time and on the Mac
+  every time, while the screen, idb and VoiceOver all show it right. Nothing
+  inside a launch brings it back, so journeys can't wait it out. It isn't the
+  app, Xcode, the runtime build or the host; it's settled as a limitation,
+  not chased further. So 26.5 runs nightly only, as `tvOS floor smoke tests`
+  with `allow-failure`, and floor checks are by hand: the remote through idb
+  (`idb ui key --udid <udid> <code>`: up 82, down 81, left 80, right 79,
+  Select 40, Menu 41), `idb ui describe-point` on the focused item, and
+  `xcrun simctl io <udid> screenshot`. A journey's own launch arguments
+  (`launch` in `TVUITestCase`) put the app on the stub through `xcrun simctl
+  launch`.
 - **The first test's warm-up**: on tvOS 27.0 in CI the first UI test sometimes
-  read a tree seconds behind the app (PR #325), failing its retry too, while
+  read a tree seconds behind the app, failing its retry too, while
   every later test and a job re-run passed. So before the plan the workflow
-  runs one journey as a warm-up (`warm-up-test`), its result ignored. The
-  same lag shows on a tvOS 26.5 Simulator locally; "Running the tests" has
-  the local warm-up. The iOS jobs warm up too, on `UITests-Full` only, with
+  runs one journey as a warm-up (`warm-up-test`), its result ignored. "Running the tests" has the local warm-up. The iOS jobs warm up too, on `UITests-Full` only, with
   the Add to Playlist audit: in the first launch after boot a menu could
   ignore its taps (#431). Smoke's first test opens no menu, so it has none.
 - **The Simulator boots after the build, not during it** (2026-11-03).
@@ -1156,7 +1129,7 @@ What no suite can reach, and how it was or should be checked.
   (26.5 reads "1h 48m" as hours and minutes, 27 as "meters"), so a check of
   how text is pronounced still needs the device.
 
-**On the iPhone Duo Simulator** (Xcode 27.1's Device Hub)
+**On the iPhone Duo Simulator** (Xcode 27's Device Hub)
 
 - **The fold layouts** (the player's tabletop and book poses, the detail
   page's book spread): XCUITest can't fold the device, so a journey runs in
@@ -1187,230 +1160,25 @@ What no suite can reach, and how it was or should be checked.
 
 ## Where each thing is tested
 
-One line per test file: what it pins. The test names and doc comments carry
-the detail.
+Tests mirror the source tree, one file per type, named after what they pin;
+the test names and doc comments carry the detail. Grep the type's name to
+find its tests.
 
-### iOS and shared unit tests (`DionysusPlayerTests/`)
+- **`DionysusPlayerTests/`** (iOS, and shared code on tvOS too): `App/`,
+  `Core/<area>/` (DeepLinks, Downloads, Models, Networking, NightMode,
+  Persistence, Playback, Security, Support, UITestSupport), `Features/<feature>/`
+  for the view models, `Shared/` for components and navigation. `Support/`
+  holds `MockURLProtocol`, `FakePlaybackEngine`, `TLSTestServer` and async
+  helpers; `Fixtures/TLS/` the certificates (its `README.md`). Which
+  of these the tvOS scheme also compiles is "The shared tests on tvOS" above.
+- **`DionysusTVTests/`**: the Apple TV's own types, `TV<Type>Tests`, plus the
+  Top Shelf extension's (`TopShelf*Tests`).
+- **`DionysusPlayerUITests/Journeys/`**: one `<Area>JourneyTests` per screen
+  or flow, plus `AccessibilityAuditTests` (every screen), `VoiceOverJourneyTests`,
+  `DuoFoldJourneyTests` and `HarnessTests` (the harness itself). Screen
+  helpers are in `Screens/`.
+- **`DionysusTVUITests/`**: the same shape for the Apple TV, its helpers in
+  `Support/`.
 
-| File | Pins |
-| --- | --- |
-| `App/AppStateTests` | The phase machine, sign-in and silent sign-in, sign-out, offline launch, and tvOS's Who's Watching? launches |
-| `Core/DeepLinks/DeepLinkTests` | `dionysus://` links (#406): every destination and parameter, start-time formats, what a malformed link or unreadable parameter does, DEBUG-only overrides, and that a built link parses back to itself (the Top Shelf's links unchanged) |
-| `Core/DeepLinks/DeepLinkLibraryTests` | A `dionysus://library` link's grid: the rail's query seeded with its sort, order, genre, studio and filter; finding the library among the user's (not music); what it couldn't read. Also `DeepLinkProfilePageTests`: which Profile page each path names |
-| `Core/DeepLinks/DeepLinkItemOptionsTests` | An item link's season (by id or number, Specials too) and what a page says for a season or section it doesn't have |
-| `Core/DeepLinks/DeepLinkRouterTests` | Whether a link applies now: waiting on a restoring session, holding it through sign-in (10 minutes at most, not across a server change), refusing it for another server or user, stopping once the user changes mid-apply; a `server?url=` link only with no server set up |
-| `Core/Downloads/BulkVersionPlannerTests` | Whether a season download asks which version once, per episode or not at all (#289) |
-| `Core/Downloads/DownloadFileStoreTests` | Download file paths, sidecars and cleanup |
-| `Core/Downloads/DownloadManagerTests` | Delete (cancelling the task), the queue, one background session, retry budget and error classification |
-| `Core/Downloads/DownloadManagerBackgroundTests` | Adopting in-flight transfers after a relaunch, answering a background relaunch's completion handler, trickplay sheets, a retry that succeeds |
-| `Core/Downloads/DownloadManagerExtrasTests` | The subtitles and fonts fetched beside a video |
-| `Core/Downloads/DownloadStoreTests` | SwiftData round-trips for downloads |
-| `Core/Downloads/DownloadSyncManagerTests` | Pushing offline watched and resume state on reconnect |
-| `Core/Downloads/DownloadTypesTests` | The quality ladder's bits-per-pixel rule (`DOWNLOADS.md`) |
-| `Core/Downloads/DownloadVersionChoiceTests` | A single download's version question: always with two or more, the remembered pick marked, the long-press sheet's starting choice, and asking after a sheet that offered no picker or whose pick is gone |
-| `Core/Downloads/DownloadedItemTests` | A download's estimated size |
-| `Core/Downloads/FileSizeTextTests` | File sizes shown and spoken |
-| `Core/Downloads/OfflineTrickplayThumbnailProviderTests` | Scrub thumbnails from downloaded trickplay sheets |
-| `Core/Models/LicenseDocumentTests` | The License page's text: the app's licence, then each bundled library's notices under its name; every library that ships has them |
-| `Core/Models/MediaCollectionRailTests` | A rail's tile shape, decided for the whole rail |
-| `Core/Models/MediaItemTests` | All display logic: dates, durations, labels, badges, versions, image URLs and fallbacks, optimistic updates, equality |
-| `Core/Models/MediaVersionChoiceTests` | When a play asks which version (the resume point decides, not the button), what it marks "(Last Played)", and what auto-advance carries over (#289) |
-| `Core/Models/SearchResultTests` | Search hints mapped for display |
-| `Core/Models/ServerConfigurationTests` | Parsing a typed server address |
-| `Core/Models/ServerCertificateTrustTests` | A trust's Codable shape, fingerprints, and the Profile summary |
-| `Core/Networking/ServerTrustPolicyTests` | The policy table row by row, with real certificates through `SecTrust`: names (wildcards too), exact leaf, expiry, other origins |
-| `Core/Networking/ServerTrustRegistryTests` | The candidate, report-once-per-leaf per launch, the hook's refusals reported later |
-| `Core/Networking/ServerTrustSessionCoverageTests` | The API client (on a session with its own registry) and the player's fetch against `TLSTestServer`: accepts the trusted certificate, refuses a changed one (`.serverCertificateUntrusted`) and reports it; the image loader's and ad-hoc download sessions carry the delegate; the download router's synthetic challenge |
-| `Core/Security/CertificateWarningCopyTests` | The warning's wording: a trust by name whose certificate still carries a trusted name (matched as the policy matches, wildcards one label) reads as no longer valid, naming them; every other change keeps "Has a New Certificate" |
-| `Core/Security/*` | Certificate details and classification (names vs pinned), DNS names read with swift-asn1 |
-| `Core/Models/WatchBadgesTests` | Which corner badges a tile shows, on both platforms |
-| `Core/Networking/ConnectivityMonitorTests` | Offline detection |
-| `Core/Networking/DeviceProfileTests` | The `DeviceProfile` sent for transcoding decisions |
-| `Core/Networking/ImageURLBuilderTests` | Image and trickplay URLs |
-| `Core/Networking/JellyfinAPIClientTests` | Request building, decoding, re-authentication, timeouts, Quick Connect, playlists, deletion, subtitles and attachments |
-| `Core/Networking/JellyfinAPIErrorTests` | Error messages |
-| `Core/Networking/JellyfinAuthorizationTests` | The `Authorization: MediaBrowser` header |
-| `Core/Networking/JellyfinCodingTests` | Jellyfin's JSON coding |
-| `Core/Networking/LibraryAvailabilityTests` | Library availability and its retry |
-| `Core/Networking/RemoteImageLoaderTests` | Retry with backoff, caching, de-duplication |
-| `Core/Networking/ServerDiscoveryTests` | Parsing discovery replies; the subnet sweep |
-| `Core/Networking/TrickplayThumbnailProviderTests` | Trickplay tile maths and fetching |
-| `Core/NightMode/NightModeScheduleRulesTests` | Which value the schedule puts in force: a boundary passed or not, a window across midnight, equal times, several missed boundaries collapsing to the latest, the next wake, a time-zone change |
-| `Core/NightMode/NightModeStoreTests` | Night Mode's defaults, levels clamped to 0...100 in steps of 5, the schedule's storage |
-| `Core/NightMode/NightModeControllerTests` | The one on/off value: a manual flip held until the next boundary, the schedule's toggle changing nothing at once, the effect handed to a session with its cause (the schedule or by hand) |
-| `Core/NightMode/NightModeTimeFormatTests` | The schedule's times, 12- or 24-hour per the locale |
-| `Core/NightMode/NightModeTimeStepTests` | The Apple TV's 15-minute time steps, wrapping past midnight, an off-grid time stepping to the next quarter hour |
-| `Core/Persistence/DeviceIdentityTests` | The device id, made once and kept; client and device names |
-| `Core/Persistence/DownloadPreferencesStoreTests` | Download preferences |
-| `Core/Persistence/DownloadQualityLadderStoreTests` | Per-device ladder overrides |
-| `Core/Persistence/KeychainStoreTests` | Keychain round-trips and scopes |
-| `Core/Persistence/MediaVersionPreferenceStoreTests` | The remembered media version |
-| `Core/Persistence/SearchHistoryStoreTests` | Search history and its cap |
-| `Core/Persistence/ServerSessionStoreTests` | Server and credentials storage; tvOS's remembered accounts and `moveSession` merges |
-| `Core/Persistence/ReadAheadBufferStoreTests` | The Read-Ahead Buffer's steps, default, snapping and segments |
-| `Core/Persistence/StreamPreferenceStoreTests` | Streaming mode and bitrate defaults |
-| `Core/Persistence/TrackPreferenceStoreTests` | Remembered audio and subtitle choices |
-| `Core/Playback/ASSSeekHoldTests` | Holding libass back until the engine re-measures after a seek |
-| `Core/Playback/ASSSubtitleGeometryTests` | libass's frame, margins and font scale in both orientations |
-| `Core/Playback/AetherPlaybackEngineClassificationTests` | Playback errors classified as refused, rate-limited or transient |
-| `Core/Playback/AetherPlaybackEngineLoadOptionsTests` | The display context passed to the engine |
-| `Core/Playback/PlaybackLinkOverridesTests` | What a play link asks of its session (#406): its start, the engine track for Jellyfin's stream index, one toast for what it lacks, and (DEBUG-only) its mode and bitrate over the Streaming settings |
-| `Core/Playback/PlaybackSegmentTests` | Duplicate intro, recap and credits segments merged into one |
-| `Core/Playback/StreamFormatDescriptionTests` | Stream format labels for Playback Stats |
-| `Features/AssetDetails/AssetActionTargetsTests` | What Add to Playlist and Delete offer on a detail page, and their words (iOS and the Apple TV) |
-| `Features/AssetDetails/AddToPlaylistViewModelTests` | The Add to Playlist picker: editable destinations, adds, creating one |
-| `Features/AssetDetails/AssetDetailViewModelTests` | Detail pages by kind: loading, play targets (a play link's too), seasons, watched and favourite, deletion, playlists |
-| `Features/AssetDetails/SeasonDownloadCoordinatorTests` | A season download's scan, question and queue: the answer applied, cancel (mid-scan too), one run at a time, an episode downloaded by hand meanwhile left alone, failed scans, bounded concurrency (iOS only) |
-| `Features/AssetDetails/VersionedPlaybackStartTests` | Resume and Restart playing the remembered version alike, asking when nothing remembered is listed, and a version auto-advance carried on remembered (iOS only) |
-| `Features/Collection/CollectionGridViewModelTests` | Grid queries, sorting and the cascading filters, and the presets a query seeds them with |
-| `Features/Downloads/DownloadsRowCaptionTests` | A download row's caption |
-| `Features/Downloads/DownloadsViewModelTests` | Grouping and bulk actions on the Downloads tab |
-| `Features/Home/DynamicRailCandidateTests` | Which dynamic rails Home offers |
-| `Features/Home/HomeViewModelTests` | Home's fan-out, the hero, retries after reconnecting |
-| `Features/Login/LoginViewModelTests` | Sign-in and its errors |
-| `Features/Login/QuickConnectViewModelTests` | Quick Connect polling, expiry and sign-in |
-| `Features/Login/UserAvatarTests` | The sign-in avatar's image URL, and a transparent picture hiding the monogram |
-| `Features/Player/ASSSubtitleMappingTests` | Which tracks go to libass, the ordinal mapping, the styling setting and the font source |
-| `Features/Player/NightModePanelTests` | The Night panel's rows and what they say (Night Audio's note, "Not available when transcoding") |
-| `Features/Player/PlaybackRequestTests` | A playback request's identity (start from the beginning, media version) |
-| `Features/Player/PlaybackStatsReportTests` | Playback Stats' rows |
-| `Features/Player/PlayerControlsOverlayTests` | The skip step |
-| `Features/Player/PlayerViewModelNightModeTests` | Night Mode applied to the engine at load and on change (shaping, volume, the dimming opacity), Spatial Audio's rebuild order around it; a scheduled switch's fade, volume ramp and notice, a change by hand cancelling a ramp |
-| `Features/Player/PlayerViewModelOfflineTests` | Offline playback of downloads |
-| `Features/Player/PlayerViewModelTests` | Resume, reporting, transport, tracks, versions, errors, the background reload and stopping while offline; a play link's start, tracks, version, Playback Stats and (DEBUG-only) mode and bitrate, for its one session |
-| `Features/Player/SubtitleOverlayLayoutTests` | Subtitle metrics on phone and TV |
-| `Features/Profile/QuickConnectApprovalViewModelTests` | Approving another device's code |
-| `Features/Search/SearchViewModelTests` | Search and its history |
-| `Features/ServerSetup/ServerSetupViewModelTests` | Connecting, the HTTP fallback, the Local Network prompt, discovery |
-| `Shared/AppVersionInfoTests` | The version string |
-| `Shared/BackdropLogoOverlayTests` | The hero logo's tilt rotation |
-| `Shared/Components/ActiveFoldTests` | Reading the iPhone Duo's fold, and where the player and the detail page's book spread put things around it |
-| `Shared/Components/AsyncRemoteImageFillTests` | Placeholders while loading and after failure |
-| `Shared/Components/HeroScrollEdgeScrimTests` | The hero's scroll-edge scrim and status bar |
-| `Shared/Components/OnboardingLayoutTests` | Onboarding's composition per measured device size |
-| `Shared/Components/ToastCenterTests` | Toasts |
-| `Shared/DeviceTiltObserverTests` | Tilt smoothing and the sensor's reference counting |
-| `Shared/Navigation/DeepLinkNavigationTests` | Where each `dionysus://` destination lands on iPhone and iPad: tab, Home's stack, Search's query, the play cue, the page cue for a season or section (not for an offline download), a library to find, Profile's page and Quick Connect's code, and what a link says it couldn't do |
-| `Shared/Navigation/TabBarTintTests` | Which tab bar placements let Home's hero pick the tab tint (iPad's top bar, not a Duo's) |
-
-### Apple TV unit tests (`DionysusTVTests/`)
-
-| File | Pins |
-| --- | --- |
-| `MediaPlaceholderGlyphTests` | The placeholder glyph's scale on TV |
-| `SessionScopeSettingTests` | Follow Apple TV Users and Select a User Every Relaunch: defaults, storage, when Who's Watching? is asked |
-| `TVAccessibleTransportTests` | When the accessible transport is on, and what it announces |
-| `TVAlphabetIndexTests` | The grid's alphabet index: letters, jump targets, direction |
-| `TVAppIconTests` | The icon and Top Shelf images are in the bundle |
-| `TVAppLaunchTests` | What the app's own launch sets up |
-| `TVChapterProgressTests` | The Chapters tab's progress bars |
-| `TVDetailFormatTests` | Detail-page text (time left, Play's title) |
-| `TVDetailHeaderArtTests` | The image beside a title with no backdrop |
-| `TVEpisodeLogoTests` | Which tiles carry a show's logo |
-| `TVFullDetailsSectionsTests` | The Apple TV's details for a title with one version and with several: version tabs and the summary's Versions row |
-| `TVHeroPagerTests` | When the hero's timer runs, and paging |
-| `TVHeroPlayTargetTests` | What Play on a series plays |
-| `TVKeyboardCommandTests` | The space bar as Play/Pause |
-| `TVMotionTests` | Reduce Motion dropping a moving animation; Increase Contrast drawing translucent text solid |
-| `TVNightModePageTests` | The Night Mode page's rows and its time steppers |
-| `TVOnboardingSpeechTests` | The Quick Connect code spoken; discovery announcements |
-| `TVPageKeepAliveTests` | Which pushed pages stay built |
-| `TVPlaybackSessionTests` | A session's start, end and reported outcome |
-| `TVPlaybackTimeFormatTests` | Player times |
-| `TVPlayerAccessibleTransportTests` | The reducer in the accessible mode |
-| `TVPlayerCommandRunnerTests` | Commands reaching the engine through the view model |
-| `TVBufferingSpinnerTests` | When the player's stall spinner shows |
-| `TVPlayerContextTests` | What the player accepts input in |
-| `TVPlayerFlashTests` | The play, pause and skip glyphs; the scrubber's knob |
-| `TVPlayerFocusIDTests` | The player's focus marker |
-| `TVPlayerHostAdvanceTests` | What resets for the next item |
-| `TVPlayerInfoArtTests` | The Info tab's art |
-| `TVPlayerInputModelTests` | The remote as a table: state, input, commands |
-| `TVPlayerInputTests` | The input model's driver: fades, resets, announcements |
-| `TVPlayerNightPanelTests` | The Night tab as a remote table: its rows, the focus path among a level's controls, hold-to-repeat |
-| `TVPlayerOverlaysTests` | Skip and Next Up as focus stops |
-| `TVPlayerPanelTests` | The swipe-down panel |
-| `TVPlayerPresenterTests` | No second player in the presented chain |
-| `TVPlayerScrubTests` | Scrubbing and scanning |
-| `TVPlayerSurfacePolicyTests` | Which view draws each route |
-| `TVPosterCellTests` | A grid poster's inset while loading or without art |
-| `TVPosterCollectionViewTests` | When focus enters the grid, so posters settle |
-| `TVProfileIdentityTests` | The sidebar's Profile entry, offline too |
-| `TVScrubThumbnailLoaderTests` | Throttled, ordered scrub thumbnails |
-| `TVSearchGroupingTests` | Search's rails and its announcements |
-| `TVSeasonEpisodesModelTests` | A show's episodes a season at a time |
-| `TVSettingsRowTests` | A destructive row's look at rest and in focus |
-| `TVShellNavigationTests` | Where the shell is, which rows take focus, popping to the root |
-| `TVShowArtTests` | Whose imagery a show's page draws |
-| `TVSidebarLayoutTests` | The sidebar's rows, the fold, icons, hidden rows |
-| `TVSidebarModelTests` | The sidebar's library load |
-| `TVSignInRouteTests` | Where choosing a user leads |
-| `TVSignOutTests` | Sign Out forgets; Switch User keeps |
-| `TVSwipeGateTests` | Swipes becoming scrubs or steps |
-| `TVTextPageViewTests` | The License page: each library's notices after its name, as a heading |
-| `TVTileCaptionTests` | A caption's lift under a focused card |
-| `TVTileShapeTests` | Posters or landscape, per rail or grid |
-| `TVTransportLayoutTests` | The scrubber, buffered bar and preview |
-| `TVVersionPickerTests` | The "Choose a Version" page's focus and labels, what a decision does to a start, what auto-advance does with the player's own decision, and a version it carried on remembered |
-| `TVWhosWatchingLayoutTests` | Who's Watching? order |
-
-### iOS journeys (`DionysusPlayerUITests/Journeys/`)
-
-| File | Covers |
-| --- | --- |
-| `AccessibilityAuditTests` | The structural audit over every screen |
-| `AddToPlaylistJourneyTests` | Adding to a playlist: the editable filter, confirmations, creating one |
-| `AssetDetailJourneyTests` | The detail layouts (favourite and watched, resume, episodes, box sets, playlists), the Cast & Crew and Details tabs, deletion and its permission gate, deleting a season (folderless too), removing a playlist item |
-| `AuthJourneyTests` | Welcome, server setup, discovery, the certificate trust offer (self-signed, name mismatch; #466), the HTTP fallback, every sign-in path |
-| `CertificateWarningJourneyTests` | The changed-certificate warning (#466): both fingerprints, each answer (Trust New Certificate, Change Server after its confirmation, Not Now with Downloads reachable), raised over a sheet or during playback, the offer for an untrusted server, a lapsed trust by name (`changedCertificate`, `untrustedCertificate`, `certificateChangesMidSession`, `lapsedNameCertificate`) |
-| `CollectionJourneyTests` | Grid filters (combined, never emptying the grid), Random |
-| `DeepLinkJourneyTests` | `dionysus://` links (#406): tabs, Search, a library's grid with its facets, Profile's License, Privacy Policy, Advanced and Night Mode (and a page of the pane already showing), Quick Connect's code filled but not approved, a title's page, a show on the linked season, the Cast tab, a season or section the page doesn't have, playing over it (a show, the player closing first), a start time or chapter, tracks, Playback Stats, a playlist member with the rest queued, the downloaded copy, a missing or unplayable title, an unknown library or Profile page, Quick Connect turned off, another server, an unreadable link or start time, a missing chapter or download, a cold launch, a link held through sign-in; DEBUG-only: a bitrate `mode=direct` can't cap, a server link filling setup's address without connecting, and refused while signed in |
-| `DuoFoldJourneyTests` | The iPhone Duo's fold layouts checked against the fold in their pose: the player (tabletop, book), the detail spread (book), Home's hero (tabletop), Search's empty state (book, tabletop); skipped elsewhere |
-| `DownloadsJourneyTests` | Downloading to completion (an item, or a season at once), a season's version question (once, per episode, cancelled), the row updating while open, bulk delete, cancelling a selection, and offline after a relaunch with `offline`: a downloaded movie and episode, and a show's page (one season flat, two as seasons) and a season's, each opened and played; offline Up Next (#274, `earlyCredits` downloads keep the credits at 0:05): Delete & Play Next in Play Now's place, playing S1:E2, landing on its page and deleting S1:E1, the countdown and Cancel deleting nothing, and a gap (S1:E2 not downloaded) showing no card |
-| `HarnessTests` | The harness itself: scenarios served, state cleared between launches |
-| `HeroLogoFallbackUITests` | The logo's text fallback timing |
-| `HomeJourneyTests` | The hero, See All, and a refresh scrolling rails back to their start |
-| `MediaVersionJourneyTests` | Choosing a version to play (#289): Play asking with the remembered version marked, Resume and Restart playing it silently, asking when nothing remembered is listed, auto-advance, an episode row's and a playlist row's Play, Playback Stats' Version row, and a plain play link never asking |
-| `NightModeJourneyTests` | The player's Night panel: the switch, each level reaching the fake engine and the Playback Stats row, "Not available when transcoding" on a server transcode (`transcode`), the schedule's summary, the notice when the schedule switches it mid-play |
-| `OfflineErrorJourneyTests` | `serverError`, `unauthorized` and `offline`; Try Again loading Home once the server answers (`librariesFailAtFirst`) |
-| `PlacedSubtitleJourneyTests` | Subtitles the source places: `\an8` and `\pos` text cues, a bitmap cue on a canvas taller than the picture, and one on anamorphic video (`anamorphicVideo`), each by its frame |
-| `PlayerFeedbackJourneyTests` | The scrub bubble's trickplay still at either end (`scrubThumbnails`), "Reconnecting…" until playback resumes (`reconnecting`), the PiP button left out without PiP and, by tap, covering the player until PiP ends (`pictureInPicture`) |
-| `PlayerJourneyTests` | Skips, the track and chapter pickers, Playback Stats' pages, the end of an item, Next Up (Play Now, Cancel, the countdown; `earlyCredits`; a streamed card never offers Delete & Play Next) |
-| `ProfileJourneyTests` | The audio offset, Read-Ahead Buffer and Spatial Audio settings, Night Mode's page (its schedule's Turn On read back by the player's summary, equal times' note) (the Spatial Audio toggles also in smoke: Profile broke on some devices for days, 2026-10), Quick Connect approval, Sign Out, Change Server |
-| `SearchJourneyTests` | No results, a long history keeping the field visible, history across a relaunch |
-| `SmokeJourneyTests` | The PR gate's journeys |
-| `StyledSubtitleJourneyTests` | Styled subtitles, the styling setting, fonts not gating the script |
-| `VoiceOverJourneyTests` | Under `-UITestSimulateVoiceOver`: the player's Show/Hide Player Controls button, Skip Intro's dismiss button, the hero's announcement on Next, Home's Refresh button; and none of them without it |
-
-### Apple TV journeys (`DionysusTVUITests/`)
-
-| File | Covers |
-| --- | --- |
-| `AccessibilityAuditTests` | The structural audit over every Apple TV screen |
-| `AccountSwitchingJourneyTests` | Remembered accounts (a Quick Connect one too; refused, a password account opens its password screen and a Quick Connect one asks for a new code, `revokedSessions`), Forget This Account, Follow Apple TV Users, Select a User Every Relaunch |
-| `CertificateWarningJourneyTests` | The changed-certificate warning (#466) on the Apple TV: Not Now focused, each answer, over a cover, held back while the player is up, the offer for an untrusted server, a lapsed trust by name |
-| `CollectionDetailJourneyTests` | Box sets and playlists, empty and loading |
-| `CollectionGridJourneyTests` | A library's grid: pills, sort, filters, Reset, returning from a detail page |
-| `DeepLinkPlacesJourneyTests` | `dionysus://` links to places (#406): Search's query, Profile and Home, Profile's License, Advanced and Night Mode, Quick Connect's code filled but not approved, a library's grid with its facets, an unknown library, Downloads landing on Home, a show's linked season focused, focus on the cast, chapters not shown; DEBUG-only: a server link filling Find Your Server's address without connecting, and refused while signed in |
-| `DeepLinkPlaybackJourneyTests` | `dionysus://play` links' parameters (#406): a start time or chapter, Playback Stats with the setting off, a playlist member with the rest queued, a playlist over its page |
-| `DetailJourneyTests` | Detail pages: Menu, the keep-alive cap, rows, Full Details, no backdrop, failures |
-| `HomeJourneyTests` | The hero, See All, rails loading, a failing Home |
-| `LaunchJourneyTests` | First launch to Welcome and Find Your Server |
-| `LoadingJourneyTests` | Home and a library loading slowly keep focus off the sidebar |
-| `MediaVersionJourneyTests` | Choosing a version on the Apple TV (#289): the "Choose a Version" page, Menu cancelling, the Home hero's and a playlist row's Play, auto-advance asking over the player, a plain link never asking and the Top Shelf's `from=topshelf` Play asking |
-| `MenuToLandingJourneyTests` | Menu back to a page's landing view |
-| `MoreActionsJourneyTests` | A detail page's ⋯: its menu, Add to Playlist, New Playlist, Delete and where each lands |
-| `OnboardingJourneyTests` | Find Your Server, Who's Watching?, Quick Connect, the password screen; a wrong password, Other without Quick Connect, and an unverifiable HTTPS server's HTTP fallback (the port, accepting, cancelling) |
-| `PlayerAccessibleTransportJourneyTests` | The accessible transport, forced on |
-| `PlayerJourneyTests` | The player opens, takes the remote and closes, loading too |
-| `PlayerPanelJourneyTests` | The swipe-down panel's tabs and choices, the Night tab dimming the picture and showing in Stats, the notice when the schedule switches Night Mode mid-play |
-| `PlayerReturnJourneyTests` | Leaving the player back to the page as it was |
-| `PlayerScrubJourneyTests` | Icons, scrubbing, scanning, glyphs |
-| `PlayerSegmentJourneyTests` | Skip Intro and Next Up |
-| `PlayerStatsJourneyTests` | The stats toggle and panel |
-| `ProfileJourneyTests` | Profile's rows, pickers, covers and Sign Out; Night Mode's cover, its schedule's times stepped 15 minutes (and held), equal times' note |
-| `SearchJourneyTests` | Search, Recent Searches, the full-screen layout |
-| `ShowDetailJourneyTests` | A show's page: Play, season tabs, episodes, badges |
-| `SidebarJourneyTests` | The sidebar: open, close, choose, fold, retry |
-| `TileShapeJourneyTests` | Tile shapes on screen |
-| `TopShelfLinkJourneyTests` | `dionysus://item` and `play` links, as the Top Shelf opens them and typed without a server: over Home, over a playing title, a missing title, another server, and held through sign-in |
+A new test goes in the folder matching its type's source path, and a new
+journey in the full plan (the smoke plans are curated PR gates).
