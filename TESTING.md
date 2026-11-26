@@ -105,7 +105,7 @@ protocol, so there's no fake client: `Support/MockURLProtocol.swift` is a
 `URLProtocol` stub. Make a session with `MockURLProtocol.makeSession()`, inject
 it into a real client, and script `MockURLProtocol.requestHandler`. What's
 under test is the client's real request building and decoding. View model
-tests reuse it, since view models take an already-built client. Four things
+tests reuse it, since view models take an already-built client. A few things
 that aren't guessable:
 
 - **A request from an earlier test can't reach the current one's handler.**
@@ -729,9 +729,8 @@ available", exit 70), but `macos-15` carries 18.6: `ui-tests.yml`'s
 cache, once, and the floor jobs install it with `xcodebuild -importPlatform`
 before building. Xcode 27.1 runs an iOS 18.6 Simulator. The models are the
 same on both versions (the 16, since the 17 can't run iOS 18), so a failure on
-one OS isn't a screen-size difference. Locally, Apple offers an iOS 18.2 runtime (`xcrun
-simctl runtime add <dmg>`); iPad (A16) needs 18.3, so use iPad (10th
-generation), the same 820×1180pt screen. Each environment runs with
+one OS isn't a screen-size difference. Locally the Mac has the iOS 18.6
+runtime with the same iPhone 16 and iPad (A16). Each environment runs with
 `fail-fast: false` and uploads its `.xcresult` as
 `ui-test-results-<plan>-<device>-iOS-<version>-part-<n>` (the Duo's,
 `ui-test-results-<plan>-iPhone-Duo-<pose>-part-<n>`; the Apple TV's,
@@ -820,8 +819,8 @@ resolve cold until the next nightly. Every `xcodebuild` call passes
 `-clonedSourcePackagesDirPath .build/SourcePackages`.
 
 **The nightly unit flake hunt** (`Unit flake hunt / iOS` and `/ tvOS` in
-`nightly-ui-tests.yml`, added 2026-11-03) runs the unit suites on an iPhone 16
-(iOS 27.0) and an Apple TV 4K (tvOS 27.0), five times over with
+`nightly-ui-tests.yml`) runs the unit suites on an iPhone 16
+(iOS 27.2) and an Apple TV 4K (tvOS 27.0), five times over with
 `-run-tests-until-failure`, in random order. xcodebuild has no
 `-test-execution-ordering` flag, so the order comes from `UnitTests-Random`
 and `TVUnitTests-Random`: copies of the unit plans with
@@ -954,8 +953,7 @@ fails when a pair differs in anything but the order and the configuration's id
   Simulator shut down", each with a `::warning title=Rerun after a crash::`,
   so the job is green but the crash is never hidden.
 - **Every job that runs the action has a summary listing its failed and
-  retried tests** (the tvOS unit job runs plain `xcodebuild test`, so it has
-  none). The action's last step, "Summarize results" (`if: always()`, never fails the job), reads
+  retried tests.** The action's last step, "Summarize results" (`if: always()`, never fails the job), reads
   the result bundle with `xcresulttool get test-results tests` and
   `Scripts/ci/xcresult_summary.py` writes, to the job's GitHub summary: a
   "Flaky" list (tests that failed and passed on a retry, with the first
@@ -1034,8 +1032,7 @@ nightly and release call the same workflow, so dispatching "Nightly UI tests"
 on a branch (`gh workflow run nightly-ui-tests.yml --ref <branch>`) is a dry
 run of a release's UI stage. When CI moves to a new Xcode, the Xcode version
 (`setup-ios-project`), runner labels and `ui-tests.yml`'s version list change
-together; from Xcode 27 the full matrix grows to three iOS versions (26
-becomes the previous major, 18 stays as the floor).
+together. The iOS matrix is the latest pinned version plus the 18.6 floor.
 
 Pipe `xcodebuild` through `xcbeautify` only with `pipefail` set: without it
 the nightly reported success for weeks while the iPad audits failed (#258).

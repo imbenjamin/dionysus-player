@@ -69,11 +69,10 @@ downloaded by hand while the season scanned or asked keeps that download, and
 isn't counted as a failure. Picking another season mid-scan ends the run
 (the button is keyed by the season). A collection's download (#468) is to reuse the same planner.
 
-This is a different path from **playback**, which is direct-play only
-(`streamURL`, `Static=true`) — the server hands over the original stream and
-AetherEngine decodes whatever it is. So the app both direct-plays *and*
-transcodes, just in different places, and a statement like "this app doesn't do
-transcoding" is only true of the playback half.
+This is a different path from **playback**, which negotiates with the server
+by default (Allow Transcoding: a real `DeviceProfile` on `/PlaybackInfo`) and
+direct-plays (`streamURL`, `Static=true`) under Direct Play Always. Downloads
+always transcode, whichever mode playback uses.
 
 ### Why transcode at all rather than copy the file?
 
@@ -596,12 +595,11 @@ change them together.
   (imprecise but live) byte estimate rather than sitting on a stale number.
   Two known gaps remain, both failing soft to the byte estimate: a download
   resumed after a force-quit/relaunch
-  (`reattachInFlightDownloads`/`reattachBackgroundSession`) has no live
+  (`adoptInFlightDownloads`) has no live
   signed-in client available that early, so it never gets this polling loop;
   and this has not been separately tested against a
-  simultaneous *download + live playback* on the same device (playback here
-  is direct-play only today, so it would rarely have `TranscodingInfo` of
-  its own to collide with — but that's inference, not a live-tested claim).
+  simultaneous *download + live playback* on the same device (a live
+  transcode would carry `TranscodingInfo` of its own; untested).
 
 ### Concurrent downloads could silently restart from scratch
 

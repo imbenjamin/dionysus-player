@@ -4,9 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Dionysus Player is a native Jellyfin client for iPhone, iPad and Apple TV
-(the Apple TV app in TestFlight since v1.2.0-alpha.4, not yet on the App
-Store). It talks to a Jellyfin server over the plain
+Dionysus Player is a native Jellyfin client for iPhone, iPad and Apple TV.
+It talks to a Jellyfin server over the plain
 REST/JSON API (https://api.jellyfin.org/) and plays media through
 AetherEngine, a third-party FFmpeg + VideoToolbox engine (HDR10, HDR10+,
 Dolby Vision), pulled in as a Swift Package.
@@ -22,17 +21,15 @@ v1.0.0. Read AetherEngine's floor from `Package.swift` at the tag, never from
 its release notes: 7.13.0's notes said "iOS 17" while its manifest said 18.
 
 **Both apps build with Xcode 27.1 in every CI job** (GitHub's `xcode-27`
-image, since 2026-10-20), **and with Xcode 27.2 (27B52) on the Mac** (since
-2026-11-03, when 27.1 and the iOS 27.0/27.1 runtimes were removed there).
-Locally the iOS Simulators run iOS 27.2 (the iPhone Duo has its own 27.2
-runtime) and 18.6, the Apple TV ones tvOS 27.0 and 27.2; CI's are iOS 27.2
-(27.0 until 2026-11-16, when runner image 20261112 stopped Xcode 27.1 seeing
-its iOS 27.0 Simulators, #473), the Duo's 27.1, 18.6 and tvOS 27.0. So a
-break that shows only in CI may be 27.1-only: CI is the gate. CI's iOS
-version is pinned, never "the newest": the required check names carry it,
-so changing it means updating both rulesets in the same change. AetherEngine is built and tested only with Xcode 27, and
-7.43.0 stopped compiling with Xcode 26, so no job can go back to an older
-image. CI also tests the iOS 18.6 floor (full plan only) and the iPhone Duo
+image) **and with Xcode 27.2 (27B52) on the Mac.** Locally the iOS
+Simulators run iOS 27.2 (the iPhone Duo has its own 27.2 runtime) and 18.6,
+the Apple TV ones tvOS 27.2 and 26.5; CI's are iOS 27.2, the Duo's 27.1,
+18.6, tvOS 27.0 and (nightly smoke, allowed to fail) tvOS 26.5. So a break
+that shows only in CI may be 27.1-only: CI is the gate. CI's OS versions
+are pinned, never "the newest": the required check names carry them, so
+changing one means updating both rulesets in the same change. AetherEngine
+builds only with Xcode 27, so no job can go back to an older image. CI also
+tests the iOS 18.6 floor (full plan only) and the iPhone Duo
 on iOS 27.1 in each pose, set through Device Hub by `Scripts/duo-pose/`
 (`TESTING.md`, "Where they run in CI").
 
@@ -572,8 +569,8 @@ arbitrary. The rule is `MediaVersionChoice`, the pure part, and
   Apple TV; iOS ignores it (`AssetDetailViewModel.linkVersionDecision`).
 - **iOS asks with a `confirmationDialog`** (`VersionChoiceDialog`); the Apple
   TV with a full-screen page, since a tvOS dialog's buttons can't be given
-  identifiers and its focus can't be placed (`DionysusTV/CLAUDE.md`, "Choose
-  a Version"). Playback Stats' Version row and a download's Details show which
+  identifiers and its focus can't be placed (`DionysusTV/CLAUDE.md`, "Versions
+  (#289)"). Playback Stats' Version row and a download's Details show which
   version a session or file is.
 - **Downloads ask differently** (iOS; `DOWNLOADS.md`): a single download always
   asks with two or more versions, before the audio prompt; a season scans
@@ -940,7 +937,7 @@ capture-then-render workflow. What the scripts don't say:
   after Spatial Audio shipped in #364). The frame is plain SDR, since the
   demo server has no such tracks; the subtitle is the claim, so never fake
   it in the picture. Atmos and DTS:X reach a receiver as Atmos only with
-  Spatial Audio turned on (`DionysusTV/CLAUDE.md`, "HDR and audio"), which
+  Spatial Audio turned on (`DionysusTV/CLAUDE.md`, "HDR and audio on the Apple TV"), which
   the listing's description says. Avoid frames with burnt-in on-screen
   text behind the player's panel.
 
