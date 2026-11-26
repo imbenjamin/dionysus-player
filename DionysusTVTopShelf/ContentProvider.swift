@@ -15,8 +15,15 @@ final class ContentProvider: TVTopShelfContentProvider {
     }
 
     private static func respond(to reply: Reply) async {
-        let content = await TopShelfCarousel.content(
-            session: TopShelfSessionMirror.read(), urlSession: TopShelfLoader.makeSession(), store: .shared())
+        let session = TopShelfSessionMirror.read()
+        // Owned by this load, filled from the mirror before any request.
+        let registry = ServerTrustRegistry()
+        if let session { registry.configure(serverURL: session.serverURL, trust: session.certificateTrust) }
+        let urlSession = TopShelfLoader.makeSession(registry: registry)
+        let content = await TopShelfCarousel.content(session: session, urlSession: urlSession, store: .shared())
+        // A session holds its delegate (and so the registry) until it's
+        // invalidated; one per load, so each would outlive its load.
+        urlSession.finishTasksAndInvalidate()
         reply.send(content)
     }
 

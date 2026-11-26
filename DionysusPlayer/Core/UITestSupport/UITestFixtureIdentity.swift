@@ -157,9 +157,18 @@ enum UITestFixtureIdentity {
     static let serverSystemID = "uitest-server-0001"
 
     /// A second discovery result: the same stub server advertised over HTTPS,
-    /// which `UITestStubURLProtocol` fails with a certificate error, so only
-    /// the plain-HTTP fallback reaches it. Reported under `serverSystemID`, as
+    /// which `UITestStubURLProtocol` fails with a certificate error until the
+    /// certificate is trusted (#466), or which the plain-HTTP fallback reaches
+    /// over HTTP. Reported under `serverSystemID`, as
     /// a real server's reply and its `/System/Info/Public` agree.
     static let discoveredHTTPSServerAddress = "https://dionysus-uitest.invalid:8920"
     static let discoveredHTTPSServerName = "Dionysus UI Test Server (HTTPS)"
+
+    /// The first DNS name `nameLeaf` (`.nameMismatchCertificate`'s
+    /// certificate) is valid for, which the trust offer names.
+    static let nameMismatchCertificateName = "media.dionysus.test"
+
+    /// `serverAddress` over HTTPS: the seeded server of the
+    /// changed-certificate warning's scenarios (#466).
+    static let httpsServerAddress = "https://dionysus-uitest.invalid"
 }

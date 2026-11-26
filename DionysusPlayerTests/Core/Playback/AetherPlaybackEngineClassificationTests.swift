@@ -56,6 +56,20 @@ final class AetherPlaybackEngineClassificationTests: XCTestCase {
         XCTAssertEqual(AetherPlaybackEngine.category(for: futureKind), .transient)
     }
 
+    /// A server whose certificate the app refuses (#466): retrying can't fix
+    /// it, and the engine's own message is technical, so it gets the app's.
+    func testSourceCertificateRejectedHasItsOwnMessage() {
+        XCTAssertEqual(AetherPlaybackEngine.category(for: .sourceCertificateRejected), .refused)
+        let failure = AetherPlaybackEngine.failure(kind: .sourceCertificateRejected, engineMessage: "TLS trust evaluation failed")
+        XCTAssertEqual(failure.category, .refused)
+        XCTAssertEqual(failure.message, "This server's security certificate isn't trusted.")
+
+        let other = AetherPlaybackEngine.failure(kind: .sourceRefused, engineMessage: "Forbidden")
+        XCTAssertEqual(other, PlaybackFailure(message: "Forbidden", category: .refused))
+        let unknown = AetherPlaybackEngine.failure(kind: nil, engineMessage: "Boom")
+        XCTAssertEqual(unknown, PlaybackFailure(message: "Boom", category: .transient))
+    }
+
     // MARK: - needsSessionRecovery
 
     /// The background grace-window teardown: a session that was playing, came

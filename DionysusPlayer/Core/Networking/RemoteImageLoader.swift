@@ -33,7 +33,7 @@ actor RemoteImageLoader {
     /// thumbnail count the same against it.
     static let defaultTotalCostLimit = 150 * 1024 * 1024
 
-    private let session: URLSession
+    nonisolated let session: URLSession
     private let maxAttempts: Int
     private let retryBaseDelay: Duration
     /// `nonisolated(unsafe)` is safe — `NSCache` is thread-safe — and lets
@@ -71,7 +71,7 @@ actor RemoteImageLoader {
             #if DEBUG
             UITestHarness.decorate(configuration)
             #endif
-            self.session = URLSession(configuration: configuration)
+            self.session = URLSession(configuration: configuration, delegate: ServerTrustDelegate.shared, delegateQueue: nil)
         }
         self.maxAttempts = maxAttempts
         self.retryBaseDelay = retryBaseDelay
@@ -153,7 +153,7 @@ actor RemoteImageLoader {
         var lastError: Error = URLError(.unknown)
         for attempt in 0..<maxAttempts {
             do {
-                let (data, response) = try await session.data(from: url)
+                let (data, response) = try await session.data(from: url, delegate: ServerTrustDelegate.forTasks(on: session))
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                     throw URLError(.badServerResponse)
                 }

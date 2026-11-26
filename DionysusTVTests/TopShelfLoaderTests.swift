@@ -157,6 +157,61 @@ final class TopShelfLoaderTests: XCTestCase {
         XCTAssertEqual(latestRequests, 0)
     }
 
+    // MARK: Trusting the server's certificate (#466)
+
+    func test_sessionUsesTheTrustDelegate() {
+        XCTAssertTrue(TopShelfLoader.makeSession(registry: ServerTrustRegistry()).delegate is ServerTrustDelegate)
+    }
+
+    func test_registryOverload_configuresTheServerAndItsTrust() {
+        let registry = ServerTrustRegistry()
+        XCTAssertFalse(registry.hasStoredTrust)
+        registry.configure(serverURL: URL(string: "https://jf.local:8920")!, trust: .certificate(Data([1, 2, 3])))
+        XCTAssertTrue(registry.hasStoredTrust)
+        registry.configure(serverURL: URL(string: "https://jf.local:8920")!, trust: nil)
+        XCTAssertFalse(registry.hasStoredTrust)
+    }
+
+    func test_loaderReachesAPinnedListener() async throws {
+        let server = try await TLSTestServer(identity: "selfSignedA")
+        defer { server.stop() }
+        let registry = ServerTrustRegistry()
+        registry.configure(serverURL: server.baseURL, trust: .certificate(TLSFixtures.der("selfSignedA")))
+        let urlSession = TopShelfLoader.makeSession(registry: registry)
+        let (_, response) = try await urlSession.data(from: server.baseURL.appendingPathComponent("System/Info/Public"))
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    }
+
+    /// The extension's requests go through `JellyfinAPIClient`, whose
+    /// per-task delegate replaces the session's for challenges: it must be
+    /// this session's, bound to the mirrored registry. The extension's
+    /// `ServerTrustRegistry.shared` is never configured.
+    func test_apiClientOnTheTopShelfSession_reachesAPinnedListener() async throws {
+        let server = try await TLSTestServer(identity: "selfSignedA")
+        defer { server.stop() }
+        let registry = ServerTrustRegistry()
+        registry.configure(serverURL: server.baseURL, trust: .certificate(TLSFixtures.der("selfSignedA")))
+        let urlSession = TopShelfLoader.makeSession(registry: registry)
+        defer { urlSession.invalidateAndCancel() }
+        let info = try await JellyfinAPIClient(baseURL: server.baseURL, session: urlSession).publicSystemInfo()
+        XCTAssertEqual(info.serverName, "TLS Test")
+    }
+
+    func test_loaderRefusesAChangedCertificate() async throws {
+        let server = try await TLSTestServer(identity: "selfSignedA")
+        defer { server.stop() }
+        let registry = ServerTrustRegistry()
+        registry.configure(serverURL: server.baseURL, trust: .certificate(TLSFixtures.der("selfSignedB")))
+        let urlSession = TopShelfLoader.makeSession(registry: registry)
+        do {
+            _ = try await urlSession.data(from: server.baseURL.appendingPathComponent("System/Info/Public"))
+            XCTFail("A certificate that isn't the pinned one must be refused")
+        } catch let error as URLError {
+            // Default handling, never `.cancel`: the system's own refusal.
+            XCTAssertEqual(error.code, .serverCertificateUntrusted, "got \(error)")
+        }
+    }
+
     private static func library(_ id: String, collectionType: String) -> BaseItemDto {
         var library = BaseItemDto(id: id, name: id, type: .collectionFolder)
         library.collectionType = collectionType

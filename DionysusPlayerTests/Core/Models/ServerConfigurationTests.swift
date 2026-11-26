@@ -86,4 +86,55 @@ final class ServerConfigurationTests: XCTestCase {
 
         XCTAssertEqual(config.correctingScheme(usingLandedURL: nil), config)
     }
+
+    // MARK: Certificate trust (#466)
+
+    func testDecodesAConfigurationSavedBeforeCertificateTrust() throws {
+        let json = Data(#"{"name":"S","baseURL":"https://h:8920"}"#.utf8)
+        let config = try JSONDecoder().decode(ServerConfiguration.self, from: json)
+        XCTAssertNil(config.certificateTrust)
+    }
+
+    func testRoundTripsBothTrustKinds() throws {
+        for trust in [ServerCertificateTrust.names(["media.lan", "10.0.0.2"]), .certificate(Data([1, 2, 3]))] {
+            var config = ServerConfiguration(name: "S", baseURL: URL(string: "https://h:8920")!)
+            config.certificateTrust = trust
+            let decoded = try JSONDecoder().decode(ServerConfiguration.self, from: JSONEncoder().encode(config))
+            XCTAssertEqual(decoded.certificateTrust, trust)
+        }
+    }
+
+    func testFingerprintTextIsColonSeparatedUppercaseHex() {
+        XCTAssertEqual(ServerCertificateTrust.fingerprintText(Data([0x4f, 0xa2, 0x0c])), "4F:A2:0C")
+    }
+
+    func testFingerprintIsTheSHA256OfTheCertificate() {
+        XCTAssertNil(ServerCertificateTrust.names(["h"]).fingerprint)
+        let fingerprint = ServerCertificateTrust.certificate(Data("abc".utf8)).fingerprint
+        XCTAssertEqual(fingerprint?.map { String(format: "%02x", $0) }.joined(),
+                       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    }
+
+    func testOriginDefaultsTheSchemePort() throws {
+        XCTAssertEqual(try XCTUnwrap(ServerOrigin(url: URL(string: "https://h")!)).port, 443)
+        XCTAssertEqual(try XCTUnwrap(ServerOrigin(url: URL(string: "http://h")!)).port, 80)
+    }
+
+    func testOriginLowercasesAndUnbracketsTheHost() throws {
+        let named = try XCTUnwrap(ServerOrigin(url: URL(string: "https://MEDIA.lan:8920")!))
+        XCTAssertEqual(named, ServerOrigin(host: "media.lan", port: 8920))
+        let v6 = try XCTUnwrap(ServerOrigin(url: URL(string: "https://[fe80::1]:8920")!))
+        XCTAssertEqual(v6.host, "fe80::1")
+    }
+
+    /// A challenge's origin is built from `URLProtectionSpace.host`, not a URL.
+    func testOriginFromAHostAndPortIsNormalisedTheSameWay() {
+        XCTAssertEqual(ServerOrigin(host: "MEDIA.lan", port: 8920).host, "media.lan")
+        XCTAssertEqual(ServerOrigin(host: "[FE80::1]", port: 8920).host, "fe80::1")
+    }
+
+    func testConfigurationOriginFollowsItsBaseURL() {
+        let config = ServerConfiguration(name: "S", baseURL: URL(string: "https://Media.lan:8920")!)
+        XCTAssertEqual(config.origin, ServerOrigin(host: "media.lan", port: 8920))
+    }
 }

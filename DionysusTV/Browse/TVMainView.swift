@@ -214,8 +214,14 @@ struct TVMainView: View {
         let onShow = level == nav.path.count
         // Drawn while the player closes over it, but not yet on show.
         let beneathPlayer = level > 0 && nav.path[level - 1].id == entryBeneathPlayer
+        // Under the changed-certificate warning (#466) no page is on show,
+        // so none claims focus from beneath its cover (Home's "Couldn't Load
+        // Home" claimed Try Again as it appeared, after the warning had
+        // focus); once it's answered, the page claims its item as a page
+        // coming back on show does.
+        let beneathWarning = appState.certificateWarning != nil
         return page()
-            .environment(\.tvPageIsOnShow, onShow && !beneathPlayer)
+            .environment(\.tvPageIsOnShow, onShow && !beneathPlayer && !beneathWarning)
             .opacity(onShow ? 1 : 0)
             .disabled(!onShow)
             // No `.accessibilityHidden(!onShow)`: hidden pages stay out of

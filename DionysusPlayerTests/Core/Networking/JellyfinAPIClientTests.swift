@@ -512,6 +512,57 @@ final class JellyfinAPIClientTests: XCTestCase {
         XCTAssertEqual(reauthCounter.count, 1, "a 401 on a token already replaced should retry with the new one, not sign in again")
     }
 
+    /// A sign-in revokes the client's previous token as it lands, so a request
+    /// still carrying that token can 401 before the sign-in's answer is back.
+    /// It must wait for that sign-in and retry with its token, never sign in
+    /// again (which would revoke the token the first sign-in returns, the one
+    /// `AppState` saves). The sign-in is held until the old-token 401 has been
+    /// answered; a second sign-in releases it at once, otherwise it's let go
+    /// after a moment.
+    func test_401_whileSigningIn_waitsForTheSignInInsteadOfSigningInAgain() async throws {
+        let client = makeClient()
+        await client.restoreSession(accessToken: "token-0", username: "demo", password: "pw")
+
+        let signInArrivals = RequestCounter()
+        let signIns = RequestCounter()
+        let newTokenRequests = RequestCounter()
+        MockURLProtocol.holdsRequest = { request in
+            request.url?.path == "/Users/AuthenticateByName" && signInArrivals.increment() == 1
+        }
+        MockURLProtocol.requestHandler = { request in
+            switch request.url?.path {
+            case "/Users/AuthenticateByName":
+                let number = signIns.increment()
+                if number >= 2 { MockURLProtocol.releaseHeldRequests() }
+                return try MockURLProtocol.encodedJSONResponse(
+                    for: request,
+                    value: AuthenticationResult(user: UserDto(id: "user-1", name: "demo"), accessToken: "token-\(number)")
+                )
+            case "/Users/user-1/Views":
+                if (request.value(forHTTPHeaderField: "Authorization") ?? "").contains(#"Token="token-0""#) {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { MockURLProtocol.releaseHeldRequests() }
+                    return MockURLProtocol.jsonResponse(for: request, status: 401, body: Self.jellyfinHTML401Body)
+                }
+                newTokenRequests.increment()
+                return try MockURLProtocol.encodedJSONResponse(for: request, value: BaseItemDtoQueryResult(items: [], totalRecordCount: 0))
+            default:
+                XCTFail("unexpected request to \(request.url?.path ?? "?")")
+                return MockURLProtocol.jsonResponse(for: request, status: 500, body: Data())
+            }
+        }
+
+        let signIn = Task { try await client.authenticate(username: "demo", password: "pw") }
+        // The sign-in is on its way (and held) before the old-token request.
+        while MockURLProtocol.heldCount == 0 { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try await client.userViews(userID: "user-1")
+        let result = try await signIn.value
+
+        XCTAssertEqual(signIns.count, 1, "the 401 should have waited for the sign-in in flight, not signed in again")
+        XCTAssertEqual(newTokenRequests.count, 1, "the request should have retried with the sign-in's token")
+        let token = await client.accessToken
+        XCTAssertEqual(token, result.accessToken, "the client keeps the token its sign-in returned")
+    }
+
     private static let jellyfinHTML401Body = Data("""
     <html><body>Unauthorized (HTTP 401): Request not authorized; please log in first.</body></html>
     """.utf8)

@@ -458,6 +458,215 @@ final class ServerSetupViewModelTests: XCTestCase {
         XCTAssertEqual(MockURLProtocol.lastRequest?.url?.scheme, "https", "The only request should have been the HTTPS one.")
     }
 
+    // MARK: Certificate trust (#466)
+    //
+    // These inject their own `ServerTrustRegistry` to read the candidate back.
+    // The probe's `ServerTrustDelegate.shared` answers from `.shared` instead,
+    // which is never consulted here: `MockURLProtocol` raises no TLS challenge,
+    // so the scripted failure count, not the candidate, decides each probe.
+
+    /// What URLSession throws for a certificate the system refuses, carrying
+    /// the presented chain as the real error does.
+    private func certificateError(leaf: String = "selfSignedA") -> URLError {
+        let trust = TLSFixtures.trust(leaf: leaf, anchors: [], host: "192.168.0.40")
+        return URLError(.serverCertificateHasUnknownRoot, userInfo: [NSURLErrorFailingURLPeerTrustErrorKey: trust])
+    }
+
+    /// `lanHTTPS`'s server (or `host`): HTTPS fails with `error` for the
+    /// first `httpsFailures` requests, then answers; HTTP answers on 8096
+    /// only. `onHTTPS` sees each HTTPS request's 1-based number first.
+    private func scriptCertificateFailure(
+        _ error: URLError,
+        host: String = "192.168.0.40",
+        httpsFailures: Int = .max,
+        counter: HTTPSCounter = HTTPSCounter(),
+        onHTTPS: (@Sendable (Int) -> Void)? = nil
+    ) {
+        MockURLProtocol.requestHandler = { request in
+            guard request.url?.host == host else { throw URLError(.cannotConnectToHost) }
+            if request.url?.scheme == "https" {
+                let number = counter.next()
+                onHTTPS?(number)
+                if number <= httpsFailures { throw error }
+            }
+            guard request.url?.scheme == "https" || request.url?.port == 8096 else { throw URLError(.cannotConnectToHost) }
+            return try MockURLProtocol.encodedJSONResponse(for: request, value: PublicSystemInfo(serverName: "Den", id: "system-1"))
+        }
+    }
+
+    nonisolated private static func selfSignedTrustDecision(in registry: ServerTrustRegistry) -> ServerTrustDecision {
+        registry.decide(TLSFixtures.trust(leaf: "selfSignedA", anchors: [], host: "192.168.0.40"), host: "192.168.0.40", port: 8920)
+    }
+
+    func testTypedHTTPSAddressWithAnUnverifiableCertificateOffersTrust() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), trustRegistry: ServerTrustRegistry())
+        scriptCertificateFailure(certificateError())
+        viewModel.address = "https://192.168.0.40:8920/jf"
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertNil(result, "Nothing connects until the user trusts the certificate.")
+        let offer = try XCTUnwrap(viewModel.certificateTrustOffer)
+        XCTAssertFalse(offer.offersHTTP, "A typed address has no discovery reply to check HTTP against.")
+        XCTAssertEqual(offer.details.kind, .selfSigned)
+        XCTAssertEqual(offer.configuration.baseURL.absoluteString, "https://192.168.0.40:8920/jf")
+        XCTAssertEqual(offer.serverName, "192.168.0.40")
+        XCTAssertNil(viewModel.insecureFallbackOffer)
+        XCTAssertFalse(viewModel.isTesting)
+    }
+
+    func testDiscoveredHTTPSServerOffersTrustBeforeHTTP() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), trustRegistry: ServerTrustRegistry())
+        scriptCertificateFailure(certificateError())
+
+        let result = await viewModel.connect(to: lanHTTPS)
+
+        XCTAssertNil(result)
+        let offer = try XCTUnwrap(viewModel.certificateTrustOffer)
+        XCTAssertTrue(offer.offersHTTP)
+        XCTAssertEqual(offer.serverName, "Den")
+        XCTAssertNil(viewModel.insecureFallbackOffer, "HTTP is the second choice, offered only when asked for.")
+        XCTAssertNil(viewModel.httpPortRequest)
+        XCTAssertNotNil(viewModel.errorMessage, "The certificate problem stays explained behind the offer.")
+
+        await viewModel.useUnencryptedHTTPInstead()
+
+        XCTAssertNil(viewModel.certificateTrustOffer)
+        let fallback = try XCTUnwrap(viewModel.insecureFallbackOffer)
+        XCTAssertEqual(fallback.configuration.baseURL.absoluteString, "http://192.168.0.40:8096/jf")
+        XCTAssertFalse(viewModel.isTesting)
+    }
+
+    func testTrustingReprobesUnderTheCandidateAndReturnsTheTrust() async throws {
+        let registry = ServerTrustRegistry()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), trustRegistry: registry)
+        let counter = HTTPSCounter()
+        let duringReprobe = DecisionBox()
+        scriptCertificateFailure(certificateError(), httpsFailures: 1, counter: counter) { number in
+            if number == 2 { duringReprobe.set(Self.selfSignedTrustDecision(in: registry)) }
+        }
+        _ = await viewModel.connect(to: lanHTTPS)
+        XCTAssertNotNil(viewModel.certificateTrustOffer)
+
+        let trusted = await viewModel.trustOfferedCertificate()
+        let configuration = try XCTUnwrap(trusted)
+
+        XCTAssertEqual(counter.count, 2, "Trusting probes the server again.")
+        XCTAssertEqual(duringReprobe.value, .accept, "The re-probe runs under the candidate.")
+        XCTAssertEqual(configuration.certificateTrust, .certificate(TLSFixtures.der("selfSignedA")))
+        XCTAssertEqual(configuration.baseURL.absoluteString, "https://192.168.0.40:8920/jf")
+        XCTAssertEqual(configuration.name, "Den")
+        XCTAssertEqual(Self.selfSignedTrustDecision(in: registry), .accept, "The candidate stays until the configuration is saved.")
+        XCTAssertNil(viewModel.certificateTrustOffer)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertFalse(viewModel.isTesting)
+    }
+
+    func testTrustingThatStillFailsClearsTheCandidateAndExplains() async throws {
+        let registry = ServerTrustRegistry()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), trustRegistry: registry)
+        let duringReprobe = DecisionBox()
+        scriptCertificateFailure(certificateError()) { number in
+            if number == 2 { duringReprobe.set(Self.selfSignedTrustDecision(in: registry)) }
+        }
+        _ = await viewModel.connect(to: lanHTTPS)
+        XCTAssertNotNil(viewModel.certificateTrustOffer)
+
+        let configuration = await viewModel.trustOfferedCertificate()
+
+        XCTAssertNil(configuration)
+        XCTAssertEqual(duringReprobe.value, .accept, "The candidate was set for the re-probe…")
+        XCTAssertNotEqual(Self.selfSignedTrustDecision(in: registry), .accept, "…and cleared once it didn't help.")
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertNil(viewModel.certificateTrustOffer)
+        XCTAssertFalse(viewModel.isTesting)
+    }
+
+    /// No presented chain to classify: the discovered server goes straight to
+    /// the HTTP fallback, as before #466.
+    func testACertificateErrorWithoutAPeerTrustKeepsTodaysFlow() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), trustRegistry: ServerTrustRegistry())
+        scriptServer()
+
+        let result = await viewModel.connect(to: lanHTTPS)
+
+        XCTAssertNil(result)
+        XCTAssertNil(viewModel.certificateTrustOffer)
+        let fallback = try XCTUnwrap(viewModel.insecureFallbackOffer)
+        XCTAssertEqual(fallback.configuration.baseURL.absoluteString, "http://192.168.0.40:8096/jf")
+    }
+
+    func testDecliningClearsTheOfferButKeepsTheExplanation() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), trustRegistry: ServerTrustRegistry())
+        scriptCertificateFailure(certificateError())
+        _ = await viewModel.connect(to: lanHTTPS)
+        XCTAssertNotNil(viewModel.certificateTrustOffer)
+
+        viewModel.declineCertificateTrust()
+
+        XCTAssertNil(viewModel.certificateTrustOffer)
+        XCTAssertNotNil(viewModel.errorMessage)
+        await viewModel.useUnencryptedHTTPInstead()
+        XCTAssertNil(viewModel.insecureFallbackOffer, "The declined server is forgotten too.")
+    }
+
+    func testANewAttemptClearsThePreviousOffer() async throws {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), trustRegistry: ServerTrustRegistry())
+        scriptCertificateFailure(certificateError())
+        _ = await viewModel.connect(to: lanHTTPS)
+        XCTAssertNotNil(viewModel.certificateTrustOffer)
+
+        scriptServer()
+        _ = await viewModel.connect(to: lanHTTPS)
+
+        XCTAssertNil(viewModel.certificateTrustOffer)
+        XCTAssertNotNil(viewModel.insecureFallbackOffer, "The second attempt follows its own outcome.")
+    }
+
+    /// A TLS failure whose certificate the system accepts for the host (a
+    /// protocol or cipher problem) isn't the certificate's fault: no offer.
+    func testACertificateTheSystemAcceptsForTheHostOffersNothing() async {
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), trustRegistry: ServerTrustRegistry())
+        let trust = TLSFixtures.trust(leaf: "nameLeaf", anchors: ["testCA"], host: "media.dionysus.test")
+        SecTrustSetVerifyDate(trust, ServerTrustPolicyTests.nameLeafVerifyDate as CFDate)
+        scriptCertificateFailure(
+            URLError(.secureConnectionFailed, userInfo: [NSURLErrorFailingURLPeerTrustErrorKey: trust]),
+            host: "media.dionysus.test"
+        )
+        viewModel.address = "https://media.dionysus.test:8920"
+
+        let result = await viewModel.testConnection()
+
+        XCTAssertNil(result)
+        XCTAssertNil(viewModel.certificateTrustOffer)
+        XCTAssertEqual(viewModel.errorMessage, String(localized: "Couldn't reach a Jellyfin server at that address. Check it and try again."))
+    }
+
+    /// The re-probe redirected to plain HTTP: the user never chose
+    /// unencrypted, so it fails rather than connecting there.
+    func testTrustingWhoseReprobeLandsOnHTTPFails() async throws {
+        let registry = ServerTrustRegistry()
+        let viewModel = ServerSetupViewModel(discovery: StubServerDiscovery(servers: []), trustRegistry: registry)
+        let error = certificateError()
+        let counter = HTTPSCounter()
+        MockURLProtocol.requestHandler = { request in
+            guard request.url?.host == "192.168.0.40", request.url?.scheme == "https" else { throw URLError(.cannotConnectToHost) }
+            if counter.next() == 1 { throw error }
+            let landed = URL(string: "http://192.168.0.40:8920/jf/System/Info/Public")!
+            let response = HTTPURLResponse(url: landed, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+            return (response, try JellyfinJSON.encoder.encode(PublicSystemInfo(serverName: "Den", id: "system-1")))
+        }
+        _ = await viewModel.connect(to: lanHTTPS)
+        XCTAssertNotNil(viewModel.certificateTrustOffer)
+
+        let configuration = await viewModel.trustOfferedCertificate()
+
+        XCTAssertEqual(counter.count, 2)
+        XCTAssertNil(configuration)
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertNotEqual(Self.selfSignedTrustDecision(in: registry), .accept)
+    }
+
     // MARK: Local Network prompt
 
     /// Fails the first request as iOS does under the Local Network prompt —
@@ -618,6 +827,32 @@ private final class RequestCounter: @unchecked Sendable {
             return value
         }
     }
+}
+
+/// Counts HTTPS requests from inside a `MockURLProtocol` handler; see
+/// `RequestCounter` for why it's a class.
+private final class HTTPSCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    var count: Int { lock.withLock { value } }
+
+    /// Records a request; its 1-based number.
+    func next() -> Int {
+        lock.withLock {
+            value += 1
+            return value
+        }
+    }
+}
+
+/// A decision captured inside a `MockURLProtocol` handler.
+private final class DecisionBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var decision: ServerTrustDecision?
+
+    var value: ServerTrustDecision? { lock.withLock { decision } }
+    func set(_ value: ServerTrustDecision) { lock.withLock { decision = value } }
 }
 
 private actor LookupCounter {

@@ -30,12 +30,16 @@ struct TVServerSetupView: View {
     /// A discovered HTTPS server whose certificate fails, but which may answer
     /// over plain HTTP: which port (when 8096 is silent), then whether to
     /// connect unencrypted. iOS asks both in alerts; here each is a cover.
+    /// Before either, the certificate trust offer (#466), for typed and
+    /// discovered servers alike.
     private enum FallbackCover: Identifiable {
+        case certificate(ServerSetupViewModel.CertificateTrustOffer)
         case port(ServerSetupViewModel.HTTPPortRequest)
         case offer(ServerSetupViewModel.InsecureFallbackOffer)
 
         var id: String {
             switch self {
+            case .certificate(let offer): "certificate.\(offer.configuration.baseURL).\(offer.details.fingerprint.base64EncodedString())"
             case .port(let request): "port.\(request.server.id).\(request.problem ?? "")"
             case .offer(let offer): "offer.\(offer.configuration.baseURL)"
             }
@@ -43,6 +47,7 @@ struct TVServerSetupView: View {
     }
 
     private enum FallbackAnswer {
+        case certificate(CertificateTrustAnswer)
         case tryPort(String, ServerSetupViewModel.HTTPPortRequest)
         case connect
     }
@@ -151,6 +156,9 @@ struct TVServerSetupView: View {
             if let message { AccessibilityNotification.Announcement(message).post() }
         }
         .onMoveCommand { _ in userMovedFocus = true }
+        .onChange(of: viewModel.certificateTrustOffer) { _, offer in
+            if let offer { fallbackCover = .certificate(offer) }
+        }
         .onChange(of: viewModel.httpPortRequest) { _, request in
             if let request { fallbackCover = .port(request) }
         }
@@ -161,6 +169,10 @@ struct TVServerSetupView: View {
         // are, so a port that works can raise the next question cleanly.
         .fullScreenCover(item: $fallbackCover, onDismiss: fallbackDismissed) { cover in
             switch cover {
+            case .certificate(let offer):
+                TVCertificateTrustPage(offer: offer) { choice in
+                    fallbackAnswer = .certificate(choice)
+                }
             case .port(let request):
                 TVHTTPPortPage(request: request) { text in
                     fallbackAnswer = .tryPort(text, request)
@@ -183,6 +195,16 @@ struct TVServerSetupView: View {
         let answer = fallbackAnswer
         fallbackAnswer = nil
         switch answer {
+        case .certificate(.trust):
+            Task {
+                if let configuration = await viewModel.trustOfferedCertificate() {
+                    appState.completeServerSetup(configuration)
+                }
+            }
+        case .certificate(.useHTTP):
+            Task { await viewModel.useUnencryptedHTTPInstead() }
+        case .certificate(.cancel):
+            viewModel.declineCertificateTrust()
         case .tryPort(let text, let request):
             Task {
                 await viewModel.tryHTTPPort(text, for: request)
@@ -198,6 +220,7 @@ struct TVServerSetupView: View {
             }
         case nil:
             // The certificate error stays on screen, with the servers found.
+            viewModel.declineCertificateTrust()
             viewModel.cancelHTTPPortRequest()
             viewModel.declineInsecureFallback()
         }

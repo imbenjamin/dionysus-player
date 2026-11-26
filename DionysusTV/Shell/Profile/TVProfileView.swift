@@ -256,6 +256,15 @@ struct TVProfileView: View {
                 .accessibilityLabel(Text(verbatim: server.name))
                 .accessibilityValue(Text(verbatim: address))
                 .accessibilityIdentifier(A11yID.TV.Profile.server)
+                if let trust = server.certificateTrust {
+                    let summary = trust.profileSummaryForTV
+                    // Read as it stands ("Trusted (self-signed)
+                    // certificate"): a "Certificate" label said it twice.
+                    Text(verbatim: summary)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .accessibilityIdentifier(A11yID.TV.Profile.certificate)
+                }
             }
             // "AetherEngine" is a product name, not translated.
             Text(verbatim: "\(AppVersionInfo.footerText())\nAetherEngine \(AetherEngineVersion.current)")

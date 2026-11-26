@@ -63,8 +63,7 @@ final class AccessibilityAuditTests: UITestCase {
     func testServerSetupHTTPPortPromptHasNoAccessibilityIssues() throws {
         launch(scenario: "customHTTPPort", signedIn: false)
         let serverSetup = ServerSetupScreen(app: app)
-        serverSetup.scanForStubServer()
-        serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
+        serverSetup.chooseUnencryptedHTTP()
         serverSetup.httpPortField.awaitExistence("the HTTP port field")
 
         try auditCurrentScreen(underModal: true)
@@ -74,9 +73,38 @@ final class AccessibilityAuditTests: UITestCase {
     func testServerSetupInsecureFallbackPromptHasNoAccessibilityIssues() throws {
         launch(signedIn: false)
         let serverSetup = ServerSetupScreen(app: app)
-        serverSetup.scanForStubServer()
-        serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
+        serverSetup.chooseUnencryptedHTTP()
         serverSetup.insecureFallbackConfirmButton.awaitExistence("the connect-over-HTTP button")
+
+        try auditCurrentScreen(underModal: true)
+    }
+
+    /// The certificate trust offer (#466), for a self-signed certificate.
+    func testServerSetupCertificateTrustSheetHasNoAccessibilityIssues() throws {
+        launch(scenario: "selfSignedCertificate", signedIn: false)
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.openCertificateTrustOffer()
+        serverSetup.certificateTrustFingerprint.awaitExistence("the fingerprint row")
+
+        try auditCurrentScreen(underModal: true)
+    }
+
+    /// The changed-certificate warning (#466), both fingerprints showing.
+    func testChangedCertificateWarningHasNoAccessibilityIssues() throws {
+        launch(scenario: "changedCertificate")
+        let warning = CertificateWarningScreen(app: app)
+        warning.awaitShown()
+        warning.previousFingerprint.awaitExistence("the trusted certificate's fingerprint")
+
+        try auditCurrentScreen(underModal: true)
+    }
+
+    /// The warning's `untrusted` kind: the setup offer's details.
+    func testUntrustedCertificateWarningHasNoAccessibilityIssues() throws {
+        launch(scenario: "untrustedCertificate")
+        let warning = CertificateWarningScreen(app: app)
+        warning.awaitShown()
+        warning.newFingerprint.awaitExistence("the certificate's fingerprint")
 
         try auditCurrentScreen(underModal: true)
     }

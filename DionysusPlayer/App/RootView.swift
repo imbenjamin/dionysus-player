@@ -27,6 +27,16 @@ struct RootView: View {
             }
         }
         .animation(.default, value: isInMainApp)
+        // A refused certificate for the configured server (#466), over
+        // onboarding and the signed-in app alike.
+        .certificateWarning(isPlayerUp: { PlayerCloseRequest.shared.isPlayerUp }) { warning, answer in
+            CertificateWarningView(
+                warning: warning,
+                serverName: appState.sessionStore.serverConfiguration?.name ?? "",
+                host: appState.sessionStore.serverConfiguration?.baseURL.host,
+                onAnswer: answer
+            )
+        }
         .onOpenURL(perform: receive)
         .onChange(of: appState.isRestoringSession) { _, isRestoring in
             guard !isRestoring, refusesUnreadableLinkAfterRestore else { return }

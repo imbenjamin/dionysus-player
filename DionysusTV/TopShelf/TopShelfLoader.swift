@@ -52,10 +52,12 @@ enum TopShelfLoader {
     }
 
     /// A session for the extension, with `timeout` on every request.
-    static func makeSession() -> URLSession {
+    /// Challenges go to `registry` (#466), which the extension configures from
+    /// the mirrored session, so a server the system can't verify is reachable.
+    static func makeSession(registry: ServerTrustRegistry) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = timeout
-        return URLSession(configuration: configuration)
+        return URLSession(configuration: configuration, delegate: ServerTrustDelegate(registry: registry), delegateQueue: nil)
     }
 }

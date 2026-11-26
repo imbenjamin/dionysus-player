@@ -773,7 +773,34 @@ iOS's two alerts are covers here: `TVHTTPPortPage` when nothing answers on
 model's `httpPortRequest`/`insecureFallbackOffer` into one cover and acts on
 the answer from its `onDismiss`, so the confirmation never presents while
 the port page is still closing; Cancel or Menu leaves the certificate error
-on screen. Trusting the certificate itself instead is #466.
+on screen.
+
+**Trusting the certificate is the first answer** (#466; the logic is the shared
+`ServerSetupViewModel`'s and `AppState`'s, root `CLAUDE.md`). `TVCertificateTrustPage`
+is a cover with the certificate's details, **Cancel focused** (a stray Select
+trusts nothing), mirrored by `TVServerSetupView` as the HTTP pages are; Use
+Unencrypted HTTP follows into the pages above. `TVCertificateWarningPage` is
+the changed-certificate warning, shown by `TVRootView` over everything, **Not
+Now (Stay Offline) focused**; Menu is Not Now, and trusting and Change Server (Profile's question) ask first
+(`TVConfirmation`, Cancel focused). Each certificate is one focusable section,
+since focus is the only way VoiceOver reaches text. **While the warning
+stands no shell page is on show** (`TVMainView`'s `tvPageIsOnShow`), so none
+claims focus from beneath it: Home's "Couldn't Load Home" claimed Try Again as
+it appeared, after the warning, and won in 3 of 7 journeys of one combined run
+(2026-11-24; a cover doesn't stop a page asking the focus system). Answered, the page
+claims its item as a page coming back on show does. The page also takes focus
+back to Not Now if it loses it anyway.
+The warning waits while a player is up (`TVPlayerActivity`, set from the
+presenter and the host's dismissal, since `isPlayerUp` reads UIKit's chain,
+which nothing observes) and shows once it has gone. The decision covers every
+Apple TV user, as the server address does (it lives in the household's shared
+keychain). **Home reloads on coming back online after any outage**, not only
+one it had noticed: a refused certificate leaves the app offline until the
+restart's first answer, so Try Again goes through `retryLoadIfNeeded` and the
+reload hands focus to the hero's Play. **The Top Shelf mirrors the trust with
+the token** (`TopShelfSession.certificateTrust`), gives its session the trust
+delegate, and skips the server-URL image fallback for a trusted server: tvOS
+fetches that itself and would refuse it.
 
 **Sign-in puts Quick Connect first** (`TVSignInRoute`): a user with a password
 goes to a code, with "Use Password Instead" one press away; only a user the

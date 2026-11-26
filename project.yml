@@ -86,6 +86,14 @@ packages:
   SwiftLibass:
     url: https://github.com/mihai8804858/swift-libass
     version: 1.4.0
+  # Apple's Apache-2.0 ASN.1/DER parser, pure Swift with no dependencies:
+  # reads the DNS names of a server certificate the system refused, for the
+  # trust offer (#466), since iOS and tvOS have no API for them (Security
+  # gives the rest). Parsing only — no crypto, no networking, no data
+  # collection. Linked to the two apps, never the Top Shelf.
+  SwiftASN1:
+    url: https://github.com/apple/swift-asn1
+    version: 1.7.4
 
 targets:
   DionysusPlayer:
@@ -117,6 +125,8 @@ targets:
         product: SwiftAssRenderer
       - package: SwiftLibass
         product: SwiftLibass
+      - package: SwiftASN1
+        product: SwiftASN1
     settings:
       base:
         # Offline downloads exist only on iOS. Shared code guards its download
@@ -163,6 +173,9 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: Dionysus App Store
+          # The UI-test harness's certificates (#466), public test fixtures
+          # its stub presents; the harness itself is `#if DEBUG`.
+          EXCLUDED_SOURCE_FILE_NAMES: "uitest-*.der"
     info:
       path: Generated/Info.plist
       properties:
@@ -252,6 +265,8 @@ targets:
           - "Components/Toast.swift"
           - "Components/LogoImageView.swift"
           - "Components/MediaPlaceholderBox.swift"
+          - "Components/CertificateDetailsRows.swift"
+          - "Components/CertificateWarningPresentation.swift"
           - "Components/ArtworkShape.swift"
           - "Components/Onboarding/UserAvatar.swift"
           - "Navigation/AppRoute.swift"
@@ -287,6 +302,8 @@ targets:
         product: SwiftAssRenderer
       - package: SwiftLibass
         product: SwiftLibass
+      - package: SwiftASN1
+        product: SwiftASN1
       - target: DionysusTVTopShelf
     settings:
       base:
@@ -307,6 +324,8 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: Dionysus tvOS App Store
+          # As the iOS app's: the UI-test harness's certificates stay out.
+          EXCLUDED_SOURCE_FILE_NAMES: "uitest-*.der"
     # Each Apple TV user gets their own UserDefaults and Keychain, so their own
     # Jellyfin sign-in; tvOS relaunches the app as the new user on a switch.
     # Items written with kSecUseUserIndependentKeychain (the server
@@ -422,6 +441,7 @@ targets:
       - path: DionysusPlayerTests
         includes:
           - "Support/**"
+          - "Fixtures/**"
           - "App/AppStateTests.swift"
           - "Core/DeepLinks/**"
           - "Core/Networking/**"
@@ -429,6 +449,7 @@ targets:
           - "Core/NightMode/**"
           - "Core/Playback/**"
           - "Core/Persistence/**"
+          - "Core/Security/**"
           - "Core/Support/**"
           - "Features/Home/**"
           - "Features/Collection/**"
@@ -445,6 +466,7 @@ targets:
           - "Features/Player/PlaybackStatsReportTests.swift"
           - "Shared/AppVersionInfoTests.swift"
           - "Shared/BrandColorsTests.swift"
+          - "Shared/Components/CertificateWarningPresentationAttemptsTests.swift"
         excludes:
           - "Core/Persistence/Download*.swift"
           # iOS Profile's layout; the Apple TV has its own settings pages.

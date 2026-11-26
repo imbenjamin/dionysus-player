@@ -10,6 +10,11 @@ actor JellyfinAPIClient {
     private(set) var baseURL: URL
     private(set) var accessToken: String?
     private let session: URLSession
+    /// Passed per task on every request: `session`'s own trust delegate when
+    /// it has one (the Top Shelf's, bound to a registry of its own), else
+    /// `.shared` (#466). A per-task delegate replaces the session's for
+    /// challenges (`ServerTrustDelegate.forTasks(on:)`).
+    private let trustDelegate: ServerTrustDelegate
 
     /// The URL the most recent response came back from. `URLSession` follows
     /// redirects transparently, so this can differ from the request's own URL
@@ -37,6 +42,7 @@ actor JellyfinAPIClient {
         self.baseURL = baseURL
         self.accessToken = accessToken
         self.session = session
+        self.trustDelegate = ServerTrustDelegate.forTasks(on: session)
     }
 
     /// Called on sign-out. `AppState` reuses this client across a
@@ -63,8 +69,26 @@ actor JellyfinAPIClient {
 
     // MARK: - Auth
 
+    /// Signs in, registered as `inFlightReauth` while it runs: the server
+    /// revokes this client's previous token as the sign-in lands (one per
+    /// device id), so a request still carrying it can 401 before the answer
+    /// is back. That 401 waits for this sign-in and retries with its token,
+    /// rather than signing in again and revoking the token this one returns
+    /// (which `AppState` saves and the Top Shelf presents).
     @discardableResult
     func authenticate(username: String, password: String) async throws -> AuthenticationResult {
+        let signIn = Task { try await self.sendAuthentication(username: username, password: password) }
+        let marker = Task<Void, Error> { _ = try await signIn.value }
+        inFlightReauth = marker
+        defer { if inFlightReauth == marker { inFlightReauth = nil } }
+        return try await withTaskCancellationHandler {
+            try await signIn.value
+        } onCancel: {
+            signIn.cancel()
+        }
+    }
+
+    private func sendAuthentication(username: String, password: String) async throws -> AuthenticationResult {
         let body = AuthenticateByNameRequest(username: username, pw: password)
         let result: AuthenticationResult = try await post("/Users/AuthenticateByName", body: body, requiresAuth: false)
         accessToken = result.accessToken
@@ -1218,7 +1242,7 @@ actor JellyfinAPIClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await session.data(for: request, delegate: trustDelegate)
         } catch let urlError as URLError where urlError.indicatesOffline {
             await ConnectivityMonitor.shared.reportFailure()
             throw urlError
@@ -1295,10 +1319,10 @@ actor JellyfinAPIClient {
                 let delay = Self.reauthBackoffSchedule[min(attempt, Self.reauthBackoffSchedule.count) - 1]
                 try await Task.sleep(for: .seconds(delay))
             }
-            try await self.authenticate(username: credentials.username, password: credentials.password)
+            _ = try await self.sendAuthentication(username: credentials.username, password: credentials.password)
         }
         inFlightReauth = task
-        defer { inFlightReauth = nil }
+        defer { if inFlightReauth == task { inFlightReauth = nil } }
         try await task.value
     }
 }

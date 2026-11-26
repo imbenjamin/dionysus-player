@@ -1,5 +1,7 @@
 #if DEBUG
 import Foundation
+import os
+import Security
 import UIKit
 
 /// Serves `UITestFixtureLibrary` in place of a real Jellyfin server.
@@ -46,11 +48,16 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
-        // No fixture is served over HTTPS: every `https://` request fails the
-        // way a certificate issued for another name does, which is what
-        // `ServerSetupViewModel.connect(to:)`'s plain-HTTP fallback reacts to.
-        if url.scheme?.lowercased() == "https" {
-            finish(.failure(URLError(.serverCertificateUntrusted)))
+        // An `https://` request presents the scenario's certificate to the
+        // app's own trust registry, as a TLS challenge would (#466): one the
+        // registry accepts is served like `http://`; anything else fails as a
+        // certificate the system refuses, carrying it as the peer trust, and
+        // the registry reports the refusal for the configured server, which
+        // raises the changed-certificate warning. What `ServerSetupViewModel`
+        // offers to trust, and its plain-HTTP fallback for a discovered
+        // server, both start here.
+        if url.scheme?.lowercased() == "https", !Self.registryAccepts(url, scenario: scenario) {
+            finish(.failure(Self.certificateFailure(for: url, scenario: scenario)))
             return
         }
 
@@ -607,7 +614,9 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return nil
         case .largeCast, .noBackdrop, .missingTileArtwork, .manyGenres, .failingLibrary, .failingHome, .thinDynamicRails, .skipIntro, .earlyCredits,
              .audioOffsetUnavailable, .transcode, .rebuffering, .slowSeek, .introBeforeResume,
-             .reconnecting, .pictureInPicture, .scrubThumbnails, .anamorphicVideo:
+             .reconnecting, .pictureInPicture, .scrubThumbnails, .anamorphicVideo,
+             .selfSignedCertificate, .nameMismatchCertificate, .changedCertificate, .untrustedCertificate,
+             .certificateChangesMidSession, .lapsedNameCertificate:
             return nil
         case .failingDetail:
             return path.hasSuffix("/Items/\(UITestFixtureIdentity.movieID(3))") ? 500 : nil
@@ -1395,6 +1404,80 @@ final class UITestStubURLProtocol: URLProtocol, @unchecked Sendable {
         case let .failure(error):
             client?.urlProtocol(self, didFailWithError: error)
         }
+    }
+}
+
+// MARK: - Certificate failures (#466)
+
+extension UITestStubURLProtocol {
+    /// The error an `https://` request with no trust fails with: a certificate
+    /// refusal carrying the peer trust, as `URLSession` reports one.
+    static func certificateFailure(for url: URL, scenario: UITestScenario) -> URLError {
+        guard let trust = fixtureTrust(for: scenario) else {
+            return URLError(.serverCertificateUntrusted)
+        }
+        return URLError(.serverCertificateUntrusted, userInfo: [
+            NSURLErrorFailingURLErrorKey: url,
+            NSURLErrorFailingURLPeerTrustErrorKey: trust
+        ])
+    }
+
+    /// Whether the app's trust registry accepts the scenario's certificate
+    /// for `url`'s origin, decided as a challenge is (`decide`, which also
+    /// reports a refusal). Off the main actor: the stub loads on its own
+    /// queue.
+    private static func registryAccepts(_ url: URL, scenario: UITestScenario) -> Bool {
+        if scenario == .certificateChangesMidSession, let trigger = UITestConfiguration.certificateSwitchPath,
+           url.path.hasSuffix(trigger) {
+            certificateSwitch.withLock { $0 = true }
+        }
+        guard let origin = ServerOrigin(url: url), let trust = fixtureTrust(for: scenario) else { return false }
+        return ServerTrustRegistry.shared.decide(trust, host: origin.host, port: origin.port) == .accept
+    }
+
+    /// `selfSignedB` under `.changedCertificate` (the seeded trust is A's);
+    /// `selfSignedA` otherwise, or in the name case `nameLeaf` with `testCA`
+    /// as its only anchor, evaluated at a date inside the leaf's 800 days (as
+    /// `ServerTrustPolicyTests.nameLeafVerifyDate`). Under
+    /// `.lapsedNameCertificate`, `nameLeaf` with no anchor, so its chain
+    /// fails as a lapsed one would. Never fetches.
+    private static func fixtureTrust(for scenario: UITestScenario) -> SecTrust? {
+        let nameCase = scenario == .nameMismatchCertificate
+        let presentsB = scenario == .changedCertificate
+            || (scenario == .certificateChangesMidSession && certificateSwitch.withLock { $0 })
+        let name = nameCase || scenario == .lapsedNameCertificate ? "nameLeaf" : presentsB ? "selfSignedB" : "selfSignedA"
+        guard let leaf = fixtureCertificate(name) else { return nil }
+        var trust: SecTrust?
+        guard SecTrustCreateWithCertificates(leaf, SecPolicyCreateSSL(true, nil), &trust) == errSecSuccess,
+              let trust else { return nil }
+        SecTrustSetNetworkFetchAllowed(trust, false)
+        if nameCase, let ca = fixtureCertificate("testCA") {
+            SecTrustSetAnchorCertificates(trust, [ca] as CFArray)
+            SecTrustSetAnchorCertificatesOnly(trust, true)
+            SecTrustSetVerifyDate(trust, nameLeafVerifyDate as CFDate)
+        }
+        return trust
+    }
+
+    /// Whether `.certificateChangesMidSession` has seen its trigger, after
+    /// which `selfSignedB` is presented for the rest of the launch.
+    private static let certificateSwitch = OSAllocatedUnfairLock(initialState: false)
+
+    /// 2026-12-23, inside `nameLeaf`'s validity.
+    private static let nameLeafVerifyDate = Date(timeIntervalSince1970: 1_797_984_000)
+
+    /// The DER copies in `UITestSupport/Fixtures`, bundled in Debug builds
+    /// only (`project.yml`'s Release `EXCLUDED_SOURCE_FILE_NAMES`).
+    private static func fixtureCertificate(_ name: String) -> SecCertificate? {
+        guard let data = fixtureCertificateDER(name) else { return nil }
+        return SecCertificateCreateWithData(nil, data as CFData)
+    }
+
+    /// The DER bytes of `uitest-<name>.der`; the harness seeds
+    /// `.changedCertificate`'s trust from `selfSignedA`'s.
+    static func fixtureCertificateDER(_ name: String) -> Data? {
+        guard let url = Bundle.main.url(forResource: "uitest-\(name)", withExtension: "der") else { return nil }
+        return try? Data(contentsOf: url)
     }
 }
 

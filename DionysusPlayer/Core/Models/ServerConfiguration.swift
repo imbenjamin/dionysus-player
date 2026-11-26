@@ -9,6 +9,19 @@ struct ServerConfiguration: Codable, Equatable, Identifiable {
     var name: String
     var baseURL: URL
 
+    /// What the user chose to trust when the server's certificate can't be
+    /// verified; `nil` for a server that verifies (and for configurations saved
+    /// before #466, which decode without it).
+    var certificateTrust: ServerCertificateTrust?
+
+    /// Where the server's certificate is presented. A host-less URL (which
+    /// setup never saves) gets port 0, which no challenge carries, so it
+    /// matches nothing, as the registry's own rule (`ServerOrigin(url:)`, nil)
+    /// does: both fail closed.
+    var origin: ServerOrigin {
+        ServerOrigin(url: baseURL) ?? ServerOrigin(host: baseURL.absoluteString, port: 0)
+    }
+
     /// Parses a user-entered address: a bare host, a host and port, or a full
     /// URL. `preferHTTPS` decides the scheme only when the address doesn't
     /// specify one. Callers can use `explicitScheme(in:)` to keep a "use HTTPS"

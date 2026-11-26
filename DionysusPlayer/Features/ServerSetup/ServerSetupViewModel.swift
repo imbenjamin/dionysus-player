@@ -36,6 +36,7 @@ final class ServerSetupViewModel {
     private let activity: any AppActivityObserving
     private let isLocalNetworkDenied: @Sendable (URLError) -> Bool
     private let versionLookup: @Sendable (URL) async -> String?
+    private let trustRegistry: ServerTrustRegistry
     private var versionTasks: [DiscoveredServer.ID: Task<Void, Never>] = [:]
 
     /// `activity` and `isLocalNetworkDenied` exist to be replaced in tests:
@@ -45,12 +46,14 @@ final class ServerSetupViewModel {
         discovery: any ServerDiscovering = ServerSetupViewModel.defaultDiscovery(),
         activity: any AppActivityObserving = AppActivityMonitor(),
         isLocalNetworkDenied: @escaping @Sendable (URLError) -> Bool = { $0.isLocalNetworkDenied },
-        versionLookup: @escaping @Sendable (URL) async -> String? = ServerSetupViewModel.publicVersion
+        versionLookup: @escaping @Sendable (URL) async -> String? = ServerSetupViewModel.publicVersion,
+        trustRegistry: ServerTrustRegistry = .shared
     ) {
         self.discovery = discovery
         self.activity = activity
         self.isLocalNetworkDenied = isLocalNetworkDenied
         self.versionLookup = versionLookup
+        self.trustRegistry = trustRegistry
     }
 
     /// The version a server reports over `/System/Info/Public`, or `nil` if
@@ -163,8 +166,10 @@ final class ServerSetupViewModel {
     /// but not HTTP leaves its address in the field to be corrected by hand.
     ///
     /// One exception: an `https://` server whose certificate fails validation
-    /// gets a second look over plain HTTP. Nothing connects from there without
-    /// the user's say-so — see `insecureFallbackOffer` and `httpPortRequest`.
+    /// is offered trust in it (`certificateTrustOffer`), with plain HTTP as
+    /// the second choice; a failure with no certificate to show goes straight
+    /// to HTTP. Nothing connects from there without the user's say-so — see
+    /// `insecureFallbackOffer` and `httpPortRequest`.
     func connect(to server: DiscoveredServer) async -> ServerConfiguration? {
         guard !isTesting else { return nil }
         cancelScan()
@@ -174,6 +179,7 @@ final class ServerSetupViewModel {
         defer { connectingServerID = nil }
 
         errorMessage = nil
+        clearCertificateTrustOffer()
         guard let configuration = ServerConfiguration.parse(rawAddress: address, preferHTTPS: useHTTPS) else {
             errorMessage = String(localized: "Enter a valid server address, like 192.168.1.50:8096.")
             return nil
@@ -188,6 +194,11 @@ final class ServerSetupViewModel {
             // Stays up behind the alerts, and explains the screen if the user
             // cancels out of them.
             errorMessage = String(localized: "\(server.name)'s security certificate isn't valid for \(server.address.host ?? server.displayAddress).")
+            if let details = await Self.certificateDetails(in: error, host: configuration.baseURL.host) {
+                trustOfferServer = server
+                certificateTrustOffer = CertificateTrustOffer(serverName: server.name, configuration: configuration, details: details, offersHTTP: true)
+                return nil
+            }
             if await offerInsecureFallback(for: server, port: Self.defaultHTTPPort) == false {
                 httpPortRequest = HTTPPortRequest(server: server, problem: nil)
             }
@@ -331,6 +342,7 @@ final class ServerSetupViewModel {
     /// confirm a Jellyfin server actually answers there.
     func testConnection() async -> ServerConfiguration? {
         errorMessage = nil
+        clearCertificateTrustOffer()
         guard let configuration = ServerConfiguration.parse(rawAddress: address, preferHTTPS: useHTTPS) else {
             errorMessage = String(localized: "Enter a valid server address, like 192.168.1.50:8096.")
             return nil
@@ -341,6 +353,16 @@ final class ServerSetupViewModel {
 
         do {
             return try await probeAcrossLocalNetworkPrompt(configuration).configuration
+        } catch let error as URLError where error.isCertificateFailure && configuration.baseURL.scheme?.lowercased() == "https" {
+            guard let details = await Self.certificateDetails(in: error, host: configuration.baseURL.host) else {
+                errorMessage = String(localized: "Couldn't reach a Jellyfin server at that address. Check it and try again.")
+                return nil
+            }
+            // Stays up behind the offer, and explains the screen if the
+            // user cancels out of it.
+            errorMessage = String(localized: "\(configuration.name)'s security certificate can't be verified.")
+            certificateTrustOffer = CertificateTrustOffer(serverName: configuration.name, configuration: configuration, details: details, offersHTTP: false)
+            return nil
         } catch is LocalNetworkAccessDenied {
             errorMessage = Self.localNetworkDeniedMessage
             return nil
@@ -348,6 +370,107 @@ final class ServerSetupViewModel {
             errorMessage = String(localized: "Couldn't reach a Jellyfin server at that address. Check it and try again.")
             return nil
         }
+    }
+
+    // MARK: Certificate trust (#466)
+    //
+    // An `https://` server whose certificate the system refuses — issued for
+    // a domain name while the app connects by IP, self-signed, from a private
+    // CA — can be trusted as it is. What's stored depends on the certificate
+    // (`ServerCertificateDetails.Kind`): its names when only the name is
+    // wrong, so renewals keep working, else the exact certificate.
+
+    /// A refused certificate, read and classified, waiting on the user.
+    struct CertificateTrustOffer: Equatable {
+        let serverName: String
+        /// The address as tried; trusting probes it again.
+        let configuration: ServerConfiguration
+        let details: ServerCertificateDetails
+        /// A discovered server, which can be tried over plain HTTP instead.
+        let offersHTTP: Bool
+    }
+
+    private(set) var certificateTrustOffer: CertificateTrustOffer?
+    /// The discovered server behind `certificateTrustOffer`, for
+    /// `useUnencryptedHTTPInstead()`.
+    private var trustOfferServer: DiscoveredServer?
+
+    /// Trusts the offered certificate for its address and probes again under
+    /// that trust. Returns the configuration carrying the trust, to be saved;
+    /// the registry keeps it as setup's candidate until then. If the server
+    /// still can't be reached, or the probe lands anywhere but `https` at the
+    /// same origin (a redirect), nothing is kept and the error says so.
+    ///
+    /// A failure ends the offer, HTTP option included: the user taps the
+    /// server again (or retypes the address) to get a fresh one.
+    func trustOfferedCertificate() async -> ServerConfiguration? {
+        guard let offer = certificateTrustOffer, !isTesting else { return nil }
+        let server = trustOfferServer
+        clearCertificateTrustOffer()
+        let origin = offer.configuration.origin
+        let trust = offer.details.trust
+        trustRegistry.setCandidate(trust, for: origin)
+
+        connectingServerID = server?.id
+        isTesting = true
+        defer {
+            isTesting = false
+            connectingServerID = nil
+        }
+        if var configuration = try? await Self.probe(offer.configuration).configuration,
+           configuration.origin == origin,
+           configuration.baseURL.scheme?.lowercased() == "https" {
+            configuration.certificateTrust = trust
+            errorMessage = nil
+            return configuration
+        }
+        trustRegistry.setCandidate(nil, for: origin)
+        errorMessage = String(localized: "Couldn't connect to \(offer.serverName), even trusting its certificate. Check the address and try again.")
+        return nil
+    }
+
+    /// Cancelled: the certificate error stays on screen.
+    func declineCertificateTrust() {
+        clearCertificateTrustOffer()
+    }
+
+    private func clearCertificateTrustOffer() {
+        certificateTrustOffer = nil
+        trustOfferServer = nil
+    }
+
+    /// The discovered server's second choice: today's HTTP fallback, as a
+    /// certificate failure with nothing to show leads to.
+    func useUnencryptedHTTPInstead() async {
+        guard let server = trustOfferServer, !isTesting else { return }
+        certificateTrustOffer = nil
+        trustOfferServer = nil
+
+        connectingServerID = server.id
+        isTesting = true
+        defer {
+            isTesting = false
+            connectingServerID = nil
+        }
+        if await offerInsecureFallback(for: server, port: Self.defaultHTTPPort) == false {
+            httpPortRequest = HTTPPortRequest(server: server, problem: nil)
+        }
+    }
+
+    /// The certificate a refusal presented, classified off the main actor
+    /// (evaluating it is synchronous and may fetch over the network). `nil`
+    /// when the error carries no certificate, or one the system already
+    /// accepts for `host`: then the certificate isn't what failed (a TLS
+    /// version or cipher problem also reads `.secureConnectionFailed`), and
+    /// trusting it would change nothing.
+    nonisolated private static func certificateDetails(in error: URLError, host: String?) async -> ServerCertificateDetails? {
+        await Task.detached(priority: .userInitiated) {
+            guard let value = error.errorUserInfo[NSURLErrorFailingURLPeerTrustErrorKey] as CFTypeRef?,
+                  CFGetTypeID(value) == SecTrustGetTypeID() else { return nil }
+            let trust = value as! SecTrust // swiftlint:disable:this force_cast
+            guard let host, !ServerTrustPolicy.systemAccepts(trust, host: host) else { return nil }
+            return ServerCertificateDetails(trust: trust)
+        }.value
     }
 
     // MARK: Local Network prompt
@@ -414,10 +537,11 @@ final class ServerSetupViewModel {
     }
 }
 
-private extension URLError {
+extension URLError {
     /// TLS failures a certificate issued for a different name, or a
     /// self-signed one, produce — not the transport failures
     /// (`cannotConnectToHost`, `timedOut`) that mean nothing answered at all.
+    /// `AppState.start()` reads it too (#466).
     var isCertificateFailure: Bool {
         switch code {
         case .serverCertificateUntrusted, .serverCertificateHasUnknownRoot, .serverCertificateHasBadDate,
@@ -427,4 +551,15 @@ private extension URLError {
             false
         }
     }
+}
+
+/// How a person answered the trust offer, on iOS's sheet or the Apple TV's
+/// page; each view acts on it once its presentation has gone.
+enum CertificateTrustAnswer {
+    /// `trustOfferedCertificate()`.
+    case trust
+    /// `useUnencryptedHTTPInstead()`.
+    case useHTTP
+    /// `declineCertificateTrust()`.
+    case cancel
 }

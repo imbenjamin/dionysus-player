@@ -481,6 +481,7 @@ final class TVPlayerHostController: AVPlayerViewController, TVPlayerPresentation
         // From the presenter, so the accessible transport's layer goes with
         // the player: `dismiss` on the player would close only the layer.
         (presentingViewController ?? self).dismiss(animated: true) { [onClose, pendingOutcome] in
+            TVPlayerActivity.shared.playerDismissed()
             if let pendingOutcome { onClose?(pendingOutcome) }
         }
     }

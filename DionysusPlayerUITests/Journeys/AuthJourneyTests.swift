@@ -80,14 +80,14 @@ final class AuthJourneyTests: UITestCase {
     }
 
     /// A discovered HTTPS server whose certificate fails (the stub rejects every
-    /// `https://` request) but which answers over HTTP asks before connecting
+    /// `https://` request it holds no trust for) but which answers over HTTP:
+    /// past the trust offer's Use Unencrypted HTTP, it asks before connecting
     /// unencrypted, and accepting lands on sign-in.
     func testAcceptingTheHTTPFallbackForAnUnverifiableServerReachesLogin() {
         launch(signedIn: false)
 
         let serverSetup = ServerSetupScreen(app: app)
-        serverSetup.scanForStubServer()
-        serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
+        serverSetup.chooseUnencryptedHTTP()
 
         serverSetup.insecureFallbackConfirmButton.awaitExistence("the connect-over-HTTP button")
         serverSetup.insecureFallbackConfirmButton.tap()
@@ -101,8 +101,7 @@ final class AuthJourneyTests: UITestCase {
         launch(scenario: "customHTTPPort", signedIn: false)
 
         let serverSetup = ServerSetupScreen(app: app)
-        serverSetup.scanForStubServer()
-        serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
+        serverSetup.chooseUnencryptedHTTP()
 
         serverSetup.httpPortField.awaitExistence("the HTTP port field")
         serverSetup.httpPortField.tap()
@@ -121,8 +120,7 @@ final class AuthJourneyTests: UITestCase {
         launch(signedIn: false)
 
         let serverSetup = ServerSetupScreen(app: app)
-        serverSetup.scanForStubServer()
-        serverSetup.discoveredServer(UITestFixtureIdentity.serverSystemID).tap()
+        serverSetup.chooseUnencryptedHTTP()
 
         serverSetup.insecureFallbackCancelButton.awaitExistence("the cancel button")
         serverSetup.insecureFallbackCancelButton.tap()
@@ -132,6 +130,73 @@ final class AuthJourneyTests: UITestCase {
             serverSetup.discoveredServer(UITestFixtureIdentity.discoveredServerID).exists,
             "The other scan results should still be there to pick from."
         )
+    }
+
+    // MARK: - Certificate trust (#466)
+
+    /// A discovered server's self-signed certificate is offered for trust,
+    /// with its details (the fingerprint among them); trusting it connects
+    /// over HTTPS and lands on sign-in.
+    func testTrustingASelfSignedCertificateReachesLogin() {
+        launch(scenario: "selfSignedCertificate", signedIn: false)
+
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.openCertificateTrustOffer()
+        serverSetup.certificateTrustFingerprint.awaitExistence("the fingerprint row")
+        XCTAssertTrue(
+            (serverSetup.certificateTrustFingerprint.value as? String)?.isEmpty == false,
+            "The fingerprint row should carry the fingerprint."
+        )
+        XCTAssertTrue(serverSetup.certificateTrustHTTPButton.exists, "A discovered server can still fall back to HTTP.")
+        serverSetup.certificateTrustButton.tap()
+
+        LoginScreen(app: app).awaitLoaded()
+    }
+
+    /// A certificate valid for another name says which.
+    func testNameMismatchOfferNamesTheDomain() {
+        launch(scenario: "nameMismatchCertificate", signedIn: false)
+
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.openCertificateTrustOffer()
+        let reason = serverSetup.certificateTrustReason
+        reason.awaitExistence("the reason the certificate fails")
+        // The name is the certificate's, not localized copy.
+        XCTAssertTrue(
+            reason.label.contains(UITestFixtureIdentity.nameMismatchCertificateName),
+            "The reason should name \(UITestFixtureIdentity.nameMismatchCertificateName), got \(reason.label)."
+        )
+    }
+
+    /// Use Unencrypted HTTP leads into today's fallback unchanged: its
+    /// confirmation, then sign-in.
+    func testDiscoveredServerStillOffersUnencryptedHTTP() {
+        launch(scenario: "selfSignedCertificate", signedIn: false)
+
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.chooseUnencryptedHTTP()
+        serverSetup.insecureFallbackConfirmButton.awaitExistence("the connect-over-HTTP button")
+        serverSetup.insecureFallbackConfirmButton.tap()
+
+        LoginScreen(app: app).awaitLoaded()
+    }
+
+    /// Cancel closes the offer and stays on server setup, explained, with the
+    /// scan results still there.
+    func testCancellingTheTrustOfferStaysOnServerSetup() {
+        launch(scenario: "selfSignedCertificate", signedIn: false)
+
+        let serverSetup = ServerSetupScreen(app: app)
+        serverSetup.openCertificateTrustOffer()
+        serverSetup.certificateTrustCancelButton.tap()
+
+        XCTAssertTrue(
+            serverSetup.certificateTrustButton.waitForNonExistence(timeout: UITestCase.defaultTimeout),
+            "Cancel should close the offer."
+        )
+        serverSetup.errorMessage.awaitExistence("the certificate explanation")
+        XCTAssertTrue(serverSetup.discoveredServer(UITestFixtureIdentity.discoveredServerID).exists)
+        XCTAssertFalse(LoginScreen(app: app).fixtureUserTile.exists, "Not connected")
     }
 
     /// The HTTPS toggle decides how a bare address is connected to, so it has

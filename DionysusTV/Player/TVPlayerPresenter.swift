@@ -1,4 +1,22 @@
+import Observation
 import UIKit
+
+/// Whether a player is up, for SwiftUI to follow (`isPlayerUp` reads UIKit's
+/// presented chain, which nothing observes): `TVRootView` holds the
+/// changed-certificate warning back while a player is up and shows it once
+/// the player has gone (#466), as iOS does with `PlayerCloseRequest`.
+@Observable
+@MainActor
+final class TVPlayerActivity {
+    static let shared = TVPlayerActivity()
+
+    /// From `present` until the player's dismissal completes.
+    private(set) var isPlayerUp = false
+
+    func playerPresented() { isPlayerUp = true }
+
+    func playerDismissed() { isPlayerUp = false }
+}
 
 /// The player's host, as `TVPlayerPresenter` recognises it in the presented
 /// chain.
@@ -50,6 +68,9 @@ enum TVPlayerPresenter {
         host.modalPresentationStyle = .fullScreen
         guard let presenter = presentedChain().last else { return false }
         presenter.present(host, animated: true)
+        // UIKit refuses quietly (a presenter mid-dismiss or out of the
+        // window), and a refused player is never dismissed to clear this.
+        if host.presentingViewController != nil { TVPlayerActivity.shared.playerPresented() }
         return true
     }
 

@@ -430,4 +430,32 @@ final class ProfileJourneyTests: UITestCase {
         XCTAssertTrue(policy.label.contains("Privacy Policy"), "Got: \(policy.label.prefix(80))")
         XCTAssertGreaterThan(policy.label.count, 1_000, "The whole policy, not the unavailable message")
     }
+
+    // MARK: - Certificate row (#466)
+
+    /// A server whose certificate the user trusted shows it in the account
+    /// details. `certificateChangesMidSession` seeds an https server trusting
+    /// `selfSignedA`, which the stub presents until its trigger path is hit.
+    func testTrustedServerShowsTheCertificateRow() {
+        launch(scenario: "certificateChangesMidSession")
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        let profile = ProfileScreen(app: app)
+        profile.openAccountDetails()
+        profile.certificateRow.awaitExistence("the Certificate row")
+        // LabeledContent reads as one element, its value in the label.
+        let reading = "\(profile.certificateRow.label) \(profile.certificateRow.value as? String ?? "")"
+        XCTAssertTrue(reading.contains("self-signed"), "Got: \(reading)")
+    }
+
+    /// A plain-HTTP server has no trust to show.
+    func testUntrustedServerHasNoCertificateRow() {
+        launch()
+        HomeScreen(app: app).awaitLoaded()
+        TabBar(app: app).profile.tap()
+        let profile = ProfileScreen(app: app)
+        profile.openAccountDetails()
+        app.buttons[A11yID.Profile.signOutButton].awaitExistence("the account details")
+        XCTAssertFalse(profile.certificateRow.exists, "No trust, no Certificate row")
+    }
 }

@@ -6,13 +6,13 @@
 
 **Architecture:** A stored `ServerCertificateTrust` travels with `ServerConfiguration` (and the Top Shelf's `TopShelfSession` mirror). A pure `ServerTrustPolicy` decides each TLS challenge; a lock-guarded `ServerTrustRegistry` holds the current server's trust, reports refusals, and feeds one `ServerTrustDelegate` used by every app session and, through `EngineTLS.serverTrustEvaluator`, by AetherEngine. Setup offers the trust; `AppState` raises a warning when a trusted (or untrusted) server's certificate is refused later.
 
-**Tech Stack:** Swift 6, SwiftUI, Security.framework (`SecTrust`, `SecPolicyCreateSSL`), CryptoKit (SHA-256), Apple's `swift-certificates` (`X509`) for reading names and issuer, Network.framework (`NWListener`) in tests, AetherEngine 7.66.0 `EngineTLS`.
+**Tech Stack:** Swift 6, SwiftUI, Security.framework (`SecTrust`, `SecPolicyCreateSSL`), CryptoKit (SHA-256), Security (`SecCertificateCopySubjectSummary`, `SecCertificateCopyNotValidAfterDate`) and Apple's `swift-asn1` for reading names and issuer, Network.framework (`NWListener`) in tests, AetherEngine 7.66.0 `EngineTLS`.
 
 **Spec:** `docs/superpowers/specs/2026-11-23-server-certificate-trust-design.md`
 
 ## Global Constraints
 
-- iOS floor 18.0, tvOS floor 26.0; the Top Shelf extension stays UI-free and compiles `Core/Networking` (less its listed excludes), `Core/Models` and `Core/Persistence/TopShelfSession.swift`: nothing there may import `X509`, `AetherEngine`, SwiftUI or UIKit.
+- iOS floor 18.0, tvOS floor 26.0; the Top Shelf extension stays UI-free and compiles `Core/Networking` (less its listed excludes), `Core/Models` and `Core/Persistence/TopShelfSession.swift`: nothing there may import `SwiftASN1`, `AetherEngine`, SwiftUI or UIKit.
 - Packages are pinned `exact:` in `project.yml`; regenerate with `xcodegen generate` whenever `project.yml` or the file set changes.
 - Shared code naming a Downloads type sits inside `#if DOWNLOADS`.
 - Never select on an accessibility label in UI tests; identifiers go in `A11yID`; no identifier on a screen-root container.
@@ -197,16 +197,16 @@ Decision (deviates from the spec's "moves off `URLSession.shared`", with the sam
 - [ ] **Step 1: Write the failing tests**: `TopShelfLoaderTests.testSessionUsesTheTrustDelegate`; `TopShelfCarouselTests.testATrustedServerGetsNoServerImageURLWhenArtIsMissing` (session with `.certificate(…)`, no composed art → `item.imageURL(for: .screenScale2x) == nil`); `testAnUntrustedServerKeepsTheBackdropFallback` (unchanged behaviour); integration `testLoaderReachesAPinnedListener` with `TLSTestServer`.
 - [ ] **Step 2: Run to see them fail** (`-scheme DionysusTV -testPlan TVUnitTests`).
 - [ ] **Step 3: Implement**; write the trust into the mirror wherever `TopShelfRefresh` writes it (it already goes through `TopShelfSession.make`, Task 2).
-- [ ] **Step 4: Run the tests** and make sure they pass, and build the `DionysusTVTopShelf` target alone to prove it still compiles without X509 or AetherEngine.
+- [ ] **Step 4: Run the tests** and make sure they pass, and build the `DionysusTVTopShelf` target alone to prove it still compiles without SwiftASN1 or AetherEngine.
 - [ ] **Step 5: Ask, then commit** `Trust the server's certificate in the Top Shelf (#466)`.
 
 ### Task 7: Classifying a refused certificate and offering trust at setup
 
 **Files:**
-- Modify: `project.yml` (`packages:` add `SwiftCertificates`, url `https://github.com/apple/swift-certificates`, `exactVersion:` the newest 1.x release at the time, linked to `DionysusPlayer` and `DionysusTV` only)
+- Modify: `project.yml` (`packages:` add `SwiftASN1`, url `https://github.com/apple/swift-asn1`, `version:` the newest 1.x release at the time, linked to `DionysusPlayer` and `DionysusTV` only). Not swift-certificates: its `X509` pulls in swift-crypto's `_CryptoExtras`, which links BoringSSL on Apple platforms too. Security reads the subject, issuer, expiry and self-signed check; swift-asn1 only the SAN DNS names.
 - Create: `DionysusPlayer/Core/Security/ServerCertificateDetails.swift`
 - Modify: `DionysusPlayer/Features/ServerSetup/ServerSetupViewModel.swift` (`connect(to:)` at 187, `testConnection()` at 332, `probe` at 401)
-- Modify: `THIRD-PARTY-NOTICES` (`# swift-certificates`, `# swift-asn1`), `DionysusPlayerTests/Core/Models/LicenseDocumentTests.swift`
+- Modify: `THIRD-PARTY-NOTICES` (`# swift-asn1`), `DionysusPlayerTests/Core/Models/LicenseDocumentTests.swift`
 - Test: `DionysusPlayerTests/Core/Security/ServerCertificateDetailsTests.swift`, `DionysusPlayerTests/Features/ServerSetup/ServerSetupViewModelTests.swift`
 
 **Interfaces:**

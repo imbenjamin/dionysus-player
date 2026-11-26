@@ -25,6 +25,22 @@ final class ProfileJourneyTests: TVUITestCase {
         XCTAssertTrue(app.staticTexts[A11yID.TV.Profile.version].label.contains("AetherEngine"))
     }
 
+    /// A server with a trusted certificate shows it beside the address (#466).
+    func test_profile_showsTheTrustedCertificate() {
+        let app = launchAtHome(scenario: "certificateChangesMidSession")
+        openProfile(app)
+        let row = app.descendants(matching: .any)[A11yID.TV.Profile.certificate]
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "The Certificate line")
+        XCTAssertTrue(row.label.contains("self-signed"), "Got: \(row.label)")
+    }
+
+    func test_profile_hasNoCertificateLineWithoutATrust() {
+        let app = launchAtHome()
+        openProfile(app)
+        XCTAssertTrue(app.staticTexts[A11yID.TV.Profile.name].exists)
+        XCTAssertFalse(app.descendants(matching: .any)[A11yID.TV.Profile.certificate].exists)
+    }
+
     func test_everySection_isReachable() {
         let app = launchAtHome()
         openProfile(app)

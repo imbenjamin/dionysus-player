@@ -1436,7 +1436,7 @@ final class PlayerViewModel {
                   ) else { continue }
             var request = URLRequest(url: url)
             request.timeoutInterval = Self.fontRequestTimeout
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
+            guard let (data, response) = try? await Self.fetch(request),
                   (response as? HTTPURLResponse)?.statusCode == 200,
                   !data.isEmpty else { continue }
             fonts.append(ASSFontAttachment(
@@ -1468,6 +1468,13 @@ final class PlayerViewModel {
         }
     }
     #endif
+
+    /// The player's own fetches (fonts, subtitle scripts) on `.shared`, with
+    /// the trust delegate per task so a pinned server's certificate is honoured
+    /// (#466); `.shared` stays, since the tests' `MockURLProtocol` reaches only it.
+    nonisolated static func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        try await URLSession.shared.data(for: request, delegate: ServerTrustDelegate.forTasks(on: .shared))
+    }
 
     /// Shorter than `scriptRequestTimeout`, deliberately. The same on-demand
     /// extraction is behind both, but the script IS the subtitle while the
@@ -1590,7 +1597,7 @@ final class PlayerViewModel {
             case .remote(let url):
                 var request = URLRequest(url: url)
                 request.timeoutInterval = scriptRequestTimeout
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await Self.fetch(request)
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
                 return String(data: data, encoding: .utf8)
             }

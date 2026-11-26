@@ -50,6 +50,12 @@ struct DionysusPlayerApp: App {
         #if DEBUG
         UITestHarness.installIfNeeded()
         #endif
+        // Before anything can raise a TLS challenge (#466): `AppState()`
+        // makes `DownloadManager`, whose background session a relaunch for
+        // downloads reattaches at once. After the harness, so it reads the
+        // store a test reset or seeded; the same store `AppState` makes.
+        ServerTrustEngineBridge.install()
+        ServerTrustRegistry.shared.loadFromStore(ServerSessionStore())
         _appState = State(initialValue: AppState())
     }
 

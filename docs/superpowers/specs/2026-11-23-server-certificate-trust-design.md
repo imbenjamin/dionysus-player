@@ -203,14 +203,21 @@ and the names are the leaf's DNS subject-alternative names that the
 certificate verifies for; otherwise kind 2. A kind-1 certificate whose
 names can't be read falls back to kind 2.
 
-**Reading the certificate.** iOS has no public API for a certificate's
-subject-alternative names or issuer (`SecCertificateCopyValues` is
-macOS-only). Use Apple's `swift-certificates` (`X509`, Apache-2.0, with
-`swift-asn1`), pinned `exact:` like every package, linked into
-`DionysusPlayer` and `DionysusTV` only (the Top Shelf never parses: it
-compares names and bytes). It needs `THIRD-PARTY-NOTICES` entries and
-`LicenseDocumentTests` updated. (My call over a hand-written DER parser:
-less code of ours on a security path.)
+**Reading the certificate.** Security gives the subject and issuer
+summaries (`SecCertificateCopySubjectSummary`, the issuer from the next
+certificate in the chain), the expiry (`SecCertificateCopyNotValidAfterDate`,
+iOS and tvOS 18) and the self-signed check (normalized issuer and subject
+sequences compared). Only the subject-alternative DNS names have no public
+API on iOS or tvOS (`SecCertificateCopyValues` is macOS-only), so a small,
+fail-soft walk with Apple's `swift-asn1` (Apache-2.0, pure Swift, no crypto)
+reads them: certificate, tbsCertificate, `[3]` extensions, 2.5.29.17,
+GeneralNames, `[2]` dNSName, printable ASCII only. Pinned exactly like every
+package, linked into `DionysusPlayer` and `DionysusTV` only (the Top Shelf
+never parses: it compares names and bytes), with a `THIRD-PARTY-NOTICES`
+entry and `LicenseDocumentTests` updated. Not `swift-certificates`: its `X509`
+needs swift-crypto's `_CryptoExtras`, which links BoringSSL into the app on
+Apple platforms too, a whole crypto library (size, export-compliance
+surface, more notices) for what is only parsing.
 
 ### The registry
 
@@ -334,7 +341,7 @@ outside the harness's reach (`UITestHarness`, `TestHostDetection`).
   stored with the server's address. Privacy manifests: no new required-reason
   API expected; check.
 - `TESTING.md`: the new scenarios and the TLS listener.
-- `THIRD-PARTY-NOTICES`: `swift-certificates`, `swift-asn1`.
+- `THIRD-PARTY-NOTICES`: `swift-asn1`.
 - `Localizable.xcstrings` synced in the same PR.
 
 ## Left to the builder

@@ -11,6 +11,7 @@ struct TVHomeView: View {
     @Environment(\.tvOpenRoute) private var open
     @Environment(\.tvOpenDetailBeneathPlayer) private var openDetailBeneathPlayer
     @Environment(\.tvPageIsOnShow) private var isOnShow
+    @Environment(\.tvFocusPageDefault) private var focusPageDefault
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(heroAutoCarouselEnabledStorageKey) private var autoCarousel = true
     @FocusState private var focus: String?
@@ -71,7 +72,10 @@ struct TVHomeView: View {
                 content
             } else if case .failed(let message) = viewModel.loadState {
                 TVPageMessage(title: String(localized: "Couldn't Load Home"), message: message, actionTitle: "Try Again", actionIdentifier: A11yID.TV.Main.retry) {
-                    Task { await viewModel.load() }
+                    // Through the retry loop, as iOS's Try Again: a bare
+                    // `load()` during its backoff is clobbered by its next
+                    // attempt (`retryLoadIfNeeded`).
+                    Task { await viewModel.retryLoadIfNeeded() }
                 }
             } else {
                 // Takes focus, so the sidebar doesn't open over it (see
@@ -80,6 +84,22 @@ struct TVHomeView: View {
             }
         }
         .task { await viewModel.loadIfNeeded() }
+        // Back online, as iOS's Home does: retries what failed while the
+        // server couldn't be reached, or while its certificate was refused
+        // until the user trusted it (#466), which leaves the app offline
+        // until the restart's first answer.
+        // A Home that had failed hands focus to its hero's Play once it
+        // loads, through the shell's hand-off: focus was on Try Again, or on
+        // the warning's page, and tvOS gave it to the sidebar.
+        .onChange(of: ConnectivityMonitor.shared.isOffline) { wasOffline, isOffline in
+            guard wasOffline, !isOffline else { return }
+            let hadFailed = if case .failed = viewModel.loadState { true } else { false }
+            Task {
+                await viewModel.retryLoadIfNeeded()
+                await viewModel.retryDynamicRailCandidatesIfNeeded()
+                if hadFailed, isOnShow, case .loaded = viewModel.loadState { focusPageDefault() }
+            }
+        }
         .onChange(of: viewModel.heroItems.count, initial: true) { _, count in pager.setCount(count) }
         .onChange(of: heroHasFocus) { _, has in
             if !has { pager.heroLostFocus() }

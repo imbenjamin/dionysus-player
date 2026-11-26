@@ -135,14 +135,14 @@ final class DownloadManager: NSObject {
     /// with `MockURLProtocol`.
     private let adHocFetchSession: URLSession
 
-    private static func makeAdHocFetchSession() -> URLSession {
+    static func makeAdHocFetchSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
         // Permitted here; the real gate is per-request in `makeFetchRequest`.
         configuration.allowsCellularAccess = true
         #if DEBUG
         UITestHarness.decorate(configuration)
         #endif
-        return URLSession(configuration: configuration)
+        return URLSession(configuration: configuration, delegate: ServerTrustDelegate.shared, delegateQueue: nil)
     }
 
     /// Applies `DownloadPreferencesStore.wifiOnly` to one request. A transfer's
@@ -533,7 +533,7 @@ final class DownloadManager: NSObject {
         for stream in tracks where !JellyfinAPIClient.isImageBasedSubtitleCodec(stream.codec) {
             guard let url = await client.subtitleURL(itemID: itemID, mediaSourceID: mediaSourceID, streamIndex: stream.index, codec: stream.codec) else { continue }
             do {
-                let (data, response) = try await session.data(for: makeFetchRequest(url: url))
+                let (data, response) = try await session.data(for: makeFetchRequest(url: url), delegate: ServerTrustDelegate.forTasks(on: session))
                 // `URLSession` doesn't throw on a 404: an error body saved as
                 // a `.srt` would be offered offline as a track of garbage.
                 // The same guard as `downloadFontAttachments`.
@@ -581,7 +581,7 @@ final class DownloadManager: NSObject {
                 itemID: itemID, mediaSourceID: mediaSourceID, index: attachment.index
             ) else { continue }
             do {
-                let (data, response) = try await session.data(for: makeFetchRequest(url: url))
+                let (data, response) = try await session.data(for: makeFetchRequest(url: url), delegate: ServerTrustDelegate.forTasks(on: session))
                 // Checked explicitly because `URLSession` doesn't throw on a
                 // 404, and writing an error body to disk would give playback a
                 // file `CTFontManager` can only refuse — see
@@ -620,7 +620,7 @@ final class DownloadManager: NSObject {
         }
         guard let url = images.url(itemID: sourceItemID, imageType: imageType, tag: tag, maxWidth: maxWidth) else { return nil }
         do {
-            let (data, response) = try await adHocFetchSession.data(for: makeFetchRequest(url: url))
+            let (data, response) = try await adHocFetchSession.data(for: makeFetchRequest(url: url), delegate: ServerTrustDelegate.forTasks(on: adHocFetchSession))
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else { return nil }
             try DownloadFileStore.write(data, toRelativePath: relativePath)
             return relativePath
@@ -682,7 +682,7 @@ final class DownloadManager: NSObject {
                 group.addTask {
                     guard let url = images.trickplayTileURL(itemID: itemID, width: info.width, sheetIndex: sheetIndex) else { return }
                     do {
-                        let (data, response) = try await session.data(for: Self.makeFetchRequest(url: url, allowsCellularAccess: allowsCellularAccess))
+                        let (data, response) = try await session.data(for: Self.makeFetchRequest(url: url, allowsCellularAccess: allowsCellularAccess), delegate: ServerTrustDelegate.forTasks(on: session))
                         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else { return }
                         let relativePath = DownloadFileStore.trickplayTileRelativePath(itemID: itemID, width: info.width, sheetIndex: sheetIndex)
                         try DownloadFileStore.write(data, toRelativePath: relativePath)
@@ -764,7 +764,7 @@ final class DownloadManager: NSObject {
         }
         guard let url = images.chapterImageURL(itemID: itemID, chapterIndex: chapterIndex, tag: tag, maxWidth: 640) else { return nil }
         do {
-            let (data, response) = try await session.data(for: Self.makeFetchRequest(url: url, allowsCellularAccess: allowsCellularAccess))
+            let (data, response) = try await session.data(for: Self.makeFetchRequest(url: url, allowsCellularAccess: allowsCellularAccess), delegate: ServerTrustDelegate.forTasks(on: session))
             // A 404 is expected here: an older server can report a phantom tag
             // for a chapter with no image. Checked explicitly because
             // `URLSession.data(from:)` doesn't throw on one.
