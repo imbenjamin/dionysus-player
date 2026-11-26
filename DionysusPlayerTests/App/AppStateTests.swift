@@ -605,7 +605,7 @@ final class AppStateTests: XCTestCase {
     private func signedInStore(server: ServerConfiguration) -> ServerSessionStore {
         let store = ServerSessionStore(defaults: defaults)
         store.saveServer(server)
-        store.saveCredentials(StoredCredentials(username: "ben", password: "hunter2", accessToken: "cached-token", userID: "user-1"))
+        store.saveCredentials(StoredCredentials(username: "ben", password: "test-password", accessToken: "cached-token", userID: "user-1"))
         trustRegistry.configure(server: server)
         return store
     }
