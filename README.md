@@ -89,10 +89,9 @@ The App Store's own sets are captured against a separate server (see
 
 ## Downloading Dionysus
 
-Dionysus Player v1.2.0 has been submitted to Apple for review. However there
-is a long lead time, and there have been some struggles with reviewing a
-couple of times. When the app is approved, the App Store listing link will
-be added to this page.
+Dionysus Player v1.2.0 is on the App Store for Apple TV; the iPhone and iPad
+version is still in Apple's review. The App Store link will be added to this
+page once it's approved.
 
 In the meantime, please use the TestFlight links for installing both iOS and
 tvOS releases to your device. There are different links for releases.
@@ -146,7 +145,7 @@ If you are unsure, please use the Stable Releases link.
   SubRip, WebVTT, teletext, PGS and other bitmap tracks — renders through the
   app's own overlay. Styling can be switched off in Profile → Playback →
   Advanced, which renders an ASS track unstyled rather than dropping it.
-- **Streaming** — defaults to **Allow Transcoding** (Settings → Playback):
+- **Streaming** — defaults to **Allow Transcoding** (Profile → Playback → Advanced):
   negotiates with the server via a real `DeviceProfile`, falling back to a
   server-chosen AVC or HEVC transcode with a configurable max-bitrate cap
   when direct play isn't possible, so a source your device can't decode
@@ -239,7 +238,7 @@ Downloads are an iPhone and iPad feature; the Apple TV app has none.
   and the default tier is chosen per device class (720p on iPhone, 1080p on
   iPad) from the angular resolution each can actually resolve — see
   [DOWNLOADS.md](DOWNLOADS.md). Every Kbps value in that ladder can also be
-  customized per device (Settings → Downloads → Advanced), with a one-tap
+  customized per device (Profile → Downloads → Advanced), with a one-tap
   reset back to the shipped default per value or for the whole ladder at
   once.
 - **No pointless re-encoding**: a source that already fits the requested
@@ -322,12 +321,11 @@ live iPhone testing, not just unit tests. Areas still resting on unit-test
 coverage alone rather than confirmed live: non-Dolby-Vision HDR formats on
 other devices, and some seeking/scrubbing edge cases.
 
-**v1.2.0** is the next release, for iPhone, iPad and Apple TV under one App
-Store record (Universal Purchase); v1.0.0 is the version on the App Store
-today. Every release builds, tests, signs and uploads both apps from one
-tag. The Apple TV app is in TestFlight and has been checked on an Apple TV
-4K (3rd generation) on tvOS 27: HDR10, Dolby Vision, HDR10+ and HLG
-playback, the Top Shelf and Now Playing on a paired iPhone.
+**v1.2.0** is the first App Store release, for iPhone, iPad and Apple TV
+under one App Store record (Universal Purchase). Every release builds, tests,
+signs and uploads both apps from one tag. The Apple TV app has been checked
+on an Apple TV 4K (3rd generation) on tvOS 27: HDR10, Dolby Vision, HDR10+
+and HLG playback, the Top Shelf and Now Playing on a paired iPhone.
 
 ## Known limitations
 
@@ -341,8 +339,7 @@ playback, the Top Shelf and Now Playing on a paired iPhone.
   app's subtitle overlay isn't inside the layer AVKit captures — the track is
   handed to AVKit as a native rendition instead. In-app playback is
   unaffected, styled or not.
-- **The Apple TV app is in TestFlight, not yet on the App Store**, and
-  there's no Mac app; macOS hasn't started.
+- **There's no Mac app**; macOS hasn't started.
 - **On the Apple TV, the Top Shelf follows whoever last used Dionysus**, not
   the Apple TV user currently selected: the system gives the extension the
   default user's keychain whichever user is active. After a user switch it
@@ -455,9 +452,8 @@ They're for debugging and tests only: nothing in the app makes or shares
 one, and they never change data. Every link is listed in
 [`TESTING.md`](TESTING.md#deep-links-for-debugging-and-tests).
 
-All tests passing as of this writing. See [`TESTING.md`](TESTING.md) for the
-full strategy, a coverage table, the UI harness, and known gaps (snapshot
-tests, accessibility audits, and `AetherPlaybackEngine`'s own adapter code).
+See [`TESTING.md`](TESTING.md) for the full strategy, the UI harness, and
+known gaps (snapshot tests and `AetherPlaybackEngine`'s own adapter code).
 
 ## Architecture
 
@@ -492,10 +488,10 @@ DionysusTV/         The Apple TV app — its own UI over the iOS app's Core
 DionysusTVTopShelf/ The Apple TV app's Top Shelf extension
 ```
 
-The networking and playback layers are each behind a small protocol
-(`JellyfinAPIClient` speaks plain REST/JSON; `PlaybackEngine` wraps
-AetherEngine) so the concrete implementations can evolve — or be swapped for
-previews/tests — without touching feature code.
+Playback sits behind a small protocol (`PlaybackEngine` wraps AetherEngine)
+so the engine can evolve, or be swapped for previews and tests, without
+touching feature code. Networking is one actor, `JellyfinAPIClient`, speaking
+plain REST/JSON; tests drive it through a mock `URLProtocol`.
 
 ## Localization
 

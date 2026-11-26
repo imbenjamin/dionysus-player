@@ -766,7 +766,7 @@ until it holds**: the button it replaced goes, so tvOS hands focus to the
 server list's default, which beat a claim made as the field appeared.
 
 **A discovered HTTPS server whose certificate fails gets iOS's HTTP fallback**
-(#429; the logic is the shared `ServerSetupViewModel`'s, root `CLAUDE.md`).
+(#429; the logic is the shared `ServerSetupViewModel`'s, `Core/Networking/CLAUDE.md`).
 iOS's two alerts are covers here: `TVHTTPPortPage` when nothing answers on
 8096 (the field focused; a silent port brings it back saying so), then a
 `TVConfirmation` with Cancel focused. `TVServerSetupView` mirrors the view
@@ -776,7 +776,7 @@ the port page is still closing; Cancel or Menu leaves the certificate error
 on screen.
 
 **Trusting the certificate is the first answer** (#466; the logic is the shared
-`ServerSetupViewModel`'s and `AppState`'s, root `CLAUDE.md`). `TVCertificateTrustPage`
+`ServerSetupViewModel`'s and `AppState`'s, `Core/Networking/CLAUDE.md`). `TVCertificateTrustPage`
 is a cover with the certificate's details, **Cancel focused** (a stray Select
 trusts nothing), mirrored by `TVServerSetupView` as the HTTP pages are; Use
 Unencrypted HTTP follows into the pages above. `TVCertificateWarningPage` is

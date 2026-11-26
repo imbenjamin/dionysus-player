@@ -404,13 +404,12 @@ string isn't user-visible anyway.
   iPhone simulator`, and both branch rulesets require that exact string.
   GitHub keys required checks on the **job** name, not the workflow name or
   filename — renaming the job without updating both rulesets first makes every
-  PR hang on a check that never reports. The same applies to the four UI
-  smoke checks (`UI smoke tests / iPhone, iOS 27.2`, `… / iPad, iOS 27.2` and
-  the same two on iOS 18.6) and
-  `tvOS build and unit tests`, which both rulesets require, and to the four
-  `Full UI tests / …` checks, which `stable`'s requires. Those four come from
-  the `ui-full` job, which runs the full UI suite on PRs into `stable` only —
-  see TESTING.md's "Where they run in CI".
+  PR hang on a check that never reports. The same applies to every
+  UI-test check: the smoke checks `develop` requires (iPhone and iPad on
+  iOS 27.2, the iPhone Duo closed and open on 27.1, the Apple TV on tvOS
+  27.0), `tvOS build and unit tests`, and the eight `Full UI tests / …` checks
+  plus `Full tvOS UI tests / …` that `stable` requires. TESTING.md's "Where
+  they run in CI" has the list.
 
 - **`.github/workflows/release.yml`** — runs on any `v*.*.*` tag push and
   ships both apps from it. `prepare` resolves the tag, refuses one on the
@@ -441,9 +440,9 @@ string isn't user-visible anyway.
 
 - **`.github/workflows/aetherengine-bump.yml`** — runs weekly (plus
   `workflow_dispatch`): discovers the newest AetherEngine release within the
-  currently-pinned major version and, if it's newer than `project.yml`'s
-  `version:` pin (XcodeGen's spelling of an exact/SPM `.exact`
-  requirement), opens a PR bumping that pin. Never proposes a
+  currently-pinned major version and, if it's newer than the `exact:` pin in
+  `Packages/AetherEngineWithObjectAudio/Package.swift`, opens a PR bumping
+  that pin. Never proposes a
   major-version bump. Goes through the normal `pr-checks.yml` gate like any
   other PR — see CLAUDE.md's "Pinning AetherEngine" for why the pin is exact
   rather than a `from:` range in the first place.

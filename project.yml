@@ -378,8 +378,11 @@ targets:
       - path: DionysusTV/TopShelf
       # The Top Shelf's actions are `DeepLink`s; Foundation only.
       - path: DionysusPlayer/Core/DeepLinks
+        excludes:
+          - "**/CLAUDE.md"
       - path: DionysusPlayer/Core/Networking
         excludes:
+          - "**/CLAUDE.md"
           - "ServerDiscovery.swift"
           - "LocalNetworkPermission.swift"
           - "TrickplayThumbnailProvider.swift"

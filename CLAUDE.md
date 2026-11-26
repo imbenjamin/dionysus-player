@@ -4,9 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Dionysus Player is a native Jellyfin client for iPhone, iPad and Apple TV
-(the Apple TV app in TestFlight since v1.2.0-alpha.4, not yet on the App
-Store). It talks to a Jellyfin server over the plain
+Dionysus Player is a native Jellyfin client for iPhone, iPad and Apple TV.
+It talks to a Jellyfin server over the plain
 REST/JSON API (https://api.jellyfin.org/) and plays media through
 AetherEngine, a third-party FFmpeg + VideoToolbox engine (HDR10, HDR10+,
 Dolby Vision), pulled in as a Swift Package.
@@ -19,20 +18,18 @@ seeking edge cases) as unverified until checked.
 **The deployment floor is iOS 18** (raised from 17 on 2026-09-23 for
 AetherEngine 7.x, whose 7.0.0 raised its own floor). iOS 17 devices keep
 v1.0.0. Read AetherEngine's floor from `Package.swift` at the tag, never from
-its release notes: 7.13.0's notes said "iOS 17" while its manifest said 18.
+its release notes, which have disagreed with it.
 
 **Both apps build with Xcode 27.1 in every CI job** (GitHub's `xcode-27`
-image, since 2026-10-20), **and with Xcode 27.2 (27B52) on the Mac** (since
-2026-11-03, when 27.1 and the iOS 27.0/27.1 runtimes were removed there).
-Locally the iOS Simulators run iOS 27.2 (the iPhone Duo has its own 27.2
-runtime) and 18.6, the Apple TV ones tvOS 27.0 and 27.2; CI's are iOS 27.2
-(27.0 until 2026-11-16, when runner image 20261112 stopped Xcode 27.1 seeing
-its iOS 27.0 Simulators, #473), the Duo's 27.1, 18.6 and tvOS 27.0. So a
-break that shows only in CI may be 27.1-only: CI is the gate. CI's iOS
-version is pinned, never "the newest": the required check names carry it,
-so changing it means updating both rulesets in the same change. AetherEngine is built and tested only with Xcode 27, and
-7.43.0 stopped compiling with Xcode 26, so no job can go back to an older
-image. CI also tests the iOS 18.6 floor (full plan only) and the iPhone Duo
+image) **and with Xcode 27.2 (27B52) on the Mac.** Locally the iOS
+Simulators run iOS 27.2 (the iPhone Duo has its own 27.2 runtime) and 18.6,
+the Apple TV ones tvOS 27.2 and 26.5; CI's are iOS 27.2, the Duo's 27.1,
+18.6, tvOS 27.0 and (nightly smoke, allowed to fail) tvOS 26.5. So a break
+that shows only in CI may be 27.1-only: CI is the gate. CI's OS versions
+are pinned, never "the newest": the required check names carry them, so
+changing one means updating both rulesets in the same change. AetherEngine
+builds only with Xcode 27, so no job can go back to an older image. CI also
+tests the iOS 18.6 floor (full plan only) and the iPhone Duo
 on iOS 27.1 in each pose, set through Device Hub by `Scripts/duo-pose/`
 (`TESTING.md`, "Where they run in CI").
 
@@ -123,10 +120,9 @@ gitignored with the generated project, so CI caches the package checkouts
 `Packages/**/Package.swift` and `project.yml`'s `packages:` block, with no
 `restore-keys`. Only the nightly on `develop` writes it (about 0.93 GB, beside
 the 8.8 GB iOS 18.6 runtime in a 10 GB quota); every other run restores. After
-a pin change, runs are cold until the next nightly. A range let CI land on
-whatever release was newest with no commit here (PR #147: `6.54.0` resolved
-against a `6.52.0` pin). A cold resolve after changing the pin can fail with "enables traits on package … that declares no traits": a
-cached older checkout was read; resolve into fresh DerivedData.
+a pin change, runs are cold until the next nightly. A cold resolve after
+changing the pin can fail with "enables traits on package … that declares no
+traits": a cached older checkout was read; resolve into fresh DerivedData.
 
 The weekly "Bump AetherEngine" workflow (`aetherengine-bump.yml`) opens a PR
 bumping the pin to the newest release in the current major, which goes
@@ -217,9 +213,10 @@ Login, Home, Search, Profile, detail pages and the Player (XCUITest drives
 the player's controls too, under the harness's fake engine); avoid automating
 over a real AetherEngine session, whose surface repaints continuously.
 
-Reuse one booted Simulator rather than booting one per task: target whatever
-`xcrun simctl list devices | grep Booted` shows, and don't shut it down or
-quit the Simulator when done.
+Boot one Simulator only when a step needs it, never several at once, and
+shut it down (`xcrun simctl shutdown <udid>`) when the task is done: several
+booted together saturate the Mac. Reuse an existing Simulator; never create
+one without asking. Use the iPhone 17 unless the check needs the iPhone Duo.
 
 ## Architecture
 
@@ -260,9 +257,7 @@ Shared pieces are in `Shared/Components/Onboarding/`.
   lock asks the scene to rotate only from sideways**
   (`RotationLock.needsRotationToPortrait`): a `requestGeometryUpdate(.portrait)`
   made while already upright outlived the lock, so unfolding left the inner
-  screen sideways, onboarding and the signed-in app alike, until a relaunch
-  (fixed 2026-10-31). A closed Duo held sideways through onboarding still
-  makes the request; not reproduced, since XCUIDevice can't turn the Duo.
+  screen sideways, onboarding and the signed-in app alike, until a relaunch.
 - **The welcome shows once** (`ServerSessionStore.hasCompletedWelcome`): "Get
   Started", or having ever configured a server. `clearAll()` leaves it set,
   so changing server never replays it. UI tests skip it with
@@ -306,145 +301,16 @@ password at first sign-in isn't affected (`authenticate` is sent with
 credentials, so a request still in flight can't sign the signed-out user back
 in.
 
-**Quick Connect** (`QuickConnectView`/`QuickConnectViewModel`, offered when
-`/QuickConnect/Enabled` says so): the server issues a 6-digit code, another
-signed-in client approves it, and the secret is exchanged at
-`/Users/AuthenticateWithQuickConnect`. A code expires 10 minutes after it's
-issued, and polling it then answers **404**, which is how expiry is detected
-(`QuickConnectManager.cs`, 10.11 and 12.z). A Quick Connect session has no
-password, which shapes three things:
-
-- **`StoredCredentials.authMethod` says which kind of session it is.** A
-  `.quickConnect` session validates its token with `GET /Users/Me` at launch
-  instead of signing in. It's explicit, not inferred from `password == nil`,
-  because passwordless accounts store `""`; absent, it decodes as `.password`.
-- **A mid-session 401 can't recover.** `authenticateWithQuickConnect` clears
-  `reauthCredentials`, so `sendRaw` surfaces `.notAuthenticated` at once and
-  never replays an earlier password sign-in, which would swap users.
-- **The instructions name no menu path** ("open Quick Connect"): where it
-  lives differs between Jellyfin clients.
-
-**Approving someone else's code** is on the Account screen
-(`QuickConnectApprovalView`, pushed from `AccountDetailsContent`, shown only
-while Quick Connect is enabled). On iPhone and iPad the sixth digit
-submits the code (`setCode` says when an edit completes it): from iPadOS
-27.2 the number pad is a popover whose first outside tap only closes it, so
-Authorize took two taps (TQ-20). The button stays, for retrying a code.
-`POST /QuickConnect/Authorize` (measured on 10.11.11) answers 200 `true`,
-**404** for an unknown or expired code, **500** for one already approved
-(indistinguishable from any server error, so the message says both), and 401
-with Quick Connect off. It sends no `userId` (the server approves for the
-caller; naming another user needs admin rights), and runs with
-`maxReauthAttempts: 1`, since its 401 is a refusal;
-`QuickConnectApprovalViewModel` asks `/QuickConnect/Enabled` again to tell
-"turned off" from "session expired". There is no "approve this device?" step:
-only the requesting device can see which device asked.
-
-**Server discovery** (`ServerDiscovery.swift`, started as Find Your Server
-appears) speaks Jellyfin's UDP protocol (`who is JellyfinServer?` to port
-7359, answered with `{Address, Id, Name}`), **unicast to every host on the
-subnet, never broadcast**: broadcast and multicast need the restricted
-`com.apple.developer.networking.multicast` entitlement, and fail silently
-without it, while the server (`AutoDiscoveryHost.cs`) answers the phrase in
-any datagram. There's no
-API to ask for Local Network access or read it, and **under the permission
-prompt UDP sends are accepted and silently dropped** (seen on device), so the
-reliable signal is the app going inactive: the scan keeps running and starts
-over once active (`ScanSchedule`), and a scan whose every send is refused
-reads as denied. A typed LAN address skips the scan, so its first HTTP request
-raises the prompt and fails behind it; `probeAcrossLocalNetworkPrompt` waits
-for the answer and retries once. The device's own address stays in the
-sweep, which lets the Simulator find a server on its own Mac.
-
-**A server whose HTTPS certificate fails can be trusted, from setup on
-(#466).** The user vouches for the certificate after seeing it; nothing is
-ever switched off. What is stored with the server (`ServerConfiguration.
-certificateTrust`, mirrored into `TopShelfSession`) is one of two kinds, chosen
-when the offer is made (`ServerCertificateDetails`): **`.names`** when the
-chain is fine except the hostname (a Let's Encrypt certificate reached by IP;
-it renews with a new key every few months, so it is bound to the certificate's
-DNS names, never to its bytes), else **`.certificate`**, the exact leaf's DER
-(self-signed, unknown CA, expired). `ServerTrustPolicy.decide` answers every
-challenge, in order: another origin than the configured server's, or a chain
-the system already accepts, is the system's; `.names` accepts a chain the
-system finds valid for one of the names (so a public certificate for some
-*other* domain is refused); `.certificate` accepts an equal leaf, dates
-ignored; anything else is **refused as `.performDefaultHandling`, never
-`.cancel`**, so it still surfaces as the usual certificate `URLError` and every
-error path keeps working, and is reported.
-
-- **`ServerTrustRegistry`** holds the trust (and setup's *candidate*, used
-  while it re-probes before anything is saved). It loads from
-  `ServerSessionStore` at launch, since a background download relaunch can
-  raise a challenge before `AppState.start()`. A refusal is reported **once
-  per presented leaf per launch**, never per failed request; a leaf counts as
-  reported only once a hook was told, so one refused before the hook was set
-  is reported later.
-- **A new `URLSession` takes `ServerTrustDelegate`**, as the session delegate
-  on a session the app owns (`RemoteImageLoader`, downloads, the Top Shelf's,
-  bound to a registry of its own; `DownloadTaskRouter` for the background
-  ones). **A task passes `ServerTrustDelegate.forTasks(on: session)`, never
-  `.shared`**: a per-task delegate replaces the session's for challenges, so
-  passing `.shared` on the Top Shelf's session asked the extension's
-  unconfigured registry and the shelf never loaded from a trusted server. On
-  `URLSession.shared` (`data(for:delegate:)`, which delivers the challenge, as
-  spiked) it gives `.shared`. A session without the delegate fails against a
-  trusted server while sign-in works, the failure mode to look for.
-  `ServerTrustSessionCoverageTests` drives the API client (on a session with
-  a private registry) and the player's fetch against a real in-process TLS
-  listener; the image loader and ad-hoc download session are type checks, the
-  router a synthetic challenge. `TopShelfLoaderTests` drives the API client on
-  the Top Shelf's own session.
-- **AetherEngine is reached through `EngineTLS.serverTrustEvaluator`**, set by
-  `ServerTrustEngineBridge` (in `Core/Playback/`, so `Core/Networking` and the
-  Top Shelf's slice never import the engine) **only while a trust is stored**:
-  with any evaluator set the engine adds a system-trust handshake to every
-  `https` transcode load, a cost a server with no trust shouldn't pay. Direct
-  play and the transcode's AVPlayer bypass both go through it (the engine
-  mounts its `HLSOriginRelay` for an origin the system refuses).
-- **Setup** (`ServerSetupViewModel`, typed or discovered) publishes a
-  `CertificateTrustOffer` on a certificate failure carrying a peer trust:
-  Trust This Certificate re-probes and signs in under the candidate before
-  saving. For a discovered server, Use Unencrypted HTTP is the second answer
-  and enters the opt-in HTTP fallback below, unchanged. A server saved before
-  this change whose certificate starts failing gets the same offer instead of
-  the login screen.
-- **The warning** (`AppState.certificateWarning`, shown by
-  `CertificateWarningPresentation` from `RootView`/`TVRootView`) is raised by
-  the registry when a stored trust no longer covers the certificate (*changed*:
-  both fingerprints) or none was stored (*untrusted*). A trust by name whose
-  certificate still carries a trusted name but no longer verifies (expired, its
-  CA removed) is *changed* too, but reads "…’s Certificate Is No Longer Valid"
-  naming them, not "Has a New Certificate" (`CertificateWarning.lapsedNames`,
-  matched by `ServerTrustPolicy.dnsName(_:covers:)`). Three answers: Trust
-  New Certificate (confirmed; re-classified, saved, session restarted), Change
-  Server (confirmed with Profile's own question), and **Not Now (Stay Offline)**, which resumes into the offline state
-  with Downloads working, since a captive portal raises this in ordinary use.
-  It **closes any other sheet or cover first**, but **never dismisses a
-  player**: playback fails with `.sourceCertificateRejected` (its own message)
-  and the warning shows once the player has gone. **Trust's restart signs in
-  again on the same `JellyfinAPIClient`** (`start(isRelaunch: false)`): the
-  signed-in views keep the client they were built with, and a new one left
-  them on a revoked token whose re-authentication revoked the token just
-  saved, so the Top Shelf's mirror 401'd. A refusal decided under a trust
-  since replaced is dropped and handed back (`raiseCertificateWarning`).
-- **Dependencies**: names are read with Apple's `swift-asn1` only. iOS and tvOS
-  have no API for a certificate's subject alternative names, and
-  `swift-certificates` would pull in swift-crypto's `_CryptoExtras`, which links
-  BoringSSL into the app. It is linked to the two apps, never the Top Shelf.
-- A private CA that renews leaves daily isn't covered (#499): install its root
-  as a configuration profile.
-
-**A discovered `https://` server whose certificate fails also gets an opt-in
-HTTP fallback** (`ServerSetupViewModel.connect(to:)`), the second answer
-after the trust offer. A server with HTTPS on and
-no published URL advertises `https://<LAN IP>:<port>`, which a certificate
-for a domain name (or a self-signed one) never validates. Nothing a
-signed-out client can read reveals the HTTP port, so 8096 is tried first and
-the user is asked if it's silent. The port that answers must report the
-discovery reply's `SystemId` over `/System/Info/Public`, and nothing connects
-until the user confirms going unencrypted. Only certificate failures
-(`URLError.isCertificateFailure`) trigger it.
+**Sign-in, discovery and certificate trust are in
+`DionysusPlayer/Core/Networking/CLAUDE.md`**: Quick Connect (a session with
+no password, so a mid-session 401 can't recover), UDP discovery (unicast to
+the subnet, never broadcast), trusting a server's unverifiable certificate
+(#466) and the discovered-server HTTP fallback. Two rules bind any change
+here: **every new `URLSession` takes `ServerTrustDelegate`, and a task passes
+`ServerTrustDelegate.forTasks(on: session)`, never `.shared`** (a session
+without it fails against a trusted server while sign-in works), and a
+refused certificate is **`.performDefaultHandling`, never `.cancel`**, so it
+surfaces as the usual `URLError`.
 
 **An HTTP error never shows the response body.** `JellyfinAPIError.http`
 reads "Something went wrong (HTTP 404)." whatever came back: a server, or a
@@ -503,7 +369,7 @@ fetch is outstanding and settles once it has failed or there's nothing to
 fetch (`isSettled`; Reduce Motion aware). **A new image site passes a
 `placeholderSystemImage` that matches its content.** On tvOS the glyph
 scales with its tile (`MediaPlaceholderBox.tvGlyphSize`, about a fifth of the
-shorter side, at least 28pt; Benjamin, 2026-10-05), since a fixed 28pt was
+shorter side, at least 28pt), since a fixed 28pt was
 too small to read across a room. The Apple TV grid draws the same box over
 its UIKit posters (`TVPosterOverlay`).
 
@@ -548,7 +414,7 @@ shape.
 
 **A title can have several Jellyfin versions (`MediaSources`: 4K and 1080p,
 a Director's Cut), and whether a play asks which is decided by the title's
-resume point, never by the button** (Benjamin, 2026-11-13). Resume and Restart
+resume point, never by the button**. Resume and Restart
 are one title in two starts, so asking on one and not the other read as
 arbitrary. The rule is `MediaVersionChoice`, the pure part, and
 `MediaVersionResolver`, which applies it to a session:
@@ -572,8 +438,8 @@ arbitrary. The rule is `MediaVersionChoice`, the pure part, and
   Apple TV; iOS ignores it (`AssetDetailViewModel.linkVersionDecision`).
 - **iOS asks with a `confirmationDialog`** (`VersionChoiceDialog`); the Apple
   TV with a full-screen page, since a tvOS dialog's buttons can't be given
-  identifiers and its focus can't be placed (`DionysusTV/CLAUDE.md`, "Choose
-  a Version"). Playback Stats' Version row and a download's Details show which
+  identifiers and its focus can't be placed (`DionysusTV/CLAUDE.md`, "Versions
+  (#289)"). Playback Stats' Version row and a download's Details show which
   version a session or file is.
 - **Downloads ask differently** (iOS; `DOWNLOADS.md`): a single download always
   asks with two or more versions, before the audio prompt; a season scans
@@ -587,8 +453,8 @@ arbitrary. The rule is `MediaVersionChoice`, the pure part, and
 Jellyfin's `BaseItem.CanDelete()` is `IsFileProtocol`, and a show whose
 episodes sit loose in its folder (no `Season NN/`) gets made-up seasons:
 `LocationType: Virtual`, no path, `CanDelete: false` even for an admin,
-`DELETE /Items/{season}` refused. Benjamin's library is shaped like this
-(checked on 12.2.0). So for such a season the Delete menu fetches its
+`DELETE /Items/{season}` refused. A real library was shaped like this
+(checked on Jellyfin 12.2). So for such a season the Delete menu fetches its
 episodes with `CanDelete` (`AssetDetailViewModel.loadSeasonDeletability`),
 offers Delete Season when every episode with a file is deletable, and deletes
 them one at a time, stopping at the first failure with "Deleted N of M".
@@ -596,7 +462,7 @@ them one at a time, stopping at the first failure with "Deleted N of M".
 scan, so the page drops it itself. A season with a folder is one request.
 
 **All Watched deletes a show's watched episodes** (#437; iOS and Apple TV),
-last in the Delete submenu below its own divider (Benjamin, 2026-11-19).
+last in the Delete submenu below its own divider.
 `AssetDetailViewModel.loadWatchedEpisodes()` reads the whole show's episodes
 with `CanDelete` as the page loads and after playback, a Watched toggle or a
 deletion. Watched is `Played`; a resume point isn't, and a missing episode
@@ -659,7 +525,7 @@ gated: the floor is 18) through `ActiveFold` (`Shared/Components/`), which
 rounds it to whole points. **Read it from a view whose position doesn't
 depend on it**: a view moved by the fold it measures loops (measured: 98% CPU
 on a black screen), so read it on the outer frame, after any padding it
-drives. Six layouts use it (Benjamin, 2026-10-26 to 2026-10-31):
+drives. Six layouts use it:
 
 - **The player** (`PlayerFoldLayout`; `Core/Playback/CLAUDE.md`): tabletop
   puts the picture above the fold and every control below; book pose moves
@@ -701,7 +567,7 @@ content at the top asks `tabBarPlacement`, as Home's hero tint does
 is in the side bar too, so the hero's top shade (`HeroScrollEdgeScrim`) is
 left out there, and so is its forced dark bar scheme: a scheme colours the
 whole side bar, only part of which is over the hero, so the system's glass
-picks per item instead (Benjamin, 2026-10-27). Every other bar keeps both.
+picks per item instead. Every other bar keeps both.
 Heroes' backdrops reach past the horizontal safe area (the side bar's column
 on the closed Duo) while logos stay centred inside it
 (`BackdropLogoOverlay.backdrop`); Home's page dots and VoiceOver's
@@ -715,7 +581,7 @@ with `.toolbarTitleUnlessVertical()`. Held wide, the Duo's bars merge into the
 vertical side bar, which shows symbols only; a text-only item (or one styled
 `.titleOnly` everywhere) stays behind in a horizontal bar of its own
 (measured, 2026-10-27). Elsewhere the words stay, since "Select" or "Cancel"
-says more than a glyph (Benjamin, 2026-10-27).
+says more than a glyph.
 
 ### Navigation (`Shared/Navigation/`)
 
@@ -734,64 +600,24 @@ navigation type.
 `dionysus://` links open any place, title or playback, on both apps, for
 debugging and UI tests (`xcrun simctl openurl booted 'dionysus://play/<id>'`).
 **They're an API-only capability: nothing in the app makes, copies or shares
-one** (Benjamin, 2026-11-11), and they navigate and play, never change data.
+one**, and they navigate and play, never change data.
 Every link, parameter and fallback is listed in `TESTING.md`, "Deep links
 for debugging and tests"; the Top Shelf's links are two of them and must
 keep parsing. **A new destination or parameter updates that table in the
 same change**, with a parser test and a journey per platform.
 
 - `DeepLink` parses and builds (pure, shared with the Top Shelf extension);
-  `DeepLinkRouter` decides against the session. A link arriving signed out is
-  held through sign-in, for 10 minutes at most; one for another server or
-  user is refused with a toast (`Toast.notice`), never switched to.
-- Each app's root holds the pending link (`RootView`, `TVRootView`);
-  `MainTabView` / `TVMainView` apply it. On iOS `DeepLinkNavigation.plan`
-  maps a destination to tabs and stacks; a title's page goes on Home's stack.
-- **A play link pushes the page and cues it** (`DeepLinkPlaybackCue`): the
-  page plays what its own Play would (`AssetDetailViewModel.linkPlaybackRequest`,
-  which the Apple TV uses too) with its own player, so the queue, Next Up and
-  the refresh on close are the page's usual ones. A playlist queues the rest;
-  a collection plays its first title alone; `?playlist=` plays a member from
-  the playlist's page; a downloaded title, with `?offline=1` or while
-  offline, plays from its download's page (a cue says which, as both pages
-  share the item id).
-- **A link's start, version, tracks and Playback Stats apply to its one
-  session** (`PlaybackLinkOverrides`, through `PlaybackRequest` to
-  `PlayerViewModel`): checked once the title has loaded, never written to
-  track memory or the version preference, and whatever the title lacks (or
-  the link couldn't read) is said in one toast while the rest plays as Play
-  would. Tracks are Jellyfin's `MediaStream.Index`, mapped to engine ids as
-  the Atmos hint and the ASS sidecars are.
-- **A library link finds the library among the user's before anything
-  moves** (`DeepLinkLibrary`: the rail's query, seeded with the link's sort
-  and facets; music isn't browsable, so not found), then pushes its grid on
-  Home's stack. **Profile pages** (`DeepLink.ProfilePage`) open as a pane
-  with any sub-page pushed in the split layout, and in the one list as a
-  scroll to the section, a push, or the Account sheet. **Quick Connect's
-  code is filled in, never submitted**: approving signs a device in.
-- **An item link's `season=` and `section=` wait for the page to load**
-  (`DeepLinkPageCue` on iOS, `TVLinkedItemOptions` held per pushed page on
-  the Apple TV): a show opens on the season (id or number), and the page
-  scrolls to the section (Cast & Crew and Details are tabs it opens) or, on
-  the Apple TV, focuses its first item, held until it settles since the
-  page's own claim and the shell's handoff land after it. What the page
-  lacks is said in one toast; the Apple TV's pages have no chapters.
-- **DEBUG builds only: `mode`, `bitrate` and `server?url=`.** A play
-  link's `mode=direct|transcode` and `bitrate=<bps>` replace Profile's
-  Streaming and Max Bitrate for that one session, retries included
-  (`PlaybackLinkOverrides.streaming`); a bitrate alone negotiates
-  (Allow Transcoding), and with `mode=direct` it's ignored and said.
-  `server?url=` fills server setup's address and opens the field, past the
-  welcome, connecting to nothing; it's applied by the root (`RootView`,
-  `TVRootView`) and only while no server is set up, since a link never
-  forgets one. Release builds don't parse any of the three.
+  `DeepLinkRouter` decides against the session. How each kind of link behaves
+  is in `DionysusPlayer/Core/DeepLinks/CLAUDE.md`.
 - **A link arriving mid-playback closes the player through
   `PlayerCloseRequest`**, which runs its close button's teardown and reports
   the stop; dismissing the cover from outside would skip that.
-- `XCUIApplication.open` relaunches the app with the link (a cold launch), so
-  journeys that need the warm path open links with
-  `XCUIDevice.shared.system.open` (`DeepLinkJourneyTests`).
-  `Scripts/deeplink.sh '<link>' [udid]` opens one on a Simulator by hand.
+- **Quick Connect's code is filled in, never submitted**: approving signs a
+  device in. **`mode`, `bitrate` and `server?url=` are DEBUG-only**; Release
+  builds don't parse them.
+- `Scripts/deeplink.sh '<link>' [udid]` opens one on a Simulator by hand;
+  journeys that need the warm path use `XCUIDevice.shared.system.open`
+  (`XCUIApplication.open` cold-launches).
 
 ### Models (`Core/Models/`)
 
@@ -863,86 +689,26 @@ licence text; the LGPL-2.1 text is given once, under FFmpeg, and libzvbi and
 FriBidi point to it. SMBClient isn't there: it comes only with AetherEngine's
 `AetherEngineSMB` product, which the app doesn't link. A line `# <name>` starts
 each library's notices, and the License page shows each after `LICENSE`
-under a heading with that name, on both platforms (`LicenseDocument`;
-Benjamin, 2026-10-13, so it's clear which component a licence refers to).
+under a heading with that name, on both platforms (`LicenseDocument`,
+so it's clear which component a licence refers to).
 When a bump brings a new dependency or changes a version, read its licence
 and add or update its notices there too, under its own `# <name>` line
 (`LicenseDocumentTests` lists the libraries it expects).
 
 ## Store screenshots
 
-`store-screenshots/` holds two copies of the screenshot sets, made by
-`Scripts/store-screenshots/{gen.py,shot.swift}` through
-`Scripts/render-store-screenshots.sh`; README.md's "Store screenshots" has the
-capture-then-render workflow. What the scripts don't say:
+`store-screenshots/` holds two copies of the screenshot sets; the workflow
+and its traps are in `Scripts/store-screenshots/CLAUDE.md` (and README.md's
+"Store screenshots"). Three rules apply anywhere:
 
-- **Two copies, two servers, never a personal one** (Benjamin, 2026-11-10):
-  `store-screenshots/apple-app-store/` is captured against the App Review
-  server (user `reviewer`; `docs/store/review-server.md`; **neither its
-  hostname nor its domain ever goes in the repo**, only in App Store Connect
-  and local notes) and is the **only** copy uploaded to App
-  Store Connect. `store-screenshots/demo-jellyfin-org/` is captured against
-  `demo.jellyfin.org/stable` (user `demo`, no password) and is shown only in
-  README.md. The demo server isn't all public domain (Dracula and Sahara got
-  tvOS 1.2.0 rejected under 5.2.3), so its images never go to the store.
-  Each copy keeps its raw captures in its own `raw/`.
-- **Neither server has HDR content** (all SDR). The review server has
-  chapters and Sintel's ten subtitle tracks; the demo server has neither. A
-  slide about Dolby Vision either describes the app's real capability or
-  skips the claim; never fake HDR-looking video.
-- **`xcrun simctl` has no orientation control.** Rotate through the
-  Simulator's Device ▸ Orientation menu (`osascript` can drive it). `gen.py`'s
-  landscape frame expects an upright image: Xcode 27's Device Hub (one window
-  showing the device selected in its source list) saves it upright; the older
-  Simulator needed `sips -r 270 <file>`.
-- **iOS defers a download created while the Simulator is in the
-  background**: foreground its window (`osascript` `perform action "AXRaise"`)
-  and wait real time before capturing the Downloads slide.
-- **The demo server's transcodes restart mid-download** for larger titles;
-  wait out another cycle or pick a shorter title.
-- `gen.py`'s `MAGENTA`/`ROSE_GOLD` are copies of `BrandColors.swift`; update both
-  if the palette changes.
-- **No alpha channel**: App Store Connect rejects one, so `shot.swift` renders
-  into an opaque context; the render script's report shows `alpha:no` per file.
-- **The iPhone Duo set** (`appstore-iphone-duo`, `gen.py`'s `DUO_SLIDES`) is one
-  `APP_IPHONE_DUO` set holding outer (1398×2034) and inner landscape
-  (2853×2007) frames together (tested by upload, 2026-10-31). Capture each
-  display with `simctl io --display=primary-1|primary`: both save upright and
-  both show the status bar override. Xcode's MCP taps land only inside the
-  outer display's 466×678pt box, so navigate closed and unfold; and launch
-  fresh closed rather than signing in there, or unfolding leaves the app tall.
-- **Only iOS 27 Simulators take Xcode's MCP taps**, so the iPhone set comes
-  from the iPhone 18 Pro Max (1320×2868, the 6.9" size) and the iPad set from
-  the iPad Air 13-inch (M4). `orientation landscapeLeft` rotates them (not
-  the Duo). Raw captures for every set are kept in each copy's `raw/`.
-- **Go easy on the demo server's downloads**: ten parallel transcodes across
-  two Simulators coincided with it answering 503 (2026-10-31). Download the
-  short Caminandes films, one Simulator at a time.
-- **Book and tabletop slides show the phone folded in 3D** (`pose=` in
-  `DUO_SLIDES`; Benjamin, 2026-11-01), the capture split at the fold and
-  each half turned (`BOOK_ANGLE`, `TABLETOP_BACK`/`TABLETOP_BASE`).
-  `shot.swift`'s WKWebView snapshot flattens CSS 3D transforms to 2D, so
-  `gen.py` projects them itself with Pillow and places the result as an
-  image; don't move it back to CSS. Capture book slides in book pose: the
-  grid's fold split only shows there, not open flat.
-- **The Apple TV set** (`appstore-appletv`, `gen.py`'s `TV_SLIDES`, no device
-  frame) is captured with `xcrun simctl io <udid> screenshot`, which works on
-  tvOS with no rotation or status bar to handle; the 4K Simulator saves
-  3840×2160, kept downscaled to 1920×1080 in each copy's `raw/appletv/`
-  so the set can be re-rendered.
-- **On the demo server the Top Shelf can show only Recently Added**: the demo
-  user has no Continue Watching or Next Up (progress doesn't stick on the
-  shared account). The store set has no Top Shelf slide: when it was made
-  the shelf showed the static image, and its Recently Added fix (#351) hasn't
-  been checked against the demo. Never capture it against a personal server.
-- **The Apple TV player slide's subtitle names capabilities, not what's
-  on screen**: Dolby Vision, HDR10+, Dolby Atmos and DTS:X (2026-10-20,
-  after Spatial Audio shipped in #364). The frame is plain SDR, since the
-  demo server has no such tracks; the subtitle is the claim, so never fake
-  it in the picture. Atmos and DTS:X reach a receiver as Atmos only with
-  Spatial Audio turned on (`DionysusTV/CLAUDE.md`, "HDR and audio"), which
-  the listing's description says. Avoid frames with burnt-in on-screen
-  text behind the player's panel.
+- **`store-screenshots/apple-app-store/` is the only copy uploaded to App
+  Store Connect**, captured against the App Review server. **Its hostname and
+  domain never go in the repo**, only in App Store Connect and local notes.
+  `store-screenshots/demo-jellyfin-org/` (the demo server) is for README.md
+  only: that server isn't all public domain.
+- **Never a personal server**, and never fake HDR: neither server has HDR
+  content, so a slide names the capability rather than showing it.
+- **No alpha channel**: App Store Connect rejects one.
 
 ## Commit messages and pull request descriptions
 

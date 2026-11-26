@@ -5,8 +5,7 @@ depends on a third party's server or content. It exists because the Apple TV
 app was rejected under guideline 5.2.3 (2026-11-09): the review notes pointed
 at `demo.jellyfin.org`, whose library includes films still under copyright
 (Dracula, 1931; Sahara, 1943), and App Review asked for documentary evidence
-of rights to everything a reviewer can play. The plan is
-`docs/superpowers/plans/2026-11-09-app-review-server.md`.
+of rights to everything a reviewer can play.
 
 ## What it holds
 
@@ -170,10 +169,9 @@ maintainer's local notes. Pass the address to `check.sh` as `<base-url>`.
   `~/Library/Logs/dionysus-review-tunnel.log`. It runs at login, not at
   boot, because the container needs OrbStack, which starts at login; the
   Mac logs in automatically.
-- **The other tunnel:** this Mac also runs the account's `flix` tunnel, a
-  system LaunchDaemon (`com.cloudflare.cloudflared`) from a token, with its
-  routes set in the dashboard. Don't run `sudo cloudflared service install`:
-  it would take that daemon's name.
+- **Another tunnel runs as the system `cloudflared` daemon** on this Mac.
+  Don't run `sudo cloudflared service install`: it would take that daemon's
+  name.
 - **Certificate:** Cloudflare's wildcard certificate for the domain, so the
   hostname never appears in Certificate Transparency logs. It's still
   guessable, though, so the reviewer's lockout stays off.
@@ -183,8 +181,7 @@ maintainer's local notes. Pass the address to `check.sh` as `<base-url>`.
 **Checked on 2026-11-10 through the tunnel:**
 
 - The certificate validates, and `/Users/Public` lists only `reviewer`.
-- The paths of the Mac's other services (`/flix/`, `/qbittorrent/`,
-  `/prowlarr/`, `/sonarr/`, `/radarr/`, `/reboot`) all return 404.
+- The paths of the Mac's other services all return 404.
 - A user without remote access is refused when signing in through the
   tunnel. Jellyfin logs "remote access disabled and user not in local
   network" with the Mac's public address, and the same sign-in works over
