@@ -97,22 +97,29 @@ final class CertificateWarningJourneyTests: UITestCase {
 
     /// Refused while the Account sheet is up: the sheet closes and the
     /// warning shows in its place, instead of being refused by UIKit and
-    /// left set with nothing on screen.
+    /// left set with nothing on screen. In Profile's split layout (iPad, the
+    /// Duo held wide) Account is a pane, not a sheet: nothing is closed, and
+    /// the warning still shows over it.
     func testAWarningRaisedOverASheetReplacesIt() {
         launchChangingCertificate(at: "/QuickConnect/Authorize")
         openLink("quickconnect/approve?code=\(UITestFixtureIdentity.quickConnectApprovableCode)")
         let quickConnect = QuickConnectApprovalScreen(app: app)
-        quickConnect.authorizeButton.awaitExistence("Quick Connect's Authorize, in the Account sheet")
+        quickConnect.authorizeButton.awaitExistence("Quick Connect's Authorize, in the Account sheet or pane")
+        let isSheet = !ProfileScreen(app: app).usesSplitLayout
         quickConnect.authorizeButton.tap()
 
         let warning = CertificateWarningScreen(app: app)
         warning.awaitShown()
         warning.previousFingerprint.awaitExistence("the trusted certificate, A")
-        XCTAssertFalse(quickConnect.authorizeButton.exists, "The Account sheet was closed for it")
+        if isSheet {
+            XCTAssertFalse(quickConnect.authorizeButton.exists, "The Account sheet was closed for it")
+        }
 
         warning.notNowButton.tap()
         warning.awaitGone()
-        XCTAssertFalse(quickConnect.authorizeButton.exists, "The sheet doesn't come back")
+        if isSheet {
+            XCTAssertFalse(quickConnect.authorizeButton.exists, "The sheet doesn't come back")
+        }
     }
 
     /// Refused while a title plays: nothing covers the player; the warning
