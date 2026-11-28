@@ -14,18 +14,43 @@ struct CertificateTrustSheet: View {
 
     @Environment(\.onboardingLayout) private var layout
 
+    /// The regular layout's natural heights, measured so the fitted sheet asks
+    /// for exactly its content's height.
+    @State private var contentHeight: CGFloat?
+    @State private var buttonsHeight: CGFloat?
+
     private var description: CertificateDescription { CertificateDescription(details: offer.details) }
+
+    /// What the fitted sheet asks for; the system clamps it to the space it
+    /// has, and the content scrolls under the buttons beyond that.
+    private var idealHeight: CGFloat? {
+        guard let contentHeight, let buttonsHeight else { return nil }
+        return contentHeight + buttonsHeight
+    }
 
     var body: some View {
         Group {
             if layout.isRegular {
-                VStack(alignment: .leading, spacing: 24) {
+                // Fitted, but neither fixed nor unscrollable: on the Duo in
+                // book pose the system gives a sheet one page (459×653pt),
+                // narrower and shorter than this content, which a fixed 540pt
+                // laid out past the sheet's edges, buttons and all, where taps
+                // never reached them.
+                ScrollView {
                     content
-                    buttons
+                        .padding([.horizontal, .top], 28)
+                        .padding(.bottom, 12)
+                        .onGeometryChange(for: CGFloat.self, of: \.size.height) { contentHeight = $0 }
                 }
-                .padding(28)
-                .frame(width: 540)
-                .fixedSize(horizontal: false, vertical: true)
+                .scrollBounceBehavior(.basedOnSize)
+                .safeAreaInset(edge: .bottom) {
+                    buttons
+                        .padding(.horizontal, 28)
+                        .padding(.top, 12)
+                        .padding(.bottom, 28)
+                        .onGeometryChange(for: CGFloat.self, of: \.size.height) { buttonsHeight = $0 }
+                }
+                .frame(idealWidth: 540, maxWidth: 540, idealHeight: idealHeight)
                 .presentationSizing(.fitted)
             } else {
                 ScrollView {
